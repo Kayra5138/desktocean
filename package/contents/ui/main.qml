@@ -23,41 +23,21 @@ WallpaperItem {
         fishCount: root.configuration.FishCount
         showDebug: root.configuration.ShowDebug
         running: !root.userPaused && !root.covered
-        pauseReason: root.userPaused ? "kullanıcı" : (root.covered ? "pencere kaplıyor" : "")
-        pointer: root.cursor
+        pauseReason: root.userPaused ? "by user" : (root.covered ? "window covers screen" : "")
     }
 
-    // Pointer events never reach the wallpaper itself: the folder view sits on top
-    // and consumes them. A passive HoverHandler on the desktop window's root item
-    // still sees the cursor (hover propagates up the ancestor chain) without
-    // stealing clicks from icons or widgets.
-    readonly property var hostWindow: Window.window
-    property var hoverProbe: null
-    readonly property point cursor: hoverProbe && hoverProbe.hovered
-        ? aquarium.mapFromItem(hostWindow.contentItem, hoverProbe.point.position)
-        : Qt.point(-1, -1)
-    // The context menu takes the pointer while open, so remember where it was
-    property point lastCursor: Qt.point(-1, -1)
-    onCursorChanged: if (cursor.x >= 0) lastCursor = cursor
-
-    onHostWindowChanged: attachHoverProbe()
-    Component.onCompleted: attachHoverProbe()
-    Component.onDestruction: if (hoverProbe) hoverProbe.destroy()
-
-    function attachHoverProbe() {
-        if (hoverProbe || !hostWindow || !hostWindow.contentItem)
-            return;
-        hoverProbe = Qt.createQmlObject("import QtQuick; HoverHandler {}", hostWindow.contentItem, "desktoceanHoverProbe");
-    }
+    // Pointer events never reach the wallpaper: the folder view sits on top and
+    // consumes them, and hover does not propagate to the window's root item either.
+    // Cursor position will come from native code (Phase 0b).
 
     contextualActions: [
         PlasmaCore.Action {
-            text: "Yem at"
+            text: "Feed fish"
             icon.name: "food"
-            onTriggered: aquarium.feed(root.lastCursor.x)
+            onTriggered: aquarium.feed()
         },
         PlasmaCore.Action {
-            text: root.userPaused ? "Akvaryumu devam ettir" : "Akvaryumu duraklat"
+            text: root.userPaused ? "Resume aquarium" : "Pause aquarium"
             icon.name: root.userPaused ? "media-playback-start" : "media-playback-pause"
             onTriggered: root.userPaused = !root.userPaused
         }

@@ -6,7 +6,7 @@
                 "Name": "Desktocean"
             }
         ],
-        "Description": "Çizilebilir, hafif, canlı akvaryum duvar kağıdı",
+        "Description": "A lightweight, living aquarium wallpaper you can draw fish for",
         "Icon": "preferences-desktop-wallpaper",
         "Id": "desktocean.aquarium",
         "License": "GPL-3.0-or-later",
@@ -15,8 +15,7 @@
     },
     "Keywords": [
         "aquarium",
-        "fish",
-        "akvaryum"
+        "fish"
     ],
     "X-KDE-ParentApp": "org.kde.plasmashell",
     "X-Plasma-API-Minimum-Version": "6.0"

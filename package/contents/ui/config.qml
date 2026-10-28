@@ -12,27 +12,27 @@ Kirigami.FormLayout {
 
     QQC2.SpinBox {
         id: fps
-        Kirigami.FormData.label: "Kare hızı (FPS):"
+        Kirigami.FormData.label: "Frame rate (FPS):"
         from: 5
         to: 60
     }
 
     QQC2.SpinBox {
         id: fishCount
-        Kirigami.FormData.label: "Balık sayısı:"
+        Kirigami.FormData.label: "Number of fish:"
         from: 1
         to: 40
     }
 
     QQC2.CheckBox {
         id: pauseOnMaximized
-        Kirigami.FormData.label: "Performans:"
-        text: "Ekranı kaplayan pencere varken duraklat"
+        Kirigami.FormData.label: "Performance:"
+        text: "Pause while a maximized or fullscreen window is open"
     }
 
     QQC2.CheckBox {
         id: showDebug
-        Kirigami.FormData.label: "Geliştirici:"
-        text: "Tanılama kutusunu göster"
+        Kirigami.FormData.label: "Developer:"
+        text: "Show diagnostics overlay"
     }
 }

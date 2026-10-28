@@ -12,7 +12,7 @@ decorations and drop them into the tank.
 - Runs as a native Plasma wallpaper plugin, so desktop icons and widgets stay on top and keep working
 - Fish textures bend along the spine in a vertex shader, so a flat drawing swims convincingly
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
-- Right-click the desktop → **Yem at** (feed) / **Akvaryumu duraklat** (pause)
+- Right-click the desktop → **Feed fish** / **Pause aquarium**
 - Stops ticking and redrawing while a maximized or fullscreen window covers the screen
 - Capped frame rate (default 30 FPS); zero redraws while paused
 

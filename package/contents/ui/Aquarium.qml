@@ -276,11 +276,11 @@ Item {
 
         property string snapshot: ""
         function refreshSnapshot() {
-            snapshot = "Desktocean · Faz 0\n"
-                + "FPS: " + debugBox.measuredFps + " (hedef " + aquarium.fps + ")\n"
-                + "Durum: " + (aquarium.running ? "çalışıyor" : "duraklatıldı" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
-                + "Balık: " + aquarium.fishState.length + "  Yem: " + aquarium.foodState.length + "\n"
-                + "İmleç: " + (aquarium.pointerValid ? Math.round(aquarium.pointer.x) + "," + Math.round(aquarium.pointer.y) : "yok");
+            snapshot = "Desktocean · Phase 0\n"
+                + "FPS: " + debugBox.measuredFps + " (target " + aquarium.fps + ")\n"
+                + "State: " + (aquarium.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
+                + "Fish: " + aquarium.fishState.length + "  Food: " + aquarium.foodState.length + "\n"
+                + "Cursor: " + (aquarium.pointerValid ? Math.round(aquarium.pointer.x) + "," + Math.round(aquarium.pointer.y) : "none");
         }
 
         Connections {
