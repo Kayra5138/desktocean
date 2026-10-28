@@ -21,6 +21,7 @@ WallpaperItem {
         anchors.fill: parent
         fps: root.configuration.Fps
         showDebug: root.configuration.ShowDebug
+        followTimeOfDay: root.configuration.FollowTimeOfDay
         running: !root.userPaused && !root.covered
         pauseReason: root.userPaused ? "by user" : (root.covered ? "window covers screen" : "")
     }

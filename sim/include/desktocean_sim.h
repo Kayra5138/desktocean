@@ -19,7 +19,17 @@ typedef struct DcFish {
     float tilt;        // degrees
     float depth;       // 0 front .. 1 back
     uint32_t sprite;   // from DcFishSpec
+    float hunger;      // 0 full .. 1 starving
 } DcFish;
+
+// Affinity between two fish (ids from DcFishSpec), -1..1
+typedef struct DcRelation {
+    uint64_t a, b;
+    float affinity;
+} DcRelation;
+
+#define DC_FRIEND 0.5f    // affinity above this: friends
+#define DC_RIVAL (-0.4f)  // affinity below this: rivals
 
 typedef struct DcFishSpec {
     uint64_t id;       // stable per fish; kept fish keep position and personality
@@ -45,6 +55,9 @@ void dc_sim_set_population(DcSim *sim, const DcFishSpec *specs, uint32_t count, 
 void dc_sim_feed(DcSim *sim, float x);                       // x < 0: random spot
 void dc_sim_clear_food(DcSim *sim);
 bool dc_sim_lure_active(DcSim *sim);                         // curious fish following the cursor
+void dc_sim_set_daylight(DcSim *sim, float daylight);        // 0 night .. 1 day
+uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
+void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);
 void dc_sim_step(DcSim *sim, float dt, float pointer_x, float pointer_y); // < 0: no pointer
 
 uint32_t dc_sim_fish(DcSim *sim, DcFish *out, uint32_t cap); // returns total count

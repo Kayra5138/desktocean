@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 
+use crate::relations::{FRIEND, RIVAL, Relations};
 use crate::rng::Rng;
 
 /// Fraction of the height where the sand starts.
@@ -25,6 +26,22 @@ const BACKUP_SPEED: f32 = 0.3;
 const SCHOOL_RADIUS: f32 = 320.0;
 /// Downward pull on a newly added fish dropping in through the surface, px/s².
 const ENTRY_GRAVITY: f32 = 260.0;
+/// Hunger gained per second (full to starving in about half an hour), scaled by appetite.
+const HUNGER_RATE: f32 = 1.0 / 1800.0;
+/// Hunger one pellet takes away.
+const PELLET_NOURISHMENT: f32 = 0.12;
+/// Below this a fish is full and ignores food.
+const FULL: f32 = 0.15;
+/// Fish closer than this count as spending time together.
+const NEAR: f32 = 260.0;
+/// Affinity gained per second together, at full sociability on both sides.
+const BONDING_RATE: f32 = 0.004;
+/// Affinity lost when one fish snatches a pellet the other was going for.
+const SNATCH_PENALTY: f32 = 0.08;
+/// How long a rival chase lasts.
+const CHASE_SECS: f32 = 2.5;
+/// How long the others stay curious about a fish that just arrived.
+const NEWCOMER_SECS: f32 = 8.0;
 
 /// One fish the host wants in the tank. The host owns the ids; a fish keeps
 /// its position and personality across updates as long as its id stays.
@@ -76,6 +93,8 @@ enum Mode {
     Wander,
     /// Drifting in place for a while
     Idle { left: f32 },
+    /// Chasing a rival away
+    Chase { target: u64, left: f32 },
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +130,10 @@ pub struct Fish {
     pub phase: f32,
     pub speed: f32,
     pub personality: Personality,
+    /// 0 = full, 1 = starving
+    pub hunger: f32,
+    /// Seconds until this fish may start another rival chase
+    chase_cooldown: f32,
 }
 
 impl Fish {
@@ -153,6 +176,9 @@ impl Food {
 /// Per-step copy of what neighbours need to know about each other.
 #[derive(Clone, Copy)]
 struct Neighbour {
+    id: u64,
+    /// Rival this fish is chasing right now, if any
+    chasing: Option<u64>,
     x: f32,
     y: f32,
     vx: f32,
@@ -172,6 +198,15 @@ pub struct Sim {
     rng: Rng,
     pointer_anchor: Option<(f32, f32)>,
     pointer_still_for: f32,
+    /// 0 = night, 1 = day
+    daylight: f32,
+    relations: Relations,
+    /// Recently added fish and how much longer the others care
+    newcomers: Vec<(u64, f32)>,
+    /// (eater id, pellet index) this step, to spot food snatching
+    eaten_this_step: Vec<(u64, usize)>,
+    /// Pellet each fish went for this step
+    food_targets: Vec<Option<usize>>,
 }
 
 impl Sim {
@@ -186,7 +221,38 @@ impl Sim {
             rng: Rng::new(seed),
             pointer_anchor: None,
             pointer_still_for: f32::INFINITY,
+            daylight: 1.0,
+            relations: Relations::default(),
+            newcomers: Vec::new(),
+            eaten_this_step: Vec::new(),
+            food_targets: Vec::new(),
         }
+    }
+
+    /// 0 = night (fish rest near the bottom), 1 = day.
+    pub fn set_daylight(&mut self, daylight: f32) {
+        self.daylight = if daylight.is_finite() {
+            daylight.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+    }
+
+    pub fn relations(&self) -> Vec<(u64, u64, f32)> {
+        self.relations.export()
+    }
+
+    pub fn set_relations(&mut self, list: &[(u64, u64, f32)]) {
+        self.relations.import(list);
+        let ids: HashSet<u64> = self.population.iter().map(|s| s.id).collect();
+        if !ids.is_empty() {
+            self.relations.retain_ids(&ids);
+        }
+    }
+
+    /// How active fish are: slower and lazier at night.
+    fn activity(&self) -> f32 {
+        0.4 + 0.6 * self.daylight
     }
 
     pub fn fish(&self) -> &[Fish] {
@@ -265,10 +331,18 @@ impl Sim {
                     self.clamp_to_water(&mut f);
                     f
                 }
-                None => self.spawn(spec, animate_new),
+                None => {
+                    if animate_new {
+                        self.newcomers.push((spec.id, NEWCOMER_SECS));
+                    }
+                    self.spawn(spec, animate_new)
+                }
             };
             list.push(fish);
         }
+        let ids: HashSet<u64> = specs.iter().map(|s| s.id).collect();
+        self.relations.retain_ids(&ids);
+        self.newcomers.retain(|(id, _)| ids.contains(id));
         // Someone should always be curious about the cursor.
         if !list_has_follower(&list)
             && let Some(first) = list.first_mut()
@@ -297,7 +371,16 @@ impl Sim {
         f.tx = tx.clamp(lo, hi);
 
         let (top, bottom) = (wt + f.h, (st - f.h * 0.7).max(wt + f.h + 1.0));
-        f.ty = (f.y + self.rng.range(-0.25, 0.25) * self.height).clamp(top, bottom);
+        let mut ty = f.y + self.rng.range(-0.25, 0.25) * self.height;
+        let night = 1.0 - self.daylight;
+        if night > 0.5 {
+            // Rest in the lower part of the tank
+            ty = bottom - self.rng.range(0.0, 0.3) * (bottom - top);
+        } else if f.hunger > 0.7 {
+            // Hungry fish look for food near the surface
+            ty = top + self.rng.range(0.0, 0.35) * (bottom - top);
+        }
+        f.ty = ty.clamp(top, bottom);
         f.cruise = self.rng.range(0.45, 1.0) * f.max_speed;
         f.mode = Mode::Wander;
     }
@@ -344,6 +427,8 @@ impl Sim {
             phase: self.rng.range(0.0, TAU),
             speed: 0.0,
             personality,
+            hunger: self.rng.range(0.3, 0.6),
+            chase_cooldown: self.rng.range(20.0, 60.0),
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -426,12 +511,27 @@ impl Sim {
         self.update_food(dt);
 
         let (wt, st) = (self.water_top(), self.sand_top());
-        let lure = pointer.filter(|&(_, y)| self.lure_active() && y > wt && y < st);
+        // Nobody plays with the cursor at night
+        let lure =
+            pointer.filter(|&(_, y)| self.lure_active() && self.daylight > 0.3 && y > wt && y < st);
+
+        for (_, left) in &mut self.newcomers {
+            *left -= dt;
+        }
+        self.newcomers.retain(|(_, left)| *left > 0.0);
+        self.eaten_this_step.clear();
+        self.food_targets.clear();
+        self.food_targets.resize(self.fish.len(), None);
 
         let others: Vec<Neighbour> = self
             .fish
             .iter()
             .map(|g| Neighbour {
+                id: g.id,
+                chasing: match g.mode {
+                    Mode::Chase { target, .. } => Some(target),
+                    _ => None,
+                },
                 x: g.x,
                 y: g.y,
                 vx: g.vx,
@@ -447,7 +547,41 @@ impl Sim {
             self.fish[i] = f;
         }
 
+        self.update_relations(&others, dt);
         self.food.retain(|p| !p.eaten && p.age < FOOD_LIFETIME);
+    }
+
+    fn update_relations(&mut self, others: &[Neighbour], dt: f32) {
+        // Time together builds friendship, more so between sociable fish
+        for i in 0..self.fish.len() {
+            for j in i + 1..self.fish.len() {
+                let (a, b) = (&self.fish[i], &self.fish[j]);
+                if a.entering || b.entering || (a.depth - b.depth).abs() > 0.35 {
+                    continue;
+                }
+                if (a.x - b.x).hypot(a.y - b.y) < NEAR {
+                    let social = (a.personality.sociability + b.personality.sociability) * 0.5;
+                    self.relations
+                        .adjust(a.id, b.id, dt * BONDING_RATE * social);
+                }
+            }
+        }
+        // Snatching a pellet someone nearby was going for sours things
+        for &(eater, pellet) in &self.eaten_this_step {
+            let Some(e) = others.iter().find(|n| n.id == eater) else {
+                continue;
+            };
+            for (k, target) in self.food_targets.iter().enumerate() {
+                let other = &others[k];
+                if *target == Some(pellet)
+                    && other.id != eater
+                    && (other.x - e.x).hypot(other.y - e.y) < NEAR
+                {
+                    self.relations.adjust(eater, other.id, -SNATCH_PENALTY);
+                }
+            }
+        }
+        self.relations.fade(dt);
     }
 
     fn step_fish(
@@ -464,11 +598,18 @@ impl Sim {
         }
         let p = f.personality;
         let (mx, my) = f.mouth();
+        let activity = self.activity();
+        f.hunger = (f.hunger + dt * HUNGER_RATE * (0.6 + 0.8 * p.appetite)).min(1.0);
+        f.chase_cooldown = (f.chase_cooldown - dt).max(0.0);
 
-        // Hungry fish notice food from across the tank, picky ones only nearby.
-        // Pellets behind the fish count as farther away, so it prefers to keep
-        // going rather than turn around for every crumb.
-        let notice = 300.0 + p.appetite * 1.5 * self.width;
+        // Full fish ignore food. Hungry fish notice it from across the tank,
+        // picky ones only nearby. Pellets behind the fish count as farther
+        // away, so it prefers to keep going rather than turn for every crumb.
+        let notice = if f.hunger > FULL {
+            250.0 + (0.5 * p.appetite + f.hunger) * self.width
+        } else {
+            0.0
+        };
         let nearest_food = self
             .food
             .iter()
@@ -483,14 +624,55 @@ impl Sim {
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(j, _)| j);
 
+        self.food_targets[index] = nearest_food;
+
+        // A rival close by may get chased off now and then
+        if matches!(f.mode, Mode::Wander)
+            && nearest_food.is_none()
+            && f.chase_cooldown == 0.0
+            && self.daylight > 0.4
+            && let Some(rival) = others.iter().find(|g| {
+                g.id != f.id
+                    && (g.x - f.x).hypot(g.y - f.y) < 450.0
+                    && self.relations.get(f.id, g.id) < RIVAL
+            })
+        {
+            f.mode = Mode::Chase {
+                target: rival.id,
+                left: CHASE_SECS,
+            };
+            f.chase_cooldown = self.rng.range(25.0, 70.0);
+        }
+        let rival = match f.mode {
+            Mode::Chase { target, .. } => others.iter().find(|g| g.id == target),
+            _ => None,
+        };
+        // Curious fish go and have a look at whoever just arrived
+        let newcomer = (p.curiosity > 0.35 && self.daylight > 0.3)
+            .then(|| self.newcomers.iter().find(|(id, _)| *id != f.id))
+            .flatten()
+            .and_then(|(id, _)| others.iter().find(|g| g.id == *id));
+
         let chase = if let Some(j) = nearest_food {
+            let eager = 1.0 + 0.5 * p.appetite + 0.4 * f.hunger;
             Some((
                 self.food[j].x,
                 self.food[j].y,
-                f.max_speed * (1.2 + 0.6 * p.appetite),
+                f.max_speed * eager * (0.6 + 0.4 * self.daylight),
             ))
+        } else if let Some(r) = rival {
+            Some((r.x, r.y, f.max_speed * 1.3))
         } else if let (true, Some((px, py))) = (p.follows_cursor(), lure) {
             Some((px - f.dir * 40.0, py, f.max_speed * 1.1))
+        } else if let Some(n) = newcomer {
+            // Gather in a loose ring around the newcomer
+            let angle = index as f32 * 2.4;
+            let r = 120.0 + f.w * 0.5;
+            Some((
+                n.x + angle.cos() * r,
+                n.y + angle.sin() * r * 0.5,
+                f.cruise * 1.3,
+            ))
         } else {
             None
         };
@@ -507,6 +689,16 @@ impl Sim {
                 && dist < (f.w * 0.18).max(16.0)
             {
                 self.food[j].eaten = true;
+                f.hunger = (f.hunger - PELLET_NOURISHMENT).max(0.0);
+                self.eaten_this_step.push((f.id, j));
+            }
+            if let Mode::Chase { target, left } = f.mode {
+                let left = left - dt;
+                f.mode = if left > 0.0 {
+                    Mode::Chase { target, left }
+                } else {
+                    Mode::Wander
+                };
             }
             let arrive = (dist / 120.0).min(1.0);
             des_x = dx / dist * speed * arrive;
@@ -529,21 +721,56 @@ impl Sim {
                         f.mode = Mode::Idle { left };
                     }
                 }
-                Mode::Wander => {
+                Mode::Wander | Mode::Chase { .. } => {
+                    // (a chase whose rival vanished just falls back to wandering)
+                    f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
                     let dist = dx.hypot(dy).max(0.001);
                     if dist < 30.0 {
-                        if self.rng.chance(0.6 * (1.0 - p.restlessness)) {
+                        // Full fish and fish at night take more breaks, and longer ones
+                        let night = 1.0 - self.daylight;
+                        let rest = 0.6 * (1.0 - p.restlessness)
+                            + 0.35 * night
+                            + if f.hunger < FULL { 0.15 } else { 0.0 };
+                        if self.rng.chance(rest.min(0.95)) {
                             f.mode = Mode::Idle {
-                                left: self.rng.range(1.5, 5.0),
+                                left: self.rng.range(1.5, 5.0) * (1.0 + 2.0 * night),
                             };
                         } else {
                             self.pick_target(f);
                         }
                     }
                     let arrive = (dist / 90.0).min(1.0);
-                    des_x = dx / dist * f.cruise * arrive;
-                    des_y = dy / dist * f.cruise * arrive;
+                    des_x = dx / dist * f.cruise * activity * arrive;
+                    des_y = dy / dist * f.cruise * activity * arrive;
+                }
+            }
+
+            // Friends swim side by side
+            if matches!(f.mode, Mode::Wander)
+                && let Some((friend, affinity)) = others
+                    .iter()
+                    .filter(|g| g.id != f.id && (g.x - f.x).hypot(g.y - f.y) < 700.0)
+                    .map(|g| (g, self.relations.get(f.id, g.id)))
+                    .filter(|&(_, a)| a > FRIEND)
+                    .max_by(|a, b| a.1.total_cmp(&b.1))
+            {
+                let side = if f.id < friend.id { -1.0 } else { 1.0 };
+                let (gx, gy) = (
+                    friend.x - friend.vx.signum() * f.w * 0.3,
+                    friend.y + side * f.h * 0.9,
+                );
+                des_x += (gx - f.x) * 0.25 * affinity + (friend.vx - f.vx) * 0.6 * affinity;
+                des_y += (gy - f.y) * 0.25 * affinity + (friend.vy - f.vy) * 0.6 * affinity;
+            }
+
+            // Get away from anyone chasing us
+            for g in others.iter().filter(|g| g.chasing == Some(f.id)) {
+                let (sx, sy) = (f.x - g.x, f.y - g.y);
+                let d = sx.hypot(sy).max(1.0);
+                if d < 300.0 {
+                    des_x += sx / d * f.max_speed * 1.2;
+                    des_y += sy / d * f.max_speed * 0.6;
                 }
             }
 
@@ -847,6 +1074,7 @@ mod tests {
     fn feeding_is_efficient_without_a_turning_frenzy() {
         // Regression guard: fish used to circle pellets they could not quite
         // reach, turning ~9 times a minute and still missing a third of the food.
+        // Fish are kept starving so this measures reaching food, not appetite.
         let (mut dropped, mut dissolved, mut flips, mut fish_minutes) = (0, 0, 0, 0.0);
         for seed in 1..6 {
             let mut s = sim_with(seed, 7, 2560.0, 1440.0);
@@ -861,6 +1089,7 @@ mod tests {
                     .iter()
                     .filter(|p| !p.eaten && p.landed && p.age + DT >= FOOD_LIFETIME)
                     .count();
+                s.fish.iter_mut().for_each(|f| f.hunger = 1.0);
                 s.step(DT, None);
                 for (d, f) in dirs.iter_mut().zip(s.fish()) {
                     if *d != f.dir {
@@ -882,6 +1111,203 @@ mod tests {
             turns < 5.0,
             "{turns:.1} turns per fish per minute while feeding"
         );
+    }
+
+    #[test]
+    fn hunger_grows_and_eating_satisfies() {
+        let mut s = sim();
+        let before: Vec<f32> = s.fish().iter().map(|f| f.hunger).collect();
+        for _ in 0..30 * 60 {
+            s.step(DT, None);
+        }
+        for (b, f) in before.iter().zip(s.fish()) {
+            assert!(f.hunger > *b, "hunger should grow over time");
+        }
+        s.fish.iter_mut().for_each(|f| f.hunger = 1.0);
+        let start: f32 = s.fish().iter().map(|f| f.hunger).sum();
+        for _ in 0..4 {
+            s.feed(None);
+        }
+        for _ in 0..30 * 40 {
+            s.step(DT, None);
+        }
+        let end: f32 = s.fish().iter().map(|f| f.hunger).sum();
+        assert!(
+            end < start - 1.0,
+            "eating should satisfy: {start:.2} -> {end:.2}"
+        );
+    }
+
+    #[test]
+    fn full_fish_ignore_food() {
+        let mut s = sim();
+        s.fish.iter_mut().for_each(|f| f.hunger = 0.0);
+        s.feed(Some(960.0));
+        for _ in 0..30 * 30 {
+            s.step(DT, None);
+            s.fish.iter_mut().for_each(|f| f.hunger = 0.0);
+        }
+        // Nothing eaten: every pellet is still there (or has dissolved untouched)
+        assert!(s.food().iter().all(|p| !p.eaten));
+    }
+
+    #[test]
+    fn friends_swim_closer_than_strangers() {
+        let mean_distance = |affinity: f32| {
+            let mut total = 0.0;
+            for seed in 1..6 {
+                let mut s = sim_with(seed, 2, 2560.0, 1440.0);
+                // Same depth so they interact; strangers wander independently
+                s.fish.iter_mut().for_each(|f| {
+                    f.depth = 0.2;
+                    f.personality.sociability = 0.0;
+                });
+                s.relations.adjust(1, 2, affinity);
+                let mut sum = 0.0;
+                for n in 0..30 * 120 {
+                    s.step(DT, None);
+                    // Keep the bond from drifting during the measurement
+                    s.relations.import(&[(1, 2, affinity)]);
+                    if n > 30 * 20 {
+                        let (a, b) = (&s.fish()[0], &s.fish()[1]);
+                        sum += (a.x - b.x).hypot(a.y - b.y);
+                    }
+                }
+                total += sum / (30.0 * 100.0);
+            }
+            total / 5.0
+        };
+        let (friends, strangers) = (mean_distance(0.9), mean_distance(0.0));
+        assert!(
+            friends < strangers * 0.6,
+            "friends {friends:.0}px apart vs strangers {strangers:.0}px"
+        );
+    }
+
+    #[test]
+    fn time_together_makes_friends() {
+        let mut s = sim_with(3, 2, 1920.0, 1080.0);
+        s.fish.iter_mut().for_each(|f| {
+            f.depth = 0.2;
+            f.personality.sociability = 1.0;
+        });
+        for _ in 0..30 * 400 {
+            // Keep them together
+            let (x, y) = (s.fish[0].x, s.fish[0].y);
+            s.fish[1].x = x + 120.0;
+            s.fish[1].y = y;
+            s.step(DT, None);
+        }
+        assert!(
+            s.relations.get(1, 2) > FRIEND,
+            "affinity {}",
+            s.relations.get(1, 2)
+        );
+    }
+
+    #[test]
+    fn rivals_chase_each_other() {
+        let mut s = sim_with(5, 2, 1920.0, 1080.0);
+        s.relations.adjust(1, 2, -0.9);
+        let mut chases = 0;
+        let mut was_chasing = false;
+        for _ in 0..30 * 240 {
+            // Keep them within sight of each other
+            let (x, y) = (s.fish[0].x, s.fish[0].y);
+            if (s.fish[1].x - x).hypot(s.fish[1].y - y) > 400.0 {
+                s.fish[1].x = x + 300.0 * s.fish[1].dir.signum();
+                s.fish[1].y = y;
+            }
+            s.step(DT, None);
+            let chasing = s
+                .fish()
+                .iter()
+                .any(|f| matches!(f.mode, Mode::Chase { .. }));
+            if chasing && !was_chasing {
+                chases += 1;
+            }
+            was_chasing = chasing;
+        }
+        assert!(chases >= 2, "only {chases} chases in four minutes");
+    }
+
+    #[test]
+    fn fish_rest_low_and_slow_at_night() {
+        let stats = |daylight: f32| {
+            let mut s = sim_with(9, 12, 1920.0, 1080.0);
+            s.set_daylight(daylight);
+            s.fish.iter_mut().for_each(|f| f.hunger = 0.0);
+            let (mut y, mut speed, mut n) = (0.0, 0.0, 0.0);
+            for k in 0..30 * 180 {
+                s.step(DT, None);
+                if k > 30 * 60 {
+                    for f in s.fish() {
+                        y += f.y;
+                        speed += f.speed;
+                        n += 1.0;
+                    }
+                }
+            }
+            (y / n, speed / n)
+        };
+        let ((day_y, day_speed), (night_y, night_speed)) = (stats(1.0), stats(0.0));
+        assert!(
+            night_y > day_y + 80.0,
+            "night fish should stay lower: {day_y:.0} vs {night_y:.0}"
+        );
+        assert!(
+            night_speed < day_speed * 0.7,
+            "night fish should be slower: {day_speed:.1} vs {night_speed:.1}"
+        );
+    }
+
+    #[test]
+    fn curious_fish_greet_newcomers() {
+        let mut s = sim_with(11, 8, 2560.0, 1440.0);
+        s.fish.iter_mut().for_each(|f| {
+            f.personality.curiosity = 0.9;
+            f.hunger = 0.0;
+        });
+        let mut next = specs(8);
+        next.push(FishSpec {
+            id: 99,
+            sprite: 0,
+            aspect: 0.6,
+            scale: 1.0,
+        });
+        s.set_population(&next, true);
+        let mean_distance = |s: &Sim| {
+            let n = s.fish().iter().find(|f| f.id == 99).unwrap();
+            let d: f32 = s
+                .fish()
+                .iter()
+                .filter(|f| f.id != 99)
+                .map(|f| (f.x - n.x).hypot(f.y - n.y))
+                .sum();
+            d / 8.0
+        };
+        let before = mean_distance(&s);
+        for _ in 0..30 * 6 {
+            s.step(DT, None);
+        }
+        let after = mean_distance(&s);
+        assert!(
+            after < before * 0.7,
+            "the others did not come closer: {before:.0} -> {after:.0}"
+        );
+    }
+
+    #[test]
+    fn relations_survive_export_and_forget_removed_fish() {
+        let mut s = sim();
+        s.relations.adjust(1, 2, 0.7);
+        s.relations.adjust(3, 4, -0.6);
+        let saved = s.relations();
+        let mut t = sim();
+        t.set_relations(&saved);
+        assert_eq!(t.relations.get(2, 1), 0.7);
+        t.set_population(&specs(3), false);
+        assert_eq!(t.relations.get(3, 4), 0.0, "fish 4 left the tank");
     }
 
     #[test]

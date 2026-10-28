@@ -14,6 +14,7 @@ layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
     vec4 fogColor;
+    float light;       // 1 by day, darker at night
 };
 
 out gl_PerVertex { vec4 gl_Position; };

@@ -4,9 +4,9 @@ A lightweight, living aquarium wallpaper for KDE Plasma 6. Fish swim behind your
 desktop icons and widgets; later you'll be able to draw your own fish and
 decorations and drop them into the tank.
 
-> Status: **Phase 2.** Draw your own fish (or import a picture) and watch it drop
-> into the tank. Fish have personalities, school, chase food and the cursor.
-> Decorations are next on the roadmap below.
+> Status: **Phase 3.** Draw your own fish (or import a picture) and watch it drop
+> into the tank. Fish get hungry, make friends and rivals, greet newcomers and
+> rest at night. Decorations are next on the roadmap below.
 
 ## Features (so far)
 
@@ -22,6 +22,11 @@ decorations and drop them into the tank.
 - Runs as a native Plasma wallpaper plugin, so desktop icons and widgets stay on top and keep working
 - Fish sprites bend along the spine, so a flat drawing swims convincingly; all fish and food are drawn in a single draw call
 - Every fish has its own personality: speed, sociability (schooling), curiosity, appetite, restlessness
+- **Hunger**: fish get hungry over time and look for food near the surface; full fish ignore food and rest more
+- **Friends and rivals**: fish that spend time together become friends and swim side by side; snatching
+  each other's food makes rivals, who chase each other now and then. Shown on the editor's fish cards
+- **Day and night** follow the clock: at night the water darkens, plankton glows and fish rest near the bottom
+- **Newcomers**: curious fish come over to look at a fish that just arrived
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
 - Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
 - Curious fish follow the cursor while it moves, and lose interest when it stops
@@ -59,8 +64,9 @@ reloads the QML (desktop and panels blink for a second):
 
 ## Your fish
 
-Fish live in `~/.local/share/desktocean/fish/`: one PNG per fish (head facing right)
-and a `fish.json` manifest. On first run the tank is seeded with four starter fish;
+Fish live in `~/.local/share/desktocean/fish/`: one PNG per fish (head facing right),
+an optional `.wiggle.png` motion mask, and a `fish.json` manifest. Friendships are kept
+in `~/.local/share/desktocean/state.json`. On first run the tank is seeded with four starter fish;
 remove or keep them from the editor's **My aquarium** page.
 
 ## Development
@@ -99,7 +105,7 @@ with the aquarium paused against one with it running.
 1. ~~**Phase 0b** — load a Rust module from inside plasmashell~~
 2. ~~**Phase 1** — Rust simulation (boids, personalities), batched fish rendering~~
 3. ~~**Phase 2** — drawing editor and PNG import~~
-4. **Phase 3** — behaviour: feeding, cursor curiosity, friendships
+4. ~~**Phase 3** — behaviour: hunger, friendships and rivalries, day/night, newcomers~~
 5. **Phase 4** — swaying plants, rocks, coral, themes
 6. **Phase 5** — settings, day/night cycle, system integrations, companion widget
 

@@ -25,6 +25,8 @@ public:
     void setAtlas(QQuickWindow *window, const QImage &atlas);
     bool hasAtlas() const;
     void setFogColor(const QColor &color);
+    // Brightness multiplier, 1 = unchanged
+    void setLight(float light);
 
     // Resizes the geometry if needed and returns its buffers to fill
     FishMesh::Vertex *reserve(int vertexCount, int indexCount, quint32 **indices);

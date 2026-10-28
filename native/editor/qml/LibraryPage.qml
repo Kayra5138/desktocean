@@ -44,7 +44,7 @@ Kirigami.ScrollablePage {
 
         readonly property int columns: Math.max(1, Math.floor(width / (Kirigami.Units.gridUnit * 14)))
         cellWidth: Math.floor(width / columns)
-        cellHeight: Kirigami.Units.gridUnit * 13
+        cellHeight: Kirigami.Units.gridUnit * 15
 
         delegate: Item {
             id: cell
@@ -55,6 +55,8 @@ Kirigami.ScrollablePage {
             required property int copies
             required property real scale
             required property int index
+            required property string friends
+            required property string rivals
 
             width: grid.cellWidth
             height: grid.cellHeight
@@ -109,6 +111,22 @@ Kirigami.ScrollablePage {
                     level: 4
                     text: card.name
                     elide: Text.ElideRight
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: cell.friends !== ""
+                    text: "♥ Friends with " + cell.friends
+                    elide: Text.ElideRight
+                    color: Kirigami.Theme.positiveTextColor
+                    font: Kirigami.Theme.smallFont
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: cell.rivals !== ""
+                    text: "⚔ Rivals with " + cell.rivals
+                    elide: Text.ElideRight
+                    color: Kirigami.Theme.negativeTextColor
+                    font: Kirigami.Theme.smallFont
                 }
                 RowLayout {
                     QQC2.Label { text: card.copies > 0 ? "Swimming:" : "Resting (not in the tank)" }

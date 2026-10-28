@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QImage>
 #include <QList>
 #include <QPointF>
@@ -34,6 +35,12 @@ class FishTank : public QQuickItem
     // Sprites (head facing right) copied into an empty library on first run
     Q_PROPERTY(QList<QUrl> starterFish READ starterFish WRITE setStarterFish NOTIFY starterFishChanged)
     Q_PROPERTY(QColor fogColor READ fogColor WRITE setFogColor NOTIFY fogColorChanged)
+    // Day and night follow the local clock; when off it is always day
+    Q_PROPERTY(bool followTimeOfDay READ followTimeOfDay WRITE setFollowTimeOfDay NOTIFY followTimeOfDayChanged)
+    // Pretend it is this hour (0..24) instead of the clock; -1 = use the clock
+    Q_PROPERTY(qreal hourOverride READ hourOverride WRITE setHourOverride NOTIFY hourOverrideChanged)
+    // 0 = night, 1 = day; drives the water shader and dims the fish
+    Q_PROPERTY(qreal daylight READ daylight NOTIFY daylightChanged)
 
     Q_PROPERTY(int fishCount READ fishCount NOTIFY fishCountChanged)
     // Seconds of simulated time; drives the water shader
@@ -59,6 +66,11 @@ public:
     void setStarterFish(const QList<QUrl> &urls);
     QColor fogColor() const { return m_fogColor; }
     void setFogColor(const QColor &color);
+    bool followTimeOfDay() const { return m_followTimeOfDay; }
+    void setFollowTimeOfDay(bool follow);
+    qreal hourOverride() const { return m_hourOverride; }
+    void setHourOverride(qreal hour);
+    qreal daylight() const { return m_daylight; }
 
     int fishCount() const { return int(m_fish.size()); }
     qreal time() const { return m_time; }
@@ -76,12 +88,17 @@ public:
     Q_INVOKABLE void clearFood();
     // Starts the drawing editor; false if it is not installed
     Q_INVOKABLE bool openEditor();
+    // One line for the diagnostics overlay: hunger, friends, rivals
+    Q_INVOKABLE QString stats() const;
 
 Q_SIGNALS:
     void runningChanged();
     void fpsChanged();
     void starterFishChanged();
     void fogColorChanged();
+    void followTimeOfDayChanged();
+    void hourOverrideChanged();
+    void daylightChanged();
     void fishCountChanged();
     void timeChanged();
     void foodCountChanged();
@@ -101,6 +118,9 @@ private:
     void seedLibrary();
     void watchLibrary();
     void rebuildAtlas(const QList<QImage> &images);
+    void updateDaylight();
+    void loadState();
+    void saveState() const;
     QPointF cursorInItem() const;
     void checkHealth();
 
@@ -109,12 +129,19 @@ private:
     QElapsedTimer m_clock;
     QFileSystemWatcher m_watcher;
     QTimer m_reloadDebounce;
+    QTimer m_saveTimer;
     bool m_libraryLoaded = false;
+    bool m_stateLoaded = false;
+    // Which library fish each simulated fish is a copy of (spec id -> entry id)
+    QHash<quint64, QString> m_specOwner;
 
     bool m_running = true;
     int m_fps = 30;
     QList<QUrl> m_starterFish;
     QColor m_fogColor = QColor(0x0b, 0x30, 0x48);
+    bool m_followTimeOfDay = true;
+    qreal m_hourOverride = -1;
+    qreal m_daylight = 1;
 
     qreal m_time = 0;
     bool m_lureActive = false;

@@ -11,6 +11,9 @@
     <entry name="PauseOnMaximized" type="Bool">
       <default>true</default>
     </entry>
+    <entry name="FollowTimeOfDay" type="Bool">
+      <default>true</default>
+    </entry>
     <entry name="ShowDebug" type="Bool">
       <default>true</default>
     </entry>

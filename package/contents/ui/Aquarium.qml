@@ -12,6 +12,8 @@ Item {
     property alias fps: tank.fps
     readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
+    property alias followTimeOfDay: tank.followTimeOfDay
+    property alias hourOverride: tank.hourOverride
     property string pauseReason: ""
     readonly property alias foodCount: tank.foodCount
 
@@ -42,13 +44,15 @@ Item {
         property real time: tank.time
         property real sandTop: aquarium.sandTopRatio
         property size resolution: Qt.size(width, height)
+        property real daylight: tank.daylight
         fragmentShader: Qt.resolvedUrl("../shaders/water.frag.qsb")
     }
 
     FishTank {
         id: tank
         anchors.fill: parent
-        fogColor: "#0b3048"
+        // Distant fish fade into the water colour, which darkens at night
+        fogColor: Qt.rgba(0.043 * (0.2 + 0.8 * daylight), 0.188 * (0.2 + 0.8 * daylight), 0.282 * (0.3 + 0.7 * daylight), 1)
         // Seeds an empty fish library on first run; after that the library is the source of truth
         starterFish: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
@@ -72,12 +76,13 @@ Item {
 
         function refreshSnapshot() {
             const p = tank.pointer;
-            snapshot = "Desktocean · Phase 2\n"
+            snapshot = "Desktocean · Phase 3\n"
                 + "Core: rust " + tank.coreVersion + (tank.healthy ? " (ok)" : " (STOPPED)") + "\n"
                 + "FPS: " + measuredFps + " (target " + tank.fps + ")\n"
                 + "State: " + (tank.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
                 + "Fish: " + tank.fishCount + "  Food: " + tank.foodCount + "\n"
                 + "Following cursor: " + (tank.lureActive ? "yes" : "no") + "\n"
+                + tank.stats() + "\n"
                 + "Cursor: " + (p.x >= 0 ? Math.round(p.x) + "," + Math.round(p.y) : "none");
         }
 

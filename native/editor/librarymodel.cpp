@@ -1,7 +1,11 @@
 #include "librarymodel.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QUrl>
 
 LibraryModel::LibraryModel(QObject *parent)
@@ -13,6 +17,10 @@ LibraryModel::LibraryModel(QObject *parent)
     m_debounce.setInterval(200);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_debounce, qOverload<>(&QTimer::start));
     connect(&m_debounce, &QTimer::timeout, this, &LibraryModel::reload);
+    // The wallpaper saves friendships about once a minute
+    m_relationsRefresh.setInterval(30 * 1000);
+    connect(&m_relationsRefresh, &QTimer::timeout, this, &LibraryModel::reload);
+    m_relationsRefresh.start();
     reload();
 }
 
@@ -41,6 +49,10 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return e.style;
     case WiggleRole:
         return e.wiggle.isEmpty() ? QUrl() : QUrl::fromLocalFile(e.wigglePath());
+    case FriendsRole:
+        return m_friends.value(e.id).join(QStringLiteral(", "));
+    case RivalsRole:
+        return m_rivals.value(e.id).join(QStringLiteral(", "));
     }
     return {};
 }
@@ -48,7 +60,8 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> LibraryModel::roleNames() const
 {
     return {{IdRole, "fishId"},   {NameRole, "name"},       {ImageRole, "image"},  {CopiesRole, "copies"},
-            {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"}};
+            {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"},
+            {FriendsRole, "friends"}, {RivalsRole, "rivals"}};
 }
 
 QVariantMap LibraryModel::get(int row) const
@@ -81,6 +94,7 @@ void LibraryModel::reload()
     }
     beginResetModel();
     m_entries = entries;
+    loadRelations();
     endResetModel();
     Q_EMIT countChanged();
 }
@@ -137,6 +151,33 @@ bool LibraryModel::flip(const QString &id)
     }
     reload();
     return true;
+}
+
+void LibraryModel::loadRelations()
+{
+    m_friends.clear();
+    m_rivals.clear();
+    QFile file(QFileInfo(FishLibrary::directory()).dir().filePath(QStringLiteral("state.json")));
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+
+    QHash<QString, QString> names;
+    for (const FishEntry &e : std::as_const(m_entries))
+        names.insert(e.id, e.name);
+    auto collect = [&](const QString &key, QHash<QString, QStringList> &out) {
+        for (const QJsonValue &pair : root.value(key).toArray()) {
+            const QString a = pair.toArray().at(0).toString(), b = pair.toArray().at(1).toString();
+            if (!names.contains(a) || !names.contains(b))
+                continue;
+            if (!out[a].contains(names[b]))
+                out[a] << names[b];
+            if (!out[b].contains(names[a]))
+                out[b] << names[a];
+        }
+    };
+    collect(QStringLiteral("friends"), m_friends);
+    collect(QStringLiteral("rivals"), m_rivals);
 }
 
 void LibraryModel::setError(const QString &error)

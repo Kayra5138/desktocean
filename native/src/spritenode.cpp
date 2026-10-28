@@ -58,18 +58,21 @@ public:
             return texture < o->texture ? -1 : 1;
         if (fogColor != o->fogColor)
             return fogColor.rgba() < o->fogColor.rgba() ? -1 : 1;
+        if (light != o->light)
+            return light < o->light ? -1 : 1;
         return 0;
     }
 
     QSGTexture *texture = nullptr;
     QColor fogColor = QColor(0x0b, 0x30, 0x48);
+    float light = 1.f;
 };
 
-// Uniform block layout (std140): mat4 @0, float opacity @64, vec4 fogColor @80
+// Uniform block layout (std140): mat4 @0, float opacity @64, vec4 fogColor @80, float light @96
 bool SpriteShader::updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial)
 {
     QByteArray *buf = state.uniformData();
-    Q_ASSERT(buf->size() >= 96);
+    Q_ASSERT(buf->size() >= 100);
     bool changed = false;
     if (state.isMatrixDirty()) {
         const QMatrix4x4 m = state.combinedMatrix();
@@ -87,6 +90,10 @@ bool SpriteShader::updateUniformData(RenderState &state, QSGMaterial *newMateria
         const float c[4] = {float(mat->fogColor.redF()), float(mat->fogColor.greenF()), float(mat->fogColor.blueF()),
                             float(mat->fogColor.alphaF())};
         std::memcpy(buf->data() + 80, c, 16);
+        changed = true;
+    }
+    if (!old || old->light != mat->light) {
+        std::memcpy(buf->data() + 96, &mat->light, 4);
         changed = true;
     }
     return changed;
@@ -122,6 +129,14 @@ void SpriteNode::setAtlas(QQuickWindow *window, const QImage &atlas)
     t->setMipmapFiltering(QSGTexture::Linear);
     m_material->texture = t;
     m_texture.reset(t);
+    markDirty(QSGNode::DirtyMaterial);
+}
+
+void SpriteNode::setLight(float light)
+{
+    if (m_material->light == light)
+        return;
+    m_material->light = light;
     markDirty(QSGNode::DirtyMaterial);
 }
 

@@ -7,6 +7,7 @@ Kirigami.FormLayout {
 
     property alias cfg_Fps: fps.value
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
+    property alias cfg_FollowTimeOfDay: followTimeOfDay.checked
     property alias cfg_ShowDebug: showDebug.checked
 
     QQC2.SpinBox {
@@ -20,6 +21,12 @@ Kirigami.FormLayout {
         id: pauseOnMaximized
         Kirigami.FormData.label: "Performance:"
         text: "Pause while a maximized or fullscreen window is open"
+    }
+
+    QQC2.CheckBox {
+        id: followTimeOfDay
+        Kirigami.FormData.label: "Day and night:"
+        text: "Follow the clock (fish rest at night)"
     }
 
     QQC2.CheckBox {

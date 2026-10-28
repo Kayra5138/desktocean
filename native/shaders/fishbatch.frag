@@ -9,12 +9,13 @@ layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
     float qt_Opacity;
     vec4 fogColor;
+    float light;       // 1 by day, darker at night
 };
 
 layout(binding = 1) uniform sampler2D atlas;
 
 void main() {
     vec4 c = texture(atlas, vUv);   // premultiplied alpha
-    vec3 tinted = mix(c.rgb, fogColor.rgb * c.a, vFog);
+    vec3 tinted = mix(c.rgb, fogColor.rgb * c.a, vFog) * light;
     fragColor = vec4(tinted, c.a) * vAlpha * qt_Opacity;
 }

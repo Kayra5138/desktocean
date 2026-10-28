@@ -1,5 +1,7 @@
 #version 440
 // Full-screen water: depth gradient, god rays, caustics, sand, rising bubbles.
+// At night (daylight -> 0) it darkens, rays turn to faint moonlight and
+// bioluminescent specks twinkle in the water.
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
@@ -10,6 +12,7 @@ layout(std140, binding = 0) uniform buf {
     float time;
     float sandTop;      // 0..1, where the sand starts (from top)
     vec2 resolution;
+    float daylight;     // 0 = night, 1 = day
 };
 
 float hash(float n) { return fract(sin(n) * 43758.5453); }
@@ -35,9 +38,11 @@ void main() {
     vec2 px = uv * resolution;
     float aspect = resolution.x / resolution.y;
 
+    float night = 1.0 - daylight;
+
     // Depth gradient
-    vec3 shallow = vec3(0.13, 0.52, 0.66);
-    vec3 deep    = vec3(0.02, 0.12, 0.24);
+    vec3 shallow = mix(vec3(0.13, 0.52, 0.66), vec3(0.03, 0.09, 0.19), night);
+    vec3 deep    = mix(vec3(0.02, 0.12, 0.24), vec3(0.004, 0.02, 0.06), night);
     vec3 col = mix(shallow, deep, smoothstep(0.0, 1.0, uv.y));
 
     // God rays from the surface, slowly drifting
@@ -45,16 +50,17 @@ void main() {
     float rays = sin(rx * 7.0 + time * 0.15) * 0.5 + 0.5;
     rays *= sin(rx * 13.0 - time * 0.23 + 1.7) * 0.5 + 0.5;
     rays *= sin(rx * 3.0 + time * 0.07) * 0.5 + 0.5;
-    col += vec3(0.55, 0.85, 0.9) * rays * 0.22 * pow(1.0 - uv.y, 2.2);
+    vec3 rayColor = mix(vec3(0.55, 0.85, 0.9), vec3(0.35, 0.45, 0.7), night);
+    col += rayColor * rays * mix(0.22, 0.06, night) * pow(1.0 - uv.y, 2.2);
 
     // Caustic shimmer near the surface
     vec2 cp = vec2(uv.x * aspect, uv.y) * 6.0;
     float c = caustic(mod(cp, 6.2831853), time * 0.35);
-    col += vec3(0.6, 0.9, 1.0) * c * 0.10 * pow(1.0 - uv.y, 4.0);
+    col += vec3(0.6, 0.9, 1.0) * c * 0.10 * pow(1.0 - uv.y, 4.0) * (0.25 + 0.75 * daylight);
 
     // Surface line
     float surf = 0.012 + 0.004 * sin(uv.x * 40.0 + time * 1.3);
-    col += vec3(0.7, 0.95, 1.0) * smoothstep(surf, 0.0, uv.y) * 0.35;
+    col += vec3(0.7, 0.95, 1.0) * smoothstep(surf, 0.0, uv.y) * mix(0.35, 0.12, night);
 
     // Sand with a wavy edge
     float edge = sandTop
@@ -62,11 +68,11 @@ void main() {
         + 0.006 * sin(uv.x * aspect * 17.0);
     if (uv.y > edge) {
         float d = (uv.y - edge) / max(1.0 - edge, 0.001);
-        vec3 sand = mix(vec3(0.80, 0.70, 0.50), vec3(0.45, 0.38, 0.27), d);
+        vec3 sand = mix(vec3(0.80, 0.70, 0.50), vec3(0.45, 0.38, 0.27), d) * (0.3 + 0.7 * daylight);
         float grain = hash(floor(px.x * 0.5) + floor(px.y * 0.5) * 1931.0);
         sand *= 0.93 + 0.07 * grain;
         float sc = caustic(mod(vec2(uv.x * aspect, uv.y) * 9.0, 6.2831853), time * 0.4);
-        sand += vec3(0.5, 0.6, 0.55) * sc * 0.18 * (1.0 - d);
+        sand += vec3(0.5, 0.6, 0.55) * sc * 0.18 * (1.0 - d) * daylight;
         // Blend sand toward water color for depth
         sand = mix(sand, deep, 0.35);
         float soft = smoothstep(edge, edge + 0.006, uv.y);
@@ -87,7 +93,21 @@ void main() {
             float d = length(px - vec2(x, y) * resolution);
             float ring = smoothstep(r, r - 1.5, d) - smoothstep(r - 1.5, r - 3.0, d) * 0.7;
             float hl = smoothstep(r * 0.35, 0.0, length(px - (vec2(x, y) * resolution + vec2(-r * 0.35, -r * 0.35))));
-            col += vec3(0.75, 0.95, 1.0) * (ring * 0.45 + hl * 0.5) * (1.0 - life * 0.3);
+            col += vec3(0.75, 0.95, 1.0) * (ring * 0.45 + hl * 0.5) * (1.0 - life * 0.3) * (0.35 + 0.65 * daylight);
+        }
+    }
+
+    // Bioluminescent specks: one candidate per 48 px cell, slowly drifting and twinkling
+    if (night > 0.01) {
+        vec2 cell = floor(px / 48.0);
+        float h = hash(cell.x * 157.0 + cell.y * 311.0);
+        if (h > 0.82) {
+            vec2 center = (cell + vec2(hash(h * 13.0), hash(h * 29.0))) * 48.0
+                        + vec2(sin(time * 0.3 + h * 40.0), cos(time * 0.25 + h * 30.0)) * 10.0;
+            float d = length(px - center);
+            float twinkle = 0.5 + 0.5 * sin(time * (0.8 + h * 1.5) + h * 60.0);
+            float glow = smoothstep(6.0, 0.0, d) * twinkle * twinkle;
+            col += vec3(0.25, 0.9, 0.85) * glow * 0.7 * night;
         }
     }
 

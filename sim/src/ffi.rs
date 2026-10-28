@@ -28,6 +28,7 @@ pub struct DcFish {
     pub tilt: f32,
     pub depth: f32,
     pub sprite: u32,
+    pub hunger: f32,
 }
 
 #[repr(C)]
@@ -37,6 +38,15 @@ pub struct DcFishSpec {
     pub sprite: u32,
     pub aspect: f32,
     pub scale: f32,
+}
+
+/// Affinity between fish `a` and `b` (ids from DcFishSpec), -1..1.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcRelation {
+    pub a: u64,
+    pub b: u64,
+    pub affinity: f32,
 }
 
 #[repr(C)]
@@ -163,6 +173,59 @@ pub unsafe extern "C" fn dc_sim_lure_active(handle: *mut DcSim) -> bool {
     with_sim(handle, false, |s| s.lure_active())
 }
 
+/// 0 = night, 1 = day.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_daylight(handle: *mut DcSim, daylight: f32) {
+    with_sim(handle, (), |s| s.set_daylight(daylight));
+}
+
+/// Copies up to `cap` relations into `out` and returns how many exist.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_relations(
+    handle: *mut DcSim,
+    out: *mut DcRelation,
+    cap: u32,
+) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.relations();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, &(a, b, affinity)) in dst.iter_mut().zip(&list) {
+                *d = DcRelation { a, b, affinity };
+            }
+        }
+        list.len() as u32
+    })
+}
+
+/// Restores relations saved earlier with `dc_sim_relations`.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_relations(
+    handle: *mut DcSim,
+    list: *const DcRelation,
+    count: u32,
+) {
+    with_sim(handle, (), |s| {
+        let items: Vec<(u64, u64, f32)> = if list.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(list, count.min(100_000) as usize) }
+                .iter()
+                .map(|r| (r.a, r.b, r.affinity))
+                .collect()
+        };
+        s.set_relations(&items)
+    });
+}
+
 /// Pointer coordinates `< 0` mean the cursor is not over the aquarium.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
@@ -196,6 +259,7 @@ pub unsafe extern "C" fn dc_sim_fish(handle: *mut DcSim, out: *mut DcFish, cap: 
                     tilt: f.tilt(),
                     depth: f.depth,
                     sprite: f.sprite,
+                    hunger: f.hunger,
                 };
             }
         }
@@ -254,6 +318,18 @@ mod tests {
             assert!(buf.iter().all(|f| f.w > 0.0));
             assert!(buf.iter().enumerate().all(|(i, f)| f.sprite == i as u32));
             assert_eq!(dc_sim_food(h, ptr::null_mut(), 0), 8);
+
+            dc_sim_set_daylight(h, 0.2);
+            let rel = [DcRelation {
+                a: 1,
+                b: 2,
+                affinity: 0.7,
+            }];
+            dc_sim_set_relations(h, rel.as_ptr(), 1);
+            assert_eq!(dc_sim_relations(h, ptr::null_mut(), 0), 1);
+            let mut out = [DcRelation::default(); 1];
+            dc_sim_relations(h, out.as_mut_ptr(), 1);
+            assert_eq!((out[0].a, out[0].b), (1, 2));
             dc_sim_free(h);
         }
     }

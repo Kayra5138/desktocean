@@ -15,6 +15,11 @@ Window {
         id: aquarium
         anchors.fill: parent
         focus: true
+        // `--hour 23` previews the night
+        hourOverride: {
+            const i = Qt.application.arguments.indexOf("--hour");
+            return i >= 0 ? Number(Qt.application.arguments[i + 1]) : -1;
+        }
 
         Keys.onSpacePressed: running = !running
         Keys.onPressed: event => {

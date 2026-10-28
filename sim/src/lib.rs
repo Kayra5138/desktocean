@@ -4,6 +4,7 @@
 //! C++ QML plugin through a small C ABI.
 
 pub mod ffi;
+pub mod relations;
 pub mod rng;
 pub mod sim;
 

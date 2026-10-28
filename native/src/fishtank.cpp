@@ -5,6 +5,11 @@
 #include <QCursor>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QTime>
 #include <QImageReader>
 #include <QPainter>
 #include <QProcess>
@@ -27,6 +32,19 @@ constexpr int kFoodCell = 32;
 constexpr float kFoodSize = 10.f;
 // How many copies of each starter fish go into a fresh library
 constexpr int kStarterCopies[] = {2, 2, 2, 1};
+
+// Smooth 0..1 ramp between a and b
+double smoothstep(double a, double b, double x)
+{
+    const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
+    return t * t * (3 - 2 * t);
+}
+
+QString statePath()
+{
+    // Outside the fish directory on purpose: the tank reloads when that changes
+    return QFileInfo(FishLibrary::directory()).dir().filePath(QStringLiteral("state.json"));
+}
 
 QImage makeFoodSprite()
 {
@@ -56,12 +74,122 @@ FishTank::FishTank(QQuickItem *parent)
     connect(&m_reloadDebounce, &QTimer::timeout, this, [this] { loadLibrary(true); });
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_reloadDebounce, qOverload<>(&QTimer::start));
 
+    // Friendships take hours to grow; keep them across restarts
+    m_saveTimer.setInterval(60 * 1000);
+    connect(&m_saveTimer, &QTimer::timeout, this, &FishTank::saveState);
+    m_saveTimer.start();
+
     checkHealth();
 }
 
 FishTank::~FishTank()
 {
+    saveState();
     dc_sim_free(m_sim);
+}
+
+void FishTank::setFollowTimeOfDay(bool follow)
+{
+    if (follow == m_followTimeOfDay)
+        return;
+    m_followTimeOfDay = follow;
+    updateDaylight();
+    Q_EMIT followTimeOfDayChanged();
+}
+
+void FishTank::setHourOverride(qreal hour)
+{
+    if (qFuzzyCompare(hour + 1, m_hourOverride + 1))
+        return;
+    m_hourOverride = hour;
+    updateDaylight();
+    Q_EMIT hourOverrideChanged();
+}
+
+void FishTank::updateDaylight()
+{
+    double d = 1;
+    if (m_followTimeOfDay) {
+        const QTime now = QTime::currentTime();
+        const double hour = m_hourOverride >= 0 ? std::fmod(m_hourOverride, 24.0)
+                                                : now.hour() + now.minute() / 60.0 + now.second() / 3600.0;
+        // Dawn 5:30-7:30, dusk 18:30-20:30
+        d = smoothstep(5.5, 7.5, hour) * (1 - smoothstep(18.5, 20.5, hour));
+    }
+    dc_sim_set_daylight(m_sim, float(d));
+    if (std::abs(d - m_daylight) < 0.0005)
+        return;
+    m_daylight = d;
+    update();
+    Q_EMIT daylightChanged();
+}
+
+QString FishTank::stats() const
+{
+    double hunger = 0;
+    for (const DcFish &f : m_fish)
+        hunger += f.hunger;
+    int friends = 0, rivals = 0;
+    const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
+    std::vector<DcRelation> rel(n);
+    dc_sim_relations(m_sim, rel.data(), n);
+    for (const DcRelation &r : rel) {
+        friends += r.affinity > DC_FRIEND;
+        rivals += r.affinity < DC_RIVAL;
+    }
+    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4")
+        .arg(m_fish.empty() ? 0 : qRound(hunger / m_fish.size() * 100))
+        .arg(qRound(m_daylight * 100))
+        .arg(friends)
+        .arg(rivals);
+}
+
+void FishTank::loadState()
+{
+    QFile file(statePath());
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+    std::vector<DcRelation> list;
+    const QJsonArray rel = QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("relations")).toArray();
+    for (const QJsonValue &v : rel) {
+        const QJsonObject o = v.toObject();
+        list.push_back({o.value(QStringLiteral("a")).toString().toULongLong(),
+                        o.value(QStringLiteral("b")).toString().toULongLong(),
+                        float(o.value(QStringLiteral("affinity")).toDouble())});
+    }
+    dc_sim_set_relations(m_sim, list.data(), uint32_t(list.size()));
+}
+
+void FishTank::saveState() const
+{
+    if (!m_stateLoaded)
+        return;   // never overwrite saved friendships before they were read
+    const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
+    std::vector<DcRelation> rel(n);
+    rel.resize(std::min(n, dc_sim_relations(m_sim, rel.data(), n)));
+
+    // Raw relations for the tank, plus friend/rival pairs by library fish for the editor
+    QJsonArray relations, friends, rivals;
+    for (const DcRelation &r : rel) {
+        relations.append(QJsonObject{{QStringLiteral("a"), QString::number(r.a)},
+                                     {QStringLiteral("b"), QString::number(r.b)},
+                                     {QStringLiteral("affinity"), double(r.affinity)}});
+        const QString a = m_specOwner.value(r.a), b = m_specOwner.value(r.b);
+        if (a.isEmpty() || b.isEmpty() || a == b)
+            continue;
+        if (r.affinity > DC_FRIEND)
+            friends.append(QJsonArray{a, b});
+        else if (r.affinity < DC_RIVAL)
+            rivals.append(QJsonArray{a, b});
+    }
+    const QJsonObject root{{QStringLiteral("relations"), relations},
+                           {QStringLiteral("friends"), friends},
+                           {QStringLiteral("rivals"), rivals}};
+    QSaveFile file(statePath());
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+        file.commit();
+    }
 }
 
 QString FishTank::coreVersion() const
@@ -148,6 +276,7 @@ bool FishTank::openEditor()
 void FishTank::componentComplete()
 {
     QQuickItem::componentComplete();
+    updateDaylight();
     loadLibrary(false);
     updateTimer();
 }
@@ -183,6 +312,9 @@ QPointF FishTank::cursorInItem() const
 
 void FishTank::tick()
 {
+    // The clock moves slowly; once a second is plenty
+    if (int(m_time) != int(m_time + m_clock.nsecsElapsed() / 1e9))
+        updateDaylight();
     const qreal dt = std::clamp(m_clock.nsecsElapsed() / 1e9, 0.0, 0.1);
     m_clock.start();
     m_time += dt;
@@ -280,6 +412,7 @@ void FishTank::loadLibrary(bool animateNew)
     QList<QImage> images;
     std::vector<SpriteInfo> sprites;
     std::vector<DcFishSpec> specs;
+    QHash<quint64, QString> owners;
     for (const FishEntry &e : entries) {
         if (e.count <= 0)
             continue;
@@ -300,14 +433,23 @@ void FishTank::loadLibrary(bool animateNew)
 
         const float aspect = float(img.height()) / float(img.width());
         images << img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-        for (int k = 0; k < e.count; ++k)
-            specs.push_back({quint64(qHash(e.id, size_t(k))), sprite, aspect, float(e.scale)});
+        for (int k = 0; k < e.count; ++k) {
+            const auto id = quint64(qHash(e.id, size_t(k)));
+            specs.push_back({id, sprite, aspect, float(e.scale)});
+            owners.insert(id, e.id);
+        }
     }
 
     m_sprites = std::move(sprites);
     rebuildAtlas(images);
     dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
+    m_specOwner = owners;
     m_libraryLoaded = true;
+    if (!m_stateLoaded) {
+        // After the population, so relations of fish that left are dropped
+        loadState();
+        m_stateLoaded = true;
+    }
     pullState();
     checkHealth();
     update();
@@ -366,6 +508,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         node->setAtlas(window(), m_atlas);
     }
     node->setFogColor(m_fogColor);
+    node->setLight(float(0.35 + 0.65 * m_daylight));
 
     // Fish whose sprite is not in the atlas (yet) are skipped
     std::vector<int> order;
