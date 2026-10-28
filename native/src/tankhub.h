@@ -56,6 +56,9 @@ public:
     // Turns `action` (a PlasmaCore.Action) into a submenu holding `children`,
     // with the icon at `icon`. QML can't attach a menu to an action itself.
     Q_INVOKABLE void makeSubmenu(QObject *action, const QList<QObject *> &children, const QUrl &icon = {});
+    /// Gives a menu action a single-colour icon drawn in the menu's text colour,
+    /// like the theme's own symbolic icons (the SVG's shape is used, not its colours)
+    Q_INVOKABLE void setMonochromeIcon(QObject *action, const QUrl &svg);
 
 Q_SIGNALS:
     void stateChanged();

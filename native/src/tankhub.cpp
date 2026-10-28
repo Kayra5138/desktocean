@@ -2,7 +2,11 @@
 #include "fishtank.h"
 
 #include <QAction>
+#include <QGuiApplication>
 #include <QIcon>
+#include <QIconEngine>
+#include <QPainter>
+#include <QPalette>
 #include <QList>
 #include <QMenu>
 #include <QQmlFile>
@@ -146,7 +150,60 @@ void TankHub::makeSubmenu(QObject *action, const QList<QObject *> &children, con
     // The menu has no QObject parent (QAction doesn't own it); tie their lives together
     connect(parent, &QObject::destroyed, menu, &QObject::deleteLater);
     if (!icon.isEmpty())
-        parent->setIcon(QIcon(QQmlFile::urlToLocalFileOrQrc(icon)));
+        setMonochromeIcon(parent, icon);
+}
+
+namespace {
+// Paints an SVG's shape in the palette's text colour at draw time, so the icon
+// matches the theme's symbolic icons and follows light/dark switches
+class MonochromeIconEngine : public QIconEngine
+{
+public:
+    explicit MonochromeIconEngine(const QString &file)
+        : m_file(file)
+        , m_shape(file)
+    {
+    }
+
+    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) override
+    {
+        const qreal dpr = painter->device() ? painter->device()->devicePixelRatioF() : 1.0;
+        QPixmap pm = scaledPixmap(rect.size(), mode, state, dpr);
+        painter->drawPixmap(rect, pm);
+    }
+
+    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override
+    {
+        return scaledPixmap(size, mode, state, 1.0);
+    }
+
+    QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State state, qreal scale) override
+    {
+        QPixmap pm = m_shape.pixmap(size, scale, QIcon::Normal, state);
+        if (pm.isNull())
+            return pm;
+        const QPalette pal = QGuiApplication::palette();
+        QColor colour = pal.color(mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active,
+                                  mode == QIcon::Selected ? QPalette::HighlightedText : QPalette::WindowText);
+        QPainter p(&pm);
+        p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        p.fillRect(pm.rect(), colour);
+        return pm;
+    }
+
+    QIconEngine *clone() const override { return new MonochromeIconEngine(m_file); }
+    QString key() const override { return QStringLiteral("desktocean-monochrome"); }
+
+private:
+    QString m_file;
+    QIcon m_shape;
+};
+} // namespace
+
+void TankHub::setMonochromeIcon(QObject *action, const QUrl &svg)
+{
+    if (auto *a = qobject_cast<QAction *>(action))
+        a->setIcon(QIcon(new MonochromeIconEngine(QQmlFile::urlToLocalFileOrQrc(svg))));
 }
 
 bool TankHub::openEditor(const QString &page)

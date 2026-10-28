@@ -92,8 +92,8 @@ WallpaperItem {
 
     readonly property list<QtObject> desktoceanActions: [
         PlasmaCore.Action {
+            id: feedAction
             text: "Feed fish"
-            icon.name: "food"
             onTriggered: aquarium.feedAtCursor()
         },
         PlasmaCore.Action {
@@ -124,6 +124,8 @@ WallpaperItem {
         }
     ]
 
-    Component.onCompleted: TankHub.makeSubmenu(desktoceanMenu, desktoceanActions,
-                                               Qt.resolvedUrl("../images/desktocean-icon.svg"))
+    Component.onCompleted: {
+        TankHub.makeSubmenu(desktoceanMenu, desktoceanActions, Qt.resolvedUrl("../images/menu-desktocean.svg"));
+        TankHub.setMonochromeIcon(feedAction, Qt.resolvedUrl("../images/menu-feed.svg"));
+    }
 }
