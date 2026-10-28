@@ -26,7 +26,9 @@ decorations and drop them into the tank.
   or shy (keeps its distance, swims away from the cursor). It stays the same across restarts and is
   shown on the editor's fish cards
 - Fish spread out over the whole tank: they pick the least crowded of a few spots to swim to
-- Fish of the same kind (copies of one drawing) sometimes form a school for a minute or so
+- Some fish form **schools**: small groups (up to six) behind a leader, in formation so nobody
+  overlaps, preferably of one kind. A busy tank gets several schools, and schools steer clear of each
+  other
 - Food is noticed one fish at a time, depending on how alert each one is and how far away it is
 - A curious fish only notices the cursor once it has lingered near it for a second, then follows it
   for a while
