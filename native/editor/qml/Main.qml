@@ -145,6 +145,10 @@ Kirigami.ApplicationWindow {
             }
             if (arg("--swim") !== undefined)
                 drawPage.styleForTest(arg("--swim"));
+            if (args.indexOf("--mouth-tool") >= 0)
+                drawPage.canvas.tool = DrawingCanvas.Mouth;
+            if (arg("--mouth") !== undefined)
+                drawPage.canvas.markMouth(Number(arg("--mouth")), Number(arg("--mouth", 2)));
             if (args.indexOf("--wiggle-tail") >= 0)
                 drawPage.canvas.paintTailWiggleForTest();
             if (arg("--add-as") !== undefined) {

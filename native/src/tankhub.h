@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QUrl>
 #include <QtQml/qqmlregistration.h>
 
 class FishTank;
@@ -51,6 +52,10 @@ public:
     Q_INVOKABLE void clearFood();
     // page: "" for drawing, "fish" for the fish list, "layout" for the tank layout
     Q_INVOKABLE bool openEditor(const QString &page = {});
+
+    // Turns `action` (a PlasmaCore.Action) into a submenu holding `children`,
+    // with the icon at `icon`. QML can't attach a menu to an action itself.
+    Q_INVOKABLE void makeSubmenu(QObject *action, const QList<QObject *> &children, const QUrl &icon = {});
 
 Q_SIGNALS:
     void stateChanged();

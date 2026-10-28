@@ -24,7 +24,7 @@ class LibraryModel : public QAbstractListModel
 public:
     enum Role {
         IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole,
-        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole
+        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole, MouthRole
     };
 
     explicit LibraryModel(QObject *parent = nullptr);

@@ -89,7 +89,7 @@ Kirigami.Page {
 
     // `fish` is a LibraryModel row: {fishId, kind, name, image, wiggle, swimStyle, sway, scale, copies}
     function startEditing(fish) {
-        const error = canvas.loadImage(fish.image, fish.wiggle);
+        const error = canvas.loadImage(fish.image, fish.wiggle, fish.mouth);
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
@@ -223,6 +223,8 @@ Kirigami.Page {
                             onClicked: {
                                 page.kind = modelData.kind;
                                 canvas.motionMode = false;
+                                if (modelData.kind !== "fish" && canvas.tool === DrawingCanvas.Mouth)
+                                    canvas.tool = DrawingCanvas.Brush;
                             }
                         }
                     }
@@ -243,10 +245,12 @@ Kirigami.Page {
                             { tool: DrawingCanvas.Line, text: "Line", icon: "draw-line" },
                             { tool: DrawingCanvas.Rectangle, text: "Box", icon: "draw-rectangle" },
                             { tool: DrawingCanvas.Ellipse, text: "Ellipse", icon: "draw-ellipse" },
-                            { tool: DrawingCanvas.Select, text: "Select", icon: "select-rectangular" }
+                            { tool: DrawingCanvas.Select, text: "Select", icon: "select-rectangular" },
+                            { tool: DrawingCanvas.Mouth, text: "Mouth", icon: "crosshairs", fishOnly: true }
                         ]
                         QQC2.ToolButton {
                             required property var modelData
+                            visible: !modelData.fishOnly || page.isFish
                             Layout.fillWidth: true
                             text: modelData.text
                             icon.name: modelData.icon
@@ -265,6 +269,22 @@ Kirigami.Page {
                     text: "Filled shape"
                     checked: canvas.shapeFilled
                     onToggled: canvas.shapeFilled = checked
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: canvas.tool === DrawingCanvas.Mouth
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    text: canvas.mouthMarked
+                        ? "Click to move the mouth. The fish eats food only with this spot."
+                        : "Click where the mouth is. The dashed circle is a guess from the drawing."
+                }
+                QQC2.Button {
+                    Layout.fillWidth: true
+                    visible: canvas.tool === DrawingCanvas.Mouth && canvas.mouthMarked
+                    text: "Guess it again"
+                    icon.name: "edit-reset"
+                    onClicked: canvas.resetMouth()
                 }
                 QQC2.Label {
                     Layout.fillWidth: true
@@ -561,6 +581,7 @@ Kirigami.Page {
                     id: canvas
                     anchors.fill: parent
                     anchors.margins: Kirigami.Units.gridUnit
+                    showMouth: page.isFish
 
                     // Stylus pressure; the mouse never activates this, so it stays at 1
                     PointHandler {

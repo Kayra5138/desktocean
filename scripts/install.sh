@@ -53,6 +53,7 @@ esac
 # --- wallpaper package -------------------------------------------------------
 "$ROOT/scripts/build-shaders.sh"
 python3 "$ROOT/scripts/make-test-fish.py"
+cp "$ROOT/applet/contents/icons/desktocean.svg" "$ROOT/package/contents/images/desktocean-icon.svg"
 python3 "$ROOT/scripts/make-starter-decor.py"
 # --- control widget ----------------------------------------------------------
 if kpackagetool6 -t Plasma/Applet -s desktocean.control >/dev/null 2>&1; then

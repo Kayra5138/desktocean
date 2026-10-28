@@ -247,9 +247,34 @@ FishDrawing DrawingCanvas::drawing() const
         p.setRenderHint(QPainter::SmoothPixmapTransform);
         p.drawImage(m_floatRect, m_floating);
         p.end();
-        return {composed, m_hasWiggle ? m_mask : QImage()};
+        return {composed, m_hasWiggle ? m_mask : QImage(), m_mouth};
     }
-    return {m_image, m_hasWiggle ? m_mask : QImage()};
+    return {m_image, m_hasWiggle ? m_mask : QImage(), m_mouth};
+}
+
+void DrawingCanvas::setShowMouth(bool show)
+{
+    if (show == m_showMouth)
+        return;
+    m_showMouth = show;
+    update();
+    Q_EMIT showMouthChanged();
+}
+
+void DrawingCanvas::resetMouth()
+{
+    if (m_mouth.x() < 0)
+        return;
+    pushUndo();
+    m_mouth = QPointF(-1, -1);
+    contentModified();
+}
+
+void DrawingCanvas::markMouth(qreal x, qreal y)
+{
+    pushUndo();
+    m_mouth = QPointF(x, y);
+    contentModified();
 }
 
 void DrawingCanvas::resetWiggle()
@@ -283,7 +308,7 @@ void DrawingCanvas::setShapeFilled(bool filled)
 
 void DrawingCanvas::pushUndo()
 {
-    m_undo.append({m_image, m_mask});
+    m_undo.append({m_image, m_mask, m_mouth});
     if (m_undo.size() > kMaxHistory)
         m_undo.removeFirst();
     m_redo.clear();
@@ -296,10 +321,11 @@ void DrawingCanvas::undo()
         return;
     // The snapshot on top predates lifting the selection, so just let it go
     dropFloating();
-    m_redo.append({m_image, m_mask});
+    m_redo.append({m_image, m_mask, m_mouth});
     const Snapshot snap = m_undo.takeLast();
     m_image = snap.image;
     m_mask = snap.mask;
+    m_mouth = snap.mouth;
     Q_EMIT historyChanged();
     contentModified();
 }
@@ -309,10 +335,11 @@ void DrawingCanvas::redo()
     if (m_redo.isEmpty())
         return;
     commitSelection();
-    m_undo.append({m_image, m_mask});
+    m_undo.append({m_image, m_mask, m_mouth});
     const Snapshot snap = m_redo.takeLast();
     m_image = snap.image;
     m_mask = snap.mask;
+    m_mouth = snap.mouth;
     Q_EMIT historyChanged();
     contentModified();
 }
@@ -327,6 +354,7 @@ void DrawingCanvas::clear()
     pushUndo();
     m_image.fill(Qt::transparent);
     m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
+    m_mouth = QPointF(-1, -1);
     contentModified();
 }
 
@@ -340,6 +368,8 @@ void DrawingCanvas::flipHorizontal()
     pushUndo();
     m_image = m_image.flipped(Qt::Horizontal);
     m_mask = m_mask.flipped(Qt::Horizontal);
+    if (m_mouth.x() >= 0)
+        m_mouth.setX(kCanvasSize.width() - m_mouth.x());
     contentModified();
 }
 
@@ -354,7 +384,7 @@ bool DrawingCanvas::hasOpaqueBorder(const QUrl &url) const
     return std::all_of(std::begin(corners), std::end(corners), [](QRgb c) { return qAlpha(c) > 200; });
 }
 
-void DrawingCanvas::replaceImage(const QImage &source, const QImage &wiggle, bool keepHistory)
+QRect DrawingCanvas::replaceImage(const QImage &source, const QImage &wiggle, bool keepHistory)
 {
     commitSelection();
     if (keepHistory) {
@@ -378,7 +408,9 @@ void DrawingCanvas::replaceImage(const QImage &source, const QImage &wiggle, boo
         mp.setRenderHint(QPainter::SmoothPixmapTransform);
         mp.drawImage(placed, wiggle.convertToFormat(QImage::Format_ARGB32));
     }
+    m_mouth = QPointF(-1, -1);
     contentModified();
+    return placed;
 }
 
 QString DrawingCanvas::importImage(const QUrl &url, bool removeBackground)
@@ -407,14 +439,18 @@ QString DrawingCanvas::importImage(const QUrl &url, bool removeBackground)
     return {};
 }
 
-QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle)
+QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle, QPointF mouth)
 {
     QImageReader reader(QQmlFile::urlToLocalFileOrQrc(url));
     const QImage img = reader.read();
     if (img.isNull())
         return QStringLiteral("Could not open the fish: %1").arg(reader.errorString());
     const QImage mask = wiggle.isEmpty() ? QImage() : QImage(QQmlFile::urlToLocalFileOrQrc(wiggle));
-    replaceImage(img.convertToFormat(QImage::Format_ARGB32), mask.size() == img.size() ? mask : QImage(), false);
+    const QRect placed =
+        replaceImage(img.convertToFormat(QImage::Format_ARGB32), mask.size() == img.size() ? mask : QImage(), false);
+    // The saved mouth is a fraction of the sprite, which now sits at `placed`
+    if (mouth.x() >= 0)
+        m_mouth = QPointF(placed.x() + mouth.x() * placed.width(), placed.y() + mouth.y() * placed.height());
     // Freshly opened: nothing to lose yet
     m_dirty = false;
     resetView();
@@ -428,6 +464,7 @@ void DrawingCanvas::loadTemplate(int index)
     pushUndo();
     m_image.fill(Qt::transparent);
     m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
+    m_mouth = QPointF(-1, -1);
     QPainter p(&m_image);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(QPen(QColor(0x2a, 0x2a, 0x35), 7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -541,8 +578,16 @@ void DrawingCanvas::wheelEvent(QWheelEvent *event)
 
 void DrawingCanvas::contentModified()
 {
-    m_empty = !hasSelection() && FishLibrary::contentBox(m_image, 0).isNull();
+    const QRect box = FishLibrary::contentBox(m_image, 0);
+    m_empty = !hasSelection() && box.isNull();
     m_dirty = !m_empty;
+    // Where the mouth would go if the user doesn't mark it
+    if (box.isNull()) {
+        m_guessedMouth = QPointF(-1, -1);
+    } else {
+        const QPointF g = FishLibrary::guessMouth(m_image.copy(box));
+        m_guessedMouth = QPointF(box.x() + g.x() * box.width(), box.y() + g.y() * box.height());
+    }
     // Any pixel away from neutral means the user painted motion
     m_hasWiggle = false;
     for (int y = 0; y < m_mask.height() && !m_hasWiggle; ++y) {
@@ -763,6 +808,13 @@ void DrawingCanvas::mousePressEvent(QMouseEvent *event)
     case Fill:
         floodFill(p.toPoint());
         return;
+    case Mouth:
+        if (m_image.rect().contains(p.toPoint())) {
+            pushUndo();
+            m_mouth = p;
+            contentModified();
+        }
+        return;
     case Picker: {
         const QPoint px = p.toPoint();
         if (m_image.rect().contains(px) && qAlpha(m_image.pixel(px)) > 0)
@@ -945,6 +997,22 @@ void DrawingCanvas::paint(QPainter *painter)
         painter->setPen(QPen(Qt::white, 1.5));
         painter->setBrush(QColor(0x30, 0x80, 0xe0));
         painter->drawRect(QRectF(r.bottomRight() - QPointF(6, 6), QSizeF(12, 12)));
+    }
+
+    // The mouth: solid when marked, dashed when it is only a guess
+    const QPointF mouth = m_mouth.x() >= 0 ? m_mouth : m_guessedMouth;
+    if (m_showMouth && !m_empty && mouth.x() >= 0 && !m_motionMode) {
+        const QPointF at = m_view.topLeft() + mouth * scale;
+        const qreal r = 9;
+        painter->setBrush(m_mouth.x() >= 0 ? QColor(255, 80, 80, 170) : Qt::NoBrush);
+        painter->setPen(QPen(Qt::white, 3));
+        painter->drawEllipse(at, r, r);
+        painter->setPen(QPen(QColor(220, 40, 40), 1.6, m_mouth.x() >= 0 ? Qt::SolidLine : Qt::DashLine));
+        painter->drawEllipse(at, r, r);
+        if (m_tool == Mouth) {
+            painter->setPen(QColor(220, 40, 40));
+            painter->drawText(at + QPointF(r + 4, 4), QStringLiteral("mouth"));
+        }
     }
 
     // Brush outline under the cursor

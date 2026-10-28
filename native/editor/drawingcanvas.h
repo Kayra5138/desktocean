@@ -44,9 +44,13 @@ class DrawingCanvas : public QQuickPaintedItem
     Q_PROPERTY(qreal pressure READ pressure WRITE setPressure NOTIFY pressureChanged)
     // Changed since it was last saved or loaded
     Q_PROPERTY(bool dirty READ dirty NOTIFY contentChanged)
+    // Show where the mouth is (fish only); the Mouth tool moves it
+    Q_PROPERTY(bool showMouth READ showMouth WRITE setShowMouth NOTIFY showMouthChanged)
+    // The user placed the mouth (otherwise it is guessed from the drawing)
+    Q_PROPERTY(bool mouthMarked READ mouthMarked NOTIFY contentChanged)
 
 public:
-    enum Tool { Brush, Eraser, Fill, Picker, Line, Rectangle, Ellipse, Select };
+    enum Tool { Brush, Eraser, Fill, Picker, Line, Rectangle, Ellipse, Select, Mouth };
     Q_ENUM(Tool)
     enum Wiggle { More, Less, Normal };
     Q_ENUM(Wiggle)
@@ -79,6 +83,13 @@ public:
     qreal pressure() const { return m_pressure; }
     void setPressure(qreal pressure);
     bool dirty() const { return m_dirty; }
+    bool showMouth() const { return m_showMouth; }
+    void setShowMouth(bool show);
+    bool mouthMarked() const { return m_mouth.x() >= 0; }
+    // Forget the marked mouth and go back to the guess
+    Q_INVOKABLE void resetMouth();
+    // Marks the mouth at a point in canvas pixels (900 x 540)
+    Q_INVOKABLE void markMouth(qreal x, qreal y);
 
     // Zooms by `factor` keeping the canvas point under `around` (item coordinates) in place
     Q_INVOKABLE void zoomBy(qreal factor, QPointF around = QPointF(-1, -1));
@@ -97,8 +108,8 @@ public:
     Q_INVOKABLE bool hasOpaqueBorder(const QUrl &url) const;
     // Replaces the drawing with the image, scaled to fit; returns an error message or ""
     Q_INVOKABLE QString importImage(const QUrl &url, bool removeBackground);
-    // Starts over with a library fish (and its wiggle mask, if any) and empty history
-    Q_INVOKABLE QString loadImage(const QUrl &url, const QUrl &wiggle = {});
+    // Starts over with a library fish (and its wiggle mask and mouth, if any) and empty history
+    Q_INVOKABLE QString loadImage(const QUrl &url, const QUrl &wiggle = {}, QPointF mouth = QPointF(-1, -1));
     Q_INVOKABLE void resetWiggle();
     // Development aid: paints "more wiggle" over the left third (the tail) and shows it
     Q_INVOKABLE void paintTailWiggleForTest();
@@ -128,6 +139,7 @@ Q_SIGNALS:
     void wiggleBrushChanged();
     void viewRectChanged();
     void pressureChanged();
+    void showMouthChanged();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -152,13 +164,15 @@ private:
     void dropFloating();
     void contentModified();
     void updateViewRect();
-    void replaceImage(const QImage &source, const QImage &wiggle, bool keepHistory);
+    // Returns where the image landed on the canvas
+    QRect replaceImage(const QImage &source, const QImage &wiggle, bool keepHistory);
     void paintWiggle(QPointF from, QPointF to);
     const QImage &wiggleOverlay();
 
     struct Snapshot {
         QImage image;
         QImage mask;
+        QPointF mouth;
     };
 
     QImage m_image;
@@ -196,4 +210,7 @@ private:
     QPointF m_panStart;
     qreal m_pressure = 1;
     bool m_dirty = false;
+    bool m_showMouth = true;
+    QPointF m_mouth{-1, -1};       // canvas pixels; negative = not marked
+    QPointF m_guessedMouth{-1, -1};
 };

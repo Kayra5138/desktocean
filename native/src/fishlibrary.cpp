@@ -64,6 +64,8 @@ bool save(const QList<FishEntry> &entries, QString *error)
         };
         if (!e.wiggle.isEmpty())
             o.insert(QStringLiteral("wiggle"), e.wiggle);
+        if (e.mouth.x() >= 0)
+            o.insert(QStringLiteral("mouth"), QJsonArray{e.mouth.x(), e.mouth.y()});
         if (e.bornAt > 0) {
             o.insert(QStringLiteral("bornAt"), QString::number(e.bornAt));
             o.insert(QStringLiteral("parents"), QJsonArray::fromStringList(e.parents));
@@ -125,8 +127,9 @@ void applyMeta(FishEntry &e, const FishEntry &meta, int minCount)
     }
 }
 
-// Crops sprite and mask with the same box; false if the drawing is empty
-bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QString *error)
+// Crops sprite and mask with the same box, and turns the mouth into fractions
+// of the cropped sprite; false if the drawing is empty
+bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QPointF *mouth, QString *error)
 {
     const QRect box = FishLibrary::contentBox(in.sprite);
     if (box.isNull()) {
@@ -135,6 +138,10 @@ bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QString 
     }
     *sprite = in.sprite.convertToFormat(QImage::Format_ARGB32).copy(box);
     *wiggle = in.wiggle.isNull() ? QImage() : in.wiggle.convertToFormat(QImage::Format_Grayscale8).copy(box);
+    *mouth = in.mouth.x() >= 0
+        ? QPointF(std::clamp((in.mouth.x() - box.x()) / box.width(), 0.0, 1.0),
+                  std::clamp((in.mouth.y() - box.y()) / box.height(), 0.0, 1.0))
+        : QPointF(-1, -1);
     return true;
 }
 
@@ -258,6 +265,9 @@ QList<FishEntry> load(QString *error)
         e.kind = kindFromName(o.value(QStringLiteral("kind")).toString());
         e.sway = std::clamp(o.value(QStringLiteral("sway")).toDouble(1.0), 0.0, 3.0);
         e.bornAt = o.value(QStringLiteral("bornAt")).toString().toLongLong();
+        const QJsonArray mouth = o.value(QStringLiteral("mouth")).toArray();
+        if (mouth.size() == 2)
+            e.mouth = QPointF(std::clamp(mouth[0].toDouble(), 0.0, 1.0), std::clamp(mouth[1].toDouble(), 0.0, 1.0));
         for (const QJsonValue &pv : o.value(QStringLiteral("parents")).toArray())
             e.parents << pv.toString();
         for (const QJsonValue &pv : o.value(QStringLiteral("placements")).toArray()) {
@@ -280,7 +290,8 @@ QList<FishEntry> load(QString *error)
 std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, QString *error)
 {
     QImage sprite, wiggle;
-    if (!cropDrawing(drawing, &sprite, &wiggle, error))
+    QPointF mouth;
+    if (!cropDrawing(drawing, &sprite, &wiggle, &mouth, error))
         return std::nullopt;
 
     WriteLock lock;
@@ -296,6 +307,7 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
     // Birth details are set once, here; edits never change them
     e.bornAt = meta.bornAt;
     e.parents = meta.parents;
+    e.mouth = mouth;
 
     // Files first, manifest second: readers never see an entry without its files
     if (!writeDrawing(e, sprite, wiggle, error))
@@ -356,7 +368,8 @@ bool update(const FishEntry &meta, QString *error)
 bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *error)
 {
     QImage sprite, wiggle;
-    if (!cropDrawing(drawing, &sprite, &wiggle, error))
+    QPointF mouth;
+    if (!cropDrawing(drawing, &sprite, &wiggle, &mouth, error))
         return false;
 
     WriteLock lock;
@@ -378,6 +391,7 @@ bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *
     if (merged.placements.isEmpty())
         merged.placements = old.placements;
     applyMeta(updated, merged, 0);
+    updated.mouth = mouth;
     if (!writeDrawing(updated, sprite, wiggle, error))
         return false;
     *it = updated;
@@ -401,12 +415,48 @@ bool flip(const QString &id, QString *error)
             return false;
         }
         const QImage wiggle = e.wiggle.isEmpty() ? QImage() : QImage(e.wigglePath());
+        // The mouth goes to the other side too
+        const QPointF mouth = e.mouth.x() >= 0 ? QPointF((1 - e.mouth.x()) * sprite.width(), e.mouth.y() * sprite.height())
+                                               : QPointF(-1, -1);
         const FishDrawing flipped{sprite.flipped(Qt::Horizontal),
-                                  wiggle.isNull() ? QImage() : wiggle.flipped(Qt::Horizontal)};
+                                  wiggle.isNull() ? QImage() : wiggle.flipped(Qt::Horizontal), mouth};
         return replaceDrawing(e, flipped, error);
     }
     setError(error, QStringLiteral("No such fish"));
     return false;
+}
+
+QPointF guessMouth(const QImage &sprite)
+{
+    const QImage img = sprite.convertToFormat(QImage::Format_ARGB32);
+    if (img.isNull())
+        return {0.92, 0.56};
+    // The frontmost visible column...
+    int front = -1;
+    for (int x = img.width() - 1; x >= 0 && front < 0; --x) {
+        for (int y = 0; y < img.height(); ++y) {
+            if (qAlpha(img.pixel(x, y)) > 64) {
+                front = x;
+                break;
+            }
+        }
+    }
+    if (front < 0)
+        return {0.92, 0.56};
+    // ...and the middle of what is drawn in the last few percent before it
+    const int from = std::max(0, front - std::max(2, img.width() / 25));
+    double sumY = 0;
+    int n = 0;
+    for (int x = from; x <= front; ++x) {
+        for (int y = 0; y < img.height(); ++y) {
+            if (qAlpha(img.pixel(x, y)) > 64) {
+                sumY += y;
+                ++n;
+            }
+        }
+    }
+    const double mx = std::max(0.0, front - img.width() * 0.02);
+    return {mx / img.width(), n ? sumY / n / img.height() : 0.56};
 }
 
 double growth(const FishEntry &entry)

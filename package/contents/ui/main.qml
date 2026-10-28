@@ -1,4 +1,5 @@
 import QtQuick
+import Desktocean.Core
 import org.kde.notificationmanager as NotificationManager
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
@@ -75,12 +76,16 @@ WallpaperItem {
         onTriggered: aquarium.announce()
     }
 
-    contextualActions: [
-        PlasmaCore.Action {
-            text: "Draw a fish…"
-            icon.name: "draw-brush"
-            onTriggered: aquarium.openEditor()
-        },
+    // Right-clicking the desktop shows one "Desktocean" entry; its submenu
+    // holds everything else, so the desktop menu stays tidy
+    contextualActions: [desktoceanMenu]
+
+    PlasmaCore.Action {
+        id: desktoceanMenu
+        text: "Desktocean"
+    }
+
+    readonly property list<QtObject> desktoceanActions: [
         PlasmaCore.Action {
             text: "Feed fish"
             icon.name: "food"
@@ -93,9 +98,27 @@ WallpaperItem {
             onTriggered: aquarium.clearFood()
         },
         PlasmaCore.Action {
+            text: "Draw a fish…"
+            icon.name: "draw-brush"
+            onTriggered: aquarium.openEditor()
+        },
+        PlasmaCore.Action {
+            text: "My fish…"
+            icon.name: "view-list-icons"
+            onTriggered: TankHub.openEditor("fish")
+        },
+        PlasmaCore.Action {
+            text: "Tank layout…"
+            icon.name: "view-grid"
+            onTriggered: TankHub.openEditor("layout")
+        },
+        PlasmaCore.Action {
             text: aquarium.paused ? "Resume aquarium" : "Pause aquarium"
             icon.name: aquarium.paused ? "media-playback-start" : "media-playback-pause"
             onTriggered: aquarium.paused = !aquarium.paused
         }
     ]
+
+    Component.onCompleted: TankHub.makeSubmenu(desktoceanMenu, desktoceanActions,
+                                               Qt.resolvedUrl("../images/desktocean-icon.svg"))
 }

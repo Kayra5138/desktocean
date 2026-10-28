@@ -354,6 +354,9 @@ void FishTank::recordBaby(const DcBirth &birth)
     drawing.sprite = mixColours(shape, colours);
     if (!a->wiggle.isEmpty())
         drawing.wiggle = QImage(a->wigglePath());
+    // Same shape, same mouth
+    const QPointF mouth = a->mouth.x() >= 0 ? a->mouth : FishLibrary::guessMouth(shape);
+    drawing.mouth = QPointF(mouth.x() * shape.width(), mouth.y() * shape.height());
 
     FishEntry meta;
     meta.name = a->id == b->id ? QStringLiteral("Baby %1").arg(a->name)
@@ -916,9 +919,12 @@ void FishTank::loadLibrary(bool animateNew)
         }
         // Babies start small and grow up over a couple of hours
         const double growth = FishLibrary::growth(e);
+        // Marked in the editor, or guessed from the front of the drawing
+        const QPointF mouth = e.mouth.x() >= 0 ? e.mouth : FishLibrary::guessMouth(img);
         for (int k = 0; k < e.count; ++k) {
             const auto id = quint64(qHash(e.id, size_t(k)));
-            specs.push_back({id, sprite, aspect, float(e.scale * growth), growth >= 1.0 ? 1u : 0u});
+            specs.push_back({id, sprite, aspect, float(e.scale * growth), growth >= 1.0 ? 1u : 0u, float(mouth.x()),
+                             float(mouth.y())});
             specEntry.push_back(e);
             owners.insert(id, e.id);
         }

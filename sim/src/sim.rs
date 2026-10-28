@@ -54,6 +54,12 @@ const CHASE_SECS: f32 = 2.5;
 const NEWCOMER_SECS: f32 = 8.0;
 /// A fish sent to the surface gives up after this long.
 const SURFACE_SECS: f32 = 15.0;
+/// A pellet is eaten when it is this close to the mouth (pellets are ~10 px).
+const EAT_RADIUS: f32 = 12.0;
+/// ...and only if the fish has slowed down to this fraction of its top speed,
+/// so a fish racing past doesn't count as eating.
+const EAT_MAX_SPEED: f32 = 0.75;
+
 /// Bubbles rise this fast, px/s.
 const BUBBLE_RISE: f32 = 70.0;
 /// Bubbles at least this big leave a ripple when they pop (only the
@@ -81,7 +87,13 @@ pub struct FishSpec {
     pub scale: f32,
     /// Grown up; only adults have babies
     pub adult: bool,
+    /// Where the mouth is on the drawing, as fractions of its width and height
+    /// (head facing right); food is eaten only when it touches this point
+    pub mouth: (f32, f32),
 }
+
+/// Mouth of a drawing nobody marked: near the tip of the nose, a bit low.
+pub const DEFAULT_MOUTH: (f32, f32) = (0.92, 0.56);
 
 /// What kind of fish it is at heart; shapes where it swims and how it behaves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +226,8 @@ enum Mode {
     Idle { left: f32 },
     /// Chasing a rival away
     Chase { target: u64, left: f32 },
+    /// Stopped to swallow a pellet
+    Eating { left: f32 },
     /// Swimming up to blow bubbles at the surface (a notification arrived)
     Surface { left: f32 },
 }
@@ -281,11 +295,23 @@ pub struct Fish {
     /// Playful fish: seconds until the next dash, and seconds left in one
     dash_timer: f32,
     dash_left: f32,
+    /// Mouth on the drawing, fractions of width and height (head facing right)
+    mouth: (f32, f32),
 }
 
 impl Fish {
-    fn mouth(&self) -> (f32, f32) {
-        (self.x + self.facing * self.w * 0.42, self.y + self.h * 0.06)
+    /// The mouth on screen: the marked point on the drawing, mirrored with the
+    /// fish's facing and turned with its pitch, the same way it is drawn.
+    pub fn mouth(&self) -> (f32, f32) {
+        let flip = if self.facing.abs() < 0.08 {
+            0.08f32.copysign(self.facing)
+        } else {
+            self.facing
+        };
+        let ox = (self.mouth.0.clamp(0.0, 1.0) - 0.5) * self.w * flip;
+        let oy = (self.mouth.1.clamp(0.0, 1.0) - 0.5) * self.h;
+        let (sn, cs) = self.tilt().to_radians().sin_cos();
+        (self.x + ox * cs - oy * sn, self.y + ox * sn + oy * cs)
     }
 
     /// Tail swing as a fraction of body height; livelier when swimming fast.
@@ -634,6 +660,7 @@ impl Sim {
                 Some(mut f) => {
                     f.sprite = spec.sprite;
                     f.adult = spec.adult;
+                    f.mouth = spec.mouth;
                     Self::apply_size(&mut f, spec);
                     self.clamp_to_water(&mut f);
                     f
@@ -816,6 +843,7 @@ impl Sim {
             school_left: 0.0,
             dash_timer: self.rng.range(8.0, 25.0),
             dash_left: 0.0,
+            mouth: spec.mouth,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -991,6 +1019,10 @@ impl Sim {
             self.step_entering(f, dt);
             return;
         }
+        if let Mode::Eating { left } = f.mode {
+            self.step_eating(f, left, dt);
+            return;
+        }
         let p = f.personality;
         let (mx, my) = f.mouth();
         let activity = self.activity();
@@ -1156,11 +1188,18 @@ impl Sim {
             let (dx, dy) = (tx - mx, ty - my);
             let dist = dx.hypot(dy).max(0.001);
             if let Some(j) = nearest_food
-                && dist < (f.w * 0.18).max(16.0)
+                && dist < EAT_RADIUS
+                && f.speed < f.max_speed * EAT_MAX_SPEED
             {
                 self.food[j].eaten = true;
                 f.hunger = (f.hunger - PELLET_NOURISHMENT).max(0.0);
                 self.eaten_this_step.push((f.id, j));
+                // Stop for a moment to swallow, with a little bubble, so it
+                // reads as eating rather than bumping into the pellet
+                f.mode = Mode::Eating {
+                    left: self.rng.range(0.7, 1.2),
+                };
+                self.blow_bubbles(mx, my, 1, (2.5, 3.5), 0.2);
             }
             if let Mode::Chase { target, left } = f.mode {
                 let left = left - dt;
@@ -1204,7 +1243,7 @@ impl Sim {
                         f.mode = Mode::Idle { left };
                     }
                 }
-                Mode::Wander | Mode::Chase { .. } | Mode::Surface { .. } => {
+                Mode::Wander | Mode::Chase { .. } | Mode::Surface { .. } | Mode::Eating { .. } => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
@@ -1421,6 +1460,27 @@ impl Sim {
         }
     }
 
+    /// Swallowing: the fish holds still for a moment, tail barely moving.
+    fn step_eating(&mut self, f: &mut Fish, left: f32, dt: f32) {
+        f.hunger = (f.hunger + dt * HUNGER_RATE * (0.6 + 0.8 * f.personality.appetite)).min(1.0);
+        let brake = 1.0 - (6.0 * dt).min(1.0);
+        f.vx *= brake;
+        f.vy *= brake;
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+        self.clamp_to_water(f);
+        f.speed = f.vx.hypot(f.vy);
+        f.phase = (f.phase + dt * 1.5) % (TAU * 64.0);
+        let left = left - dt;
+        if left > 0.0 {
+            f.mode = Mode::Eating { left };
+        } else {
+            // Back to whatever it was doing; food still around is noticed again
+            f.mode = Mode::Wander;
+            f.retarget = true;
+        }
+    }
+
     /// A new fish sinks in through the surface, slows down, then starts swimming.
     fn step_entering(&mut self, f: &mut Fish, dt: f32) {
         let settled_y = self.water_top() + f.h * 1.2;
@@ -1460,6 +1520,7 @@ mod tests {
                 aspect: 0.6,
                 scale: 1.0,
                 adult: true,
+                mouth: DEFAULT_MOUTH,
             })
             .collect()
     }
@@ -1524,6 +1585,7 @@ mod tests {
             aspect: 0.9,
             scale: 1.5,
             adult: true,
+            mouth: DEFAULT_MOUTH,
         });
         s.set_population(&next, true);
 
@@ -1548,6 +1610,7 @@ mod tests {
             aspect: 0.6,
             scale: 1.0,
             adult: true,
+            mouth: DEFAULT_MOUTH,
         });
         s.set_population(&next, true);
         let f = s.fish().iter().find(|f| f.id == 50).unwrap();
@@ -1574,6 +1637,7 @@ mod tests {
                     aspect: 0.5,
                     scale: 0.5,
                     adult: true,
+                    mouth: DEFAULT_MOUTH,
                 },
                 FishSpec {
                     id: 2,
@@ -1581,6 +1645,7 @@ mod tests {
                     aspect: 1.2,
                     scale: 2.0,
                     adult: true,
+                    mouth: DEFAULT_MOUTH,
                 },
             ],
             false,
@@ -1869,6 +1934,7 @@ mod tests {
             aspect: 0.6,
             scale: 1.0,
             adult: true,
+            mouth: DEFAULT_MOUTH,
         });
         s.set_population(&next, true);
         let mean_distance = |s: &Sim| {
@@ -1988,6 +2054,7 @@ mod tests {
                     aspect: 0.6,
                     scale: 1.0,
                     adult,
+                    mouth: DEFAULT_MOUTH,
                 },
                 FishSpec {
                     id: 2,
@@ -1995,6 +2062,7 @@ mod tests {
                     aspect: 0.6,
                     scale: 1.0,
                     adult,
+                    mouth: DEFAULT_MOUTH,
                 },
             ],
             false,
@@ -2069,12 +2137,118 @@ mod tests {
             aspect: 0.6,
             scale: 0.4,
             adult: false,
+            mouth: DEFAULT_MOUTH,
         });
         s.set_population(&next, true);
         assert!(s.place_fish(77, 900.0, 600.0));
         let baby = s.fish().iter().find(|f| f.id == 77).unwrap();
         assert!(!baby.entering && (baby.x - 900.0).abs() < 1.0 && (baby.y - 600.0).abs() < 1.0);
         assert!(!s.place_fish(12345, 0.0, 0.0));
+    }
+
+    /// One hungry fish and one pellet held at a spot
+    fn fish_and_pellet(mouth: (f32, f32)) -> Sim {
+        let mut s = Sim::new(31);
+        s.set_population(
+            &[FishSpec {
+                id: 1,
+                sprite: 0,
+                aspect: 0.6,
+                scale: 1.0,
+                adult: true,
+                mouth,
+            }],
+            false,
+        );
+        s.resize(1920.0, 1080.0);
+        let f = &mut s.fish[0];
+        f.hunger = 1.0;
+        f.food_aware = true;
+        s
+    }
+
+    fn hold_pellet(s: &mut Sim, x: f32, y: f32) {
+        if s.food.is_empty() {
+            s.feed(Some(x));
+            s.food.truncate(1);
+        }
+        let p = &mut s.food[0];
+        p.x = x;
+        p.y = y;
+        p.landed = false;
+    }
+
+    #[test]
+    fn a_pellet_on_the_body_is_not_eaten() {
+        let mut s = fish_and_pellet(DEFAULT_MOUTH);
+        // Pin the fish and keep a pellet just behind its mouth, on the head:
+        // close enough that the old body-sized eating range swallowed it
+        for _ in 0..30 * 3 {
+            let (x, y) = (s.fish[0].x, s.fish[0].y);
+            let (mx, my) = s.fish[0].mouth();
+            let facing = s.fish[0].facing;
+            hold_pellet(&mut s, mx - 25.0 * facing, my);
+            s.step(DT, None);
+            assert!(
+                !s.food.is_empty() && !s.food[0].eaten,
+                "eaten by touching the head, not the mouth"
+            );
+            s.fish[0].x = x;
+            s.fish[0].y = y;
+        }
+    }
+
+    #[test]
+    fn eating_happens_at_the_mouth_and_the_fish_pauses() {
+        // A fish whose mouth is marked on its belly, not its nose
+        let mut s = fish_and_pellet((0.6, 0.9));
+        let (px, py) = (900.0, 600.0);
+        let mut eaten_at = None;
+        for n in 0..30 * 20 {
+            hold_pellet(&mut s, px, py);
+            let (mx, my) = s.fish[0].mouth();
+            s.step(DT, None);
+            if s.food.is_empty() {
+                eaten_at = Some((n, mx, my));
+                break;
+            }
+        }
+        let (_, mx, my) = eaten_at.expect("the fish never ate the pellet");
+        assert!(
+            (mx - px).hypot(my - py) < EAT_RADIUS + 3.0,
+            "eaten away from the mouth"
+        );
+        assert!(
+            matches!(s.fish[0].mode, Mode::Eating { .. }),
+            "the fish should stop to eat"
+        );
+        let start = (s.fish[0].x, s.fish[0].y);
+        for _ in 0..15 {
+            s.step(DT, None);
+        }
+        let moved = (s.fish[0].x - start.0).hypot(s.fish[0].y - start.1);
+        assert!(
+            moved < 15.0,
+            "the fish kept swimming while eating ({moved:.0}px)"
+        );
+    }
+
+    #[test]
+    fn the_mouth_turns_with_the_fish() {
+        let mut s = fish_and_pellet(DEFAULT_MOUTH);
+        let f = &mut s.fish[0];
+        f.vx = 0.0;
+        f.vy = 0.0;
+        f.facing = 1.0;
+        f.dir = 1.0;
+        let right = f.mouth().0 - f.x;
+        f.facing = -1.0;
+        f.dir = -1.0;
+        let left = f.mouth().0 - f.x;
+        assert!(
+            right > 0.3 * f.w && left < -0.3 * f.w,
+            "mouth should be at the front: {right:.0} / {left:.0}"
+        );
     }
 
     #[test]
@@ -2216,6 +2390,7 @@ mod tests {
                     aspect: 0.6,
                     scale: 1.0,
                     adult: true,
+                    mouth: DEFAULT_MOUTH,
                 })
                 .collect();
             s.set_population(&specs, false);
@@ -2280,6 +2455,7 @@ mod tests {
                 aspect: 0.6,
                 scale: 1.0,
                 adult: true,
+                mouth: DEFAULT_MOUTH,
             })
             .collect();
         s.set_population(&specs, false);

@@ -61,6 +61,8 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return int(e.placements.size());
     case CharactersRole:
         return m_characters.value(e.id);
+    case MouthRole:
+        return e.mouth;
     case FamilyRole: {
         // "Baby of Orange & Blue · growing 45%" for babies, "" for drawn fish
         if (e.bornAt <= 0)
@@ -79,7 +81,7 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
             {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"},
             {FriendsRole, "friends"}, {RivalsRole, "rivals"}, {KindRole, "kind"},
             {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"},
-            {CharactersRole, "characters"}};
+            {CharactersRole, "characters"}, {MouthRole, "mouth"}};
 }
 
 QVariantMap LibraryModel::get(int row) const

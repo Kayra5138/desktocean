@@ -44,6 +44,9 @@ pub struct DcFishSpec {
     pub scale: f32,
     /// Non-zero for grown-up fish
     pub adult: u32,
+    /// Mouth on the drawing as fractions of width and height; negative = default
+    pub mouth_x: f32,
+    pub mouth_y: f32,
 }
 
 #[repr(C)]
@@ -177,6 +180,11 @@ pub unsafe extern "C" fn dc_sim_set_population(
                     aspect: d.aspect,
                     scale: d.scale,
                     adult: d.adult != 0,
+                    mouth: if d.mouth_x >= 0.0 && d.mouth_y >= 0.0 {
+                        (d.mouth_x, d.mouth_y)
+                    } else {
+                        crate::sim::DEFAULT_MOUTH
+                    },
                 })
                 .collect()
         };
@@ -445,6 +453,8 @@ mod tests {
                     aspect: 0.6,
                     scale: 1.0,
                     adult: 1,
+                    mouth_x: -1.0,
+                    mouth_y: -1.0,
                 })
                 .collect();
             dc_sim_set_population(h, specs.as_ptr(), 7, false);

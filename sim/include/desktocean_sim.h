@@ -48,6 +48,8 @@ typedef struct DcFishSpec {
     float aspect;      // sprite height / width
     float scale;       // size multiplier
     uint32_t adult;    // non-zero once grown up; only adults have babies
+    float mouth_x;     // mouth on the drawing, fraction of width (head right); < 0 = default
+    float mouth_y;     // ... fraction of height
 } DcFishSpec;
 
 // Two fish had a baby at (x, y)

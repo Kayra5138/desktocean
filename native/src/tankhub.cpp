@@ -1,7 +1,11 @@
 #include "tankhub.h"
 #include "fishtank.h"
 
+#include <QAction>
+#include <QIcon>
 #include <QList>
+#include <QMenu>
+#include <QQmlFile>
 
 namespace {
 // All tanks in this process. Plain pointers guarded by QPointer, touched only
@@ -126,6 +130,23 @@ void TankHub::clearFood()
             t->clearFood();
     }
     Q_EMIT stateChanged();
+}
+
+void TankHub::makeSubmenu(QObject *action, const QList<QObject *> &children, const QUrl &icon)
+{
+    auto *parent = qobject_cast<QAction *>(action);
+    if (!parent)
+        return;
+    auto *menu = new QMenu;
+    for (QObject *child : children) {
+        if (auto *a = qobject_cast<QAction *>(child))
+            menu->addAction(a);
+    }
+    parent->setMenu(menu);
+    // The menu has no QObject parent (QAction doesn't own it); tie their lives together
+    connect(parent, &QObject::destroyed, menu, &QObject::deleteLater);
+    if (!icon.isEmpty())
+        parent->setIcon(QIcon(QQmlFile::urlToLocalFileOrQrc(icon)));
 }
 
 bool TankHub::openEditor(const QString &page)

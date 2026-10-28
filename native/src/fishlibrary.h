@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QList>
+#include <QPointF>
 #include <QRect>
 #include <QString>
 #include <QStringList>
@@ -44,6 +45,9 @@ struct FishEntry {
     QList<Placement> placements;           // plants and decorations: where they stand
     qint64 bornAt = 0;                     // babies: when they were born (ms since epoch); 0 = drawn
     QStringList parents;                   // babies: ids of the two parents
+    // Fish: mouth on the sprite as fractions of its width and height (head
+    // right); negative = not marked, guess it from the drawing
+    QPointF mouth{-1, -1};
 
     QString path() const;
     QString wigglePath() const;            // empty when there is no mask
@@ -54,6 +58,7 @@ struct FishEntry {
 struct FishDrawing {
     QImage sprite;
     QImage wiggle;
+    QPointF mouth{-1, -1};   // in sprite pixels; negative = not marked
 };
 
 namespace FishLibrary {
@@ -85,6 +90,10 @@ bool update(const FishEntry &meta, QString *error = nullptr);
 bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *error = nullptr);
 // Mirrors an existing fish (and its wiggle mask) so the head points the other way
 bool flip(const QString &id, QString *error = nullptr);
+
+// Best guess for an unmarked mouth: the front tip of the drawing, at the
+// height of its nose. Fractions of the image (head facing right).
+QPointF guessMouth(const QImage &sprite);
 
 // How grown up a fish is: 1 for drawn fish; babies start at 0.4 and reach
 // 1 after a couple of hours

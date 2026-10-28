@@ -49,7 +49,10 @@ decorations and drop them into the tank.
   (not in Do Not Disturb); when the CPU is busy the current picks up, plants sway harder and more
   bubbles rise. Fish also let out a few bubbles now and then. Both can be turned off
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
-- Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
+- Right-click the desktop → **Desktocean** → Feed fish (drops food above the cursor), Clear food,
+  Draw a fish…, My fish…, Tank layout…, Pause aquarium
+- Fish eat only with their **mouth** (marked in the editor with the Mouth tool, or guessed from the
+  front of the drawing) and stop for a moment to swallow; brushing past food doesn't count
 - Unlimited food; **Clear food** removes it
 - Simulation written in Rust; a panic inside it freezes the aquarium instead of crashing plasmashell
 - Stops ticking and redrawing while a maximized or fullscreen window covers the screen
