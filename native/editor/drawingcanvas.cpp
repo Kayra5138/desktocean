@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QQmlFile>
+#include <QRandomGenerator>
 
 #include <algorithm>
 #include <cmath>
@@ -363,32 +364,45 @@ void DrawingCanvas::loadTemplate(int index)
     contentModified();
 }
 
-QString DrawingCanvas::saveToLibrary(const QString &name, double scale, int count, const QString &style)
+namespace {
+FishEntry entryFromMap(const QVariantMap &m)
+{
+    FishEntry e;
+    e.kind = FishLibrary::kindFromName(m.value(QStringLiteral("kind"), QStringLiteral("fish")).toString());
+    e.name = m.value(QStringLiteral("name")).toString();
+    e.scale = m.value(QStringLiteral("scale"), 1.0).toDouble();
+    e.count = m.value(QStringLiteral("count"), 1).toInt();
+    e.style = m.value(QStringLiteral("swimStyle"), QStringLiteral("classic")).toString();
+    e.sway = m.value(QStringLiteral("sway"), 1.0).toDouble();
+    return e;
+}
+}
+
+QString DrawingCanvas::saveToLibrary(const QVariantMap &meta)
 {
     commitSelection();
-    FishEntry meta;
-    meta.name = name;
-    meta.scale = scale;
-    meta.count = count;
-    meta.style = style;
+    FishEntry entry = entryFromMap(meta);
+    if (entry.kind != FishEntry::Kind::Fish) {
+        // Somewhere on the sand, behind the fish; the layout page moves it
+        Placement p;
+        p.x = 0.15 + 0.7 * QRandomGenerator::global()->generateDouble();
+        entry.placements << p;
+        entry.count = 1;
+    }
     QString error;
-    if (!FishLibrary::add(drawing(), meta, &error))
-        return error.isEmpty() ? QStringLiteral("Could not save the fish") : error;
+    if (!FishLibrary::add(drawing(), entry, &error))
+        return error.isEmpty() ? QStringLiteral("Could not save") : error;
     return {};
 }
 
-QString DrawingCanvas::saveOver(const QString &id, const QString &name, double scale, int count, const QString &style)
+QString DrawingCanvas::saveOver(const QString &id, const QVariantMap &meta)
 {
     commitSelection();
-    FishEntry meta;
-    meta.id = id;
-    meta.name = name;
-    meta.scale = scale;
-    meta.count = count;
-    meta.style = style;
+    FishEntry entry = entryFromMap(meta);
+    entry.id = id;
     QString error;
-    if (!FishLibrary::replaceDrawing(meta, drawing(), &error))
-        return error.isEmpty() ? QStringLiteral("Could not save the fish") : error;
+    if (!FishLibrary::replaceDrawing(entry, drawing(), &error))
+        return error.isEmpty() ? QStringLiteral("Could not save") : error;
     return {};
 }
 

@@ -32,8 +32,10 @@ constexpr int kFoodCell = 32;
 constexpr float kFoodSize = 10.f;
 // How many copies of each starter fish go into a fresh library
 constexpr int kStarterCopies[] = {2, 2, 2, 1};
-// Decorations are sized by height: this fraction of the tank height at scale 1
+// Decorations are sized by height: this fraction of the tank height at scale 1,
+// unless that would make them wider than kDecorMaxWidth of the tank
 constexpr float kDecorHeight = 0.3f;
+constexpr float kDecorMaxWidth = 0.35f;
 
 struct StarterDecor {
     const char *name;
@@ -615,10 +617,11 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         for (const DecorItem &d : m_decor) {
             if (d.placement.front != front || d.sprite >= m_sprites.size())
                 continue;
-            const float h = float(height()) * kDecorHeight * float(d.placement.scale);
-            const FishMesh::DecorPose pose{float(d.placement.x * width()), float(d.placement.y * height()),
-                                           h / m_sprites[d.sprite].aspect, h, d.sway, d.phase, d.placement.flip,
-                                           front ? 0.f : 0.15f};
+            const float aspect = m_sprites[d.sprite].aspect;
+            const float scale = float(d.placement.scale);
+            const float h = std::min(float(height()) * kDecorHeight, float(width()) * kDecorMaxWidth * aspect) * scale;
+            const FishMesh::DecorPose pose{float(d.placement.x * width()), float(d.placement.y * height()), h / aspect, h,
+                                           d.sway, d.phase, d.placement.flip, front ? 0.f : 0.15f};
             FishMesh::writeDecor(pose, m_sprites[d.sprite].uv, float(m_time), v, idx, base);
             v += FishMesh::kVertsPerDecor;
             idx += FishMesh::kIndicesPerDecor;

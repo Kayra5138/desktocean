@@ -80,10 +80,12 @@ qt_add_qml_module(desktocean-editor
         editor/qml/Main.qml
         editor/qml/DrawPage.qml
         editor/qml/LibraryPage.qml
+        editor/qml/TankLayoutPage.qml
     SOURCES
         editor/drawingcanvas.h editor/drawingcanvas.cpp
         editor/librarymodel.h editor/librarymodel.cpp
         editor/swimpreview.h editor/swimpreview.cpp
+        editor/layoutmodel.h editor/layoutmodel.cpp
 )
 target_include_directories(desktocean-editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/editor)
 target_link_libraries(desktocean-editor PRIVATE

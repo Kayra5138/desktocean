@@ -46,6 +46,24 @@ void SwimPreview::setSwimStyle(const QString &style)
     Q_EMIT swimStyleChanged();
 }
 
+void SwimPreview::setKind(const QString &kind)
+{
+    if (kind == m_kind)
+        return;
+    m_kind = kind;
+    update();
+    Q_EMIT kindChanged();
+}
+
+void SwimPreview::setSway(qreal sway)
+{
+    if (qFuzzyCompare(sway, m_sway))
+        return;
+    m_sway = sway;
+    update();
+    Q_EMIT swayChanged();
+}
+
 QVariantList SwimPreview::styles() const
 {
     QVariantList list;
@@ -129,6 +147,24 @@ QSGNode *SwimPreview::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
 
     const bool draw = !m_atlas.isNull() && node->hasAtlas() && width() > 0 && height() > 0;
+    if (m_kind != QLatin1String("fish")) {
+        // Standing on the bottom edge of the preview, swaying if it is a plant
+        quint32 *idx = nullptr;
+        FishMesh::Vertex *v = node->reserve(draw ? FishMesh::kVertsPerDecor : 0, draw ? FishMesh::kIndicesPerDecor : 0, &idx);
+        if (draw) {
+            float h = float(height()) * 0.85f;
+            float w = h / m_aspect;
+            if (w > width() * 0.8f) {
+                w = float(width()) * 0.8f;
+                h = w * m_aspect;
+            }
+            const float sway = m_kind == QLatin1String("plant") ? float(m_sway) : 0.f;
+            const FishMesh::DecorPose pose{float(width()) / 2, float(height()) - 2, w, h, sway, 0.f, false, 0.f};
+            FishMesh::writeDecor(pose, m_uv, m_time, v, idx, 0);
+        }
+        node->commit();
+        return node;
+    }
     quint32 *idx = nullptr;
     FishMesh::Vertex *v = node->reserve(draw ? FishMesh::kVertsPerFish : 0, draw ? FishMesh::kIndicesPerFish : 0, &idx);
     if (draw) {

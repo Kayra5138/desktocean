@@ -91,11 +91,12 @@ public:
     Q_INVOKABLE void loadTemplate(int index);
     // Bucket fill at a point in canvas pixels (900 x 540)
     Q_INVOKABLE void fillAt(qreal x, qreal y);
-    // Crops and adds the drawing to the fish library; returns an error message or ""
-    Q_INVOKABLE QString saveToLibrary(const QString &name, double scale, int count, const QString &style);
-    // Replaces the drawing of library fish `id`; returns an error message or ""
-    Q_INVOKABLE QString saveOver(const QString &id, const QString &name, double scale, int count,
-                                 const QString &style);
+    // Crops and adds the drawing to the library; returns an error message or "".
+    // meta: {kind: "fish"|"plant"|"decor", name, scale, count, swimStyle, sway}.
+    // New plants and decorations get one spot on the sand.
+    Q_INVOKABLE QString saveToLibrary(const QVariantMap &meta);
+    // Replaces the drawing of library entry `id` (keeping its placements); same meta
+    Q_INVOKABLE QString saveOver(const QString &id, const QVariantMap &meta);
 
     void paint(QPainter *painter) override;
 

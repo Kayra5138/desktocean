@@ -21,6 +21,9 @@ class SwimPreview : public QQuickItem
 
     Q_PROPERTY(DrawingCanvas *canvas READ canvas WRITE setCanvas NOTIFY canvasChanged)
     Q_PROPERTY(QString swimStyle READ swimStyle WRITE setSwimStyle NOTIFY swimStyleChanged)
+    // "fish" swims; "plant" stands and sways by `sway`; "decor" just stands
+    Q_PROPERTY(QString kind READ kind WRITE setKind NOTIFY kindChanged)
+    Q_PROPERTY(qreal sway READ sway WRITE setSway NOTIFY swayChanged)
     // [{id, label}] of every swim style, for a ComboBox
     Q_PROPERTY(QVariantList styles READ styles CONSTANT)
 
@@ -32,10 +35,16 @@ public:
     QString swimStyle() const { return m_style; }
     void setSwimStyle(const QString &style);
     QVariantList styles() const;
+    QString kind() const { return m_kind; }
+    void setKind(const QString &kind);
+    qreal sway() const { return m_sway; }
+    void setSway(qreal sway);
 
 Q_SIGNALS:
     void canvasChanged();
     void swimStyleChanged();
+    void kindChanged();
+    void swayChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -48,6 +57,8 @@ private:
 
     QPointer<DrawingCanvas> m_canvas;
     QString m_style = QStringLiteral("classic");
+    QString m_kind = QStringLiteral("fish");
+    qreal m_sway = 1.0;
     QTimer m_refresh;
     QTimer m_timer;
     QElapsedTimer m_clock;

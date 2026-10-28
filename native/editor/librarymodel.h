@@ -22,7 +22,10 @@ class LibraryModel : public QAbstractListModel
     Q_PROPERTY(QString kind READ kind WRITE setKind NOTIFY kindChanged)
 
 public:
-    enum Role { IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole, FriendsRole, RivalsRole };
+    enum Role {
+        IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole,
+        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole
+    };
 
     explicit LibraryModel(QObject *parent = nullptr);
 

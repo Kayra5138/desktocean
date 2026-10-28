@@ -10,7 +10,7 @@ Kirigami.ScrollablePage {
     signal drawNew()
     signal editFish(var fish)
 
-    title: "My aquarium · " + library.swimming + " swimming"
+    title: "My fish · " + library.swimming + " swimming"
 
     LibraryModel {
         id: library

@@ -53,6 +53,12 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return m_friends.value(e.id).join(QStringLiteral(", "));
     case RivalsRole:
         return m_rivals.value(e.id).join(QStringLiteral(", "));
+    case KindRole:
+        return FishLibrary::kindName(e.kind);
+    case SwayRole:
+        return e.sway;
+    case PlacedRole:
+        return int(e.placements.size());
     }
     return {};
 }
@@ -61,7 +67,8 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
 {
     return {{IdRole, "fishId"},   {NameRole, "name"},       {ImageRole, "image"},  {CopiesRole, "copies"},
             {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"},
-            {FriendsRole, "friends"}, {RivalsRole, "rivals"}};
+            {FriendsRole, "friends"}, {RivalsRole, "rivals"}, {KindRole, "kind"},
+            {SwayRole, "sway"},       {PlacedRole, "placed"}};
 }
 
 QVariantMap LibraryModel::get(int row) const

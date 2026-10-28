@@ -9,14 +9,20 @@ Kirigami.Page {
     id: page
 
     signal openLibrary()
+    signal openLayout()
     property alias canvas: canvas
+
+    // What is being drawn: "fish", "plant" or "decor"
+    property string kind: "fish"
+    readonly property bool isFish: kind === "fish"
+    readonly property string kindLabel: kind === "plant" ? "plant" : kind === "decor" ? "decoration" : "fish"
 
     // Set while a fish from the library is open for editing
     property string editingId: ""
     property string editingName: ""
     readonly property bool editing: editingId !== ""
 
-    title: "Draw a fish"
+    title: "Draw a " + kindLabel
     padding: 0
 
     readonly property var swatches: [
@@ -40,20 +46,33 @@ Kirigami.Page {
             showMessage(Kirigami.MessageType.Information, "Make sure the fish faces right. Use Flip if it doesn't.");
     }
 
+    function meta(name) {
+        return {
+            kind: kind,
+            name: name,
+            scale: sizeBox.currentValue,
+            count: isFish ? (editing ? copiesBox.value : Math.max(1, copiesBox.value)) : 1,
+            swimStyle: styleBox.currentValue,
+            sway: swaySlider.value
+        };
+    }
+
     function addToAquarium() {
-        const name = nameField.text.trim() || "Fish";
-        const error = canvas.saveToLibrary(name, sizeBox.currentValue, Math.max(1, copiesBox.value), styleBox.currentValue);
+        const name = nameField.text.trim() || (isFish ? "Fish" : kind === "plant" ? "Plant" : "Decoration");
+        const error = canvas.saveToLibrary(meta(name));
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
         }
-        showMessage(Kirigami.MessageType.Positive, "“" + name + "” is swimming in your aquarium now.");
+        showMessage(Kirigami.MessageType.Positive, isFish
+            ? "“" + name + "” is swimming in your aquarium now."
+            : "“" + name + "” is in the tank. Open Tank layout to move it.");
         resetForm();
     }
 
     function saveChanges() {
         const name = nameField.text.trim() || editingName;
-        const error = canvas.saveOver(editingId, name, sizeBox.currentValue, copiesBox.value, styleBox.currentValue);
+        const error = canvas.saveOver(editingId, meta(name));
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
@@ -62,7 +81,13 @@ Kirigami.Page {
         resetForm();
     }
 
-    // `fish` is a LibraryModel row: {fishId, name, image, wiggle, swimStyle, scale, copies}
+    // Starts a blank drawing of the given kind
+    function startNew(newKind) {
+        resetForm();
+        kind = newKind;
+    }
+
+    // `fish` is a LibraryModel row: {fishId, kind, name, image, wiggle, swimStyle, sway, scale, copies}
     function startEditing(fish) {
         const error = canvas.loadImage(fish.image, fish.wiggle);
         if (error) {
@@ -70,6 +95,8 @@ Kirigami.Page {
             return;
         }
         const scale = fish.scale;
+        kind = fish.kind || "fish";
+        swaySlider.value = fish.sway !== undefined ? fish.sway : 1;
         editingId = fish.fishId;
         editingName = fish.name;
         nameField.text = fish.name;
@@ -98,6 +125,7 @@ Kirigami.Page {
         nameField.clear();
         copiesBox.value = 1;
         styleBox.currentIndex = 0;
+        swaySlider.value = 1;
     }
 
     actions: [
@@ -142,9 +170,14 @@ Kirigami.Page {
             onTriggered: canvas.clear()
         },
         Kirigami.Action {
-            text: "My aquarium"
+            text: "My fish"
             icon.name: "view-list-icons"
             onTriggered: page.openLibrary()
+        },
+        Kirigami.Action {
+            text: "Tank layout"
+            icon.name: "view-grid"
+            onTriggered: page.openLayout()
         }
     ]
 
@@ -164,6 +197,31 @@ Kirigami.Page {
                 width: toolScroll.availableWidth - Kirigami.Units.largeSpacing * 2
                 x: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Kirigami.Units.largeSpacing
+                    spacing: 0
+                    enabled: !page.editing
+                    Repeater {
+                        model: [
+                            { kind: "fish", text: "Fish" },
+                            { kind: "plant", text: "Plant" },
+                            { kind: "decor", text: "Decoration" }
+                        ]
+                        QQC2.Button {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            text: modelData.text
+                            checkable: true
+                            checked: page.kind === modelData.kind
+                            onClicked: {
+                                page.kind = modelData.kind;
+                                canvas.motionMode = false;
+                            }
+                        }
+                    }
+                }
 
                 Kirigami.Heading { text: "Tool"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
                 GridLayout {
@@ -289,13 +347,30 @@ Kirigami.Page {
                     }
                 }
 
-                Kirigami.Heading { text: "Motion"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
+                Kirigami.Heading {
+                    level: 4
+                    Layout.topMargin: Kirigami.Units.largeSpacing
+                    text: page.kind === "decor" ? "Preview" : "Motion"
+                }
                 QQC2.ComboBox {
                     id: styleBox
                     Layout.fillWidth: true
+                    visible: page.isFish
                     model: preview.styles
                     textRole: "label"
                     valueRole: "id"
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: page.kind === "plant"
+                    QQC2.Label { text: "Sway:" }
+                    QQC2.Slider {
+                        id: swaySlider
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 2.5
+                        value: 1
+                    }
                 }
                 Rectangle {
                     Layout.fillWidth: true
@@ -306,22 +381,33 @@ Kirigami.Page {
                         GradientStop { position: 0; color: "#2185a8" }
                         GradientStop { position: 1; color: "#0a2a44" }
                     }
+                    // Sand for plants and decorations to stand on
+                    Rectangle {
+                        visible: !page.isFish
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: Kirigami.Units.smallSpacing * 2
+                        color: "#8f8268"
+                    }
                     SwimPreview {
                         id: preview
                         anchors.fill: parent
                         canvas: canvas
+                        kind: page.kind
+                        sway: swaySlider.value
                         swimStyle: styleBox.currentValue ?? "classic"
                     }
                     QQC2.Label {
                         anchors.centerIn: parent
                         visible: canvas.empty
-                        text: "Your fish will swim here"
+                        text: page.isFish ? "Your fish will swim here" : "Your " + page.kindLabel + " will stand here"
                         color: "white"
                         opacity: 0.7
                     }
                 }
                 QQC2.Button {
                     Layout.fillWidth: true
+                    visible: page.isFish
                     checkable: true
                     checked: canvas.motionMode
                     onToggled: canvas.motionMode = checked
@@ -374,7 +460,7 @@ Kirigami.Page {
                     Layout.fillWidth: true
                     Layout.topMargin: Kirigami.Units.smallSpacing
                     level: 4
-                    text: page.editing ? "Editing “" + page.editingName + "”" : "Your fish"
+                    text: page.editing ? "Editing “" + page.editingName + "”" : "Your " + page.kindLabel
                     elide: Text.ElideRight
                 }
                 QQC2.TextField {
@@ -385,6 +471,8 @@ Kirigami.Page {
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    // Plants and decorations are sized in the tank layout
+                    visible: page.isFish
                     QQC2.Label { text: "Size:" }
                     QQC2.ComboBox {
                         id: sizeBox
@@ -401,6 +489,7 @@ Kirigami.Page {
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: page.isFish
                     QQC2.Label { text: "Copies:" }
                     QQC2.SpinBox {
                         id: copiesBox
@@ -414,7 +503,7 @@ Kirigami.Page {
                 QQC2.Button {
                     Layout.fillWidth: true
                     Layout.bottomMargin: page.editing ? 0 : Kirigami.Units.largeSpacing
-                    text: page.editing ? "Save changes" : "Add to aquarium"
+                    text: page.editing ? "Save changes" : page.isFish ? "Add to aquarium" : "Add to the tank"
                     icon.name: page.editing ? "document-save" : "list-add"
                     highlighted: true
                     enabled: !canvas.empty
@@ -471,7 +560,7 @@ Kirigami.Page {
                 QQC2.Label {
                     x: canvas.x + canvas.viewRect.right - width - Kirigami.Units.largeSpacing
                     y: canvas.y + canvas.viewRect.y + Kirigami.Units.largeSpacing
-                    text: "head this way  →"
+                    text: page.isFish ? "head this way  →" : "bottom stands on the sand  ↓"
                     color: "#555566"
                     opacity: 0.8
                     font.italic: true
@@ -482,8 +571,11 @@ Kirigami.Page {
                     width: parent.width * 0.6
                     visible: canvas.empty
                     icon.name: "draw-brush"
-                    text: "Draw a fish facing right"
-                    explanation: "Or start from a template, or import a picture. Everything transparent becomes water."
+                    text: page.isFish ? "Draw a fish facing right" : "Draw a " + page.kindLabel + " standing upright"
+                    explanation: page.isFish
+                        ? "Or start from a template, or import a picture. Everything transparent becomes water."
+                        : (page.kind === "plant" ? "Its bottom stays put and the top sways in the current." : "It stands still on the sand.")
+                          + " Everything transparent becomes water."
                     // Let strokes through to the canvas
                     enabled: false
                 }

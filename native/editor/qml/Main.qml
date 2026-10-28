@@ -14,6 +14,21 @@ Kirigami.ApplicationWindow {
     pageStack.initialPage: DrawPage {
         id: drawPage
         onOpenLibrary: window.pageStack.push(libraryPage)
+        onOpenLayout: window.pageStack.push(layoutPage)
+    }
+
+    Component {
+        id: layoutPage
+        TankLayoutPage {
+            onDrawNew: kind => {
+                window.pageStack.pop();
+                drawPage.startNew(kind);
+            }
+            onEditScenery: entry => {
+                window.pageStack.pop();
+                drawPage.startEditing(entry);
+            }
+        }
     }
 
     Component {
@@ -29,7 +44,8 @@ Kirigami.ApplicationWindow {
 
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
     // Optional: --swim <style id>, --wiggle-tail, --add-as <name> (saves the drawing to the library),
-    // --select-all, --edit-first (opens the first library fish for editing), --library.
+    // --kind <fish|plant|decor>, --select-all, --edit-first (opens the first library fish for
+    // editing), --library, --layout.
     Timer {
         readonly property var args: Qt.application.arguments
         function arg(name, offset) {
@@ -50,7 +66,9 @@ Kirigami.ApplicationWindow {
             if (args.indexOf("--wiggle-tail") >= 0)
                 drawPage.canvas.paintTailWiggleForTest();
             if (arg("--add-as") !== undefined) {
-                const error = drawPage.canvas.saveToLibrary(arg("--add-as"), 1.0, 1, arg("--swim") || "classic");
+                if (arg("--kind") !== undefined)
+                    drawPage.kind = arg("--kind");
+                const error = drawPage.canvas.saveToLibrary(drawPage.meta(arg("--add-as")));
                 console.log(error ? "add failed: " + error : "added " + arg("--add-as"));
             }
             if (args.indexOf("--select-all") >= 0)
@@ -59,6 +77,8 @@ Kirigami.ApplicationWindow {
                 window.pageStack.push(libraryPage).editFirstForTest();
             if (args.indexOf("--library") >= 0)
                 window.pageStack.push(libraryPage);
+            if (args.indexOf("--layout") >= 0)
+                window.pageStack.push(layoutPage);
             shot.start();
         }
     }
