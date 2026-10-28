@@ -4,17 +4,19 @@ A lightweight, living aquarium wallpaper for KDE Plasma 6. Fish swim behind your
 desktop icons and widgets; later you'll be able to draw your own fish and
 decorations and drop them into the tank.
 
-> Status: **Phase 0b.** Placeholder fish, swimming, feeding, auto-pause, and a
-> Rust simulation core running inside plasmashell. Drawing and decorations are
-> on the roadmap below.
+> Status: **Phase 1.** Placeholder fish with personalities, schooling, feeding,
+> cursor curiosity, auto-pause; Rust simulation and batched rendering inside
+> plasmashell. Drawing and decorations are on the roadmap below.
 
 ## Features (so far)
 
 - Runs as a native Plasma wallpaper plugin, so desktop icons and widgets stay on top and keep working
-- Fish textures bend along the spine in a vertex shader, so a flat drawing swims convincingly
+- Fish sprites bend along the spine, so a flat drawing swims convincingly; all fish and food are drawn in a single draw call
+- Every fish has its own personality: speed, sociability (schooling), curiosity, appetite, restlessness
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
 - Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
-- A curious fish follows the cursor while it moves, and loses interest when it stops
+- Curious fish follow the cursor while it moves, and lose interest when it stops
+- Unlimited food; **Clear food** removes it
 - Simulation written in Rust; a panic inside it freezes the aquarium instead of crashing plasmashell
 - Stops ticking and redrawing while a maximized or fullscreen window covers the screen
 - Capped frame rate (default 30 FPS); zero redraws while paused
@@ -66,18 +68,17 @@ with the aquarium paused against one with it running.
 |---|---|
 | `package/` | The KPackage installed into Plasma |
 | `package/contents/ui/main.qml` | Plasma glue: config, context menu, pause logic |
-| `package/contents/ui/Aquarium.qml` | Scene + simulation (no Plasma imports) |
-| `package/contents/ui/Fish.qml` | One fish (shader-bent texture) |
+| `package/contents/ui/Aquarium.qml` | Scene: water shader, FishTank, diagnostics (no Plasma imports) |
 | `sim/` | Rust simulation core (static library, C ABI in `sim/include/`) |
-| `native/` | C++ QML plugin `Desktocean.Core`: wraps the core, exposes the cursor |
-| `shaders/` | GLSL sources, compiled to `.qsb` into the package |
+| `native/` | C++ QML plugin `Desktocean.Core`: `FishTank` ticks the core, reads the cursor, batch-renders sprites |
+| `shaders/` | Water shader source, compiled to `.qsb` into the package |
 | `scripts/` | Install, build, reload and measure helpers |
 | `dev/preview.qml` | Standalone preview window |
 
 ## Roadmap
 
 1. ~~**Phase 0b** — load a Rust module from inside plasmashell~~
-2. **Phase 1** — Rust simulation (boids, personalities), batched fish rendering
+2. ~~**Phase 1** — Rust simulation (boids, personalities), batched fish rendering~~
 3. **Phase 2** — drawing editor and PNG import
 4. **Phase 3** — behaviour: feeding, cursor curiosity, friendships
 5. **Phase 4** — swaying plants, rocks, coral, themes

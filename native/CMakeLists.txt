@@ -7,7 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Qml Quick)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Qml Quick ShaderTools)
 find_package(Threads REQUIRED)
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -37,8 +37,14 @@ qt_add_qml_module(desktocean_core
     PLUGIN_TARGET desktocean_core
     OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml/Desktocean/Core
     SOURCES
-        src/cursor.h src/cursor.cpp
-        src/simulation.h src/simulation.cpp
+        src/fishtank.h src/fishtank.cpp
+)
+
+qt_add_shaders(desktocean_core "desktocean_core_shaders"
+    PREFIX "/desktocean"
+    FILES
+        shaders/fishbatch.vert
+        shaders/fishbatch.frag
 )
 
 add_dependencies(desktocean_core desktocean_sim_cargo)
