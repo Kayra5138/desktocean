@@ -44,7 +44,7 @@ Kirigami.ScrollablePage {
 
         readonly property int columns: Math.max(1, Math.floor(width / (Kirigami.Units.gridUnit * 14)))
         cellWidth: Math.floor(width / columns)
-        cellHeight: Kirigami.Units.gridUnit * 15
+        cellHeight: Kirigami.Units.gridUnit * 16
 
         delegate: Item {
             id: cell
@@ -58,6 +58,7 @@ Kirigami.ScrollablePage {
             required property string friends
             required property string rivals
             required property string family
+            required property string characters
 
             width: grid.cellWidth
             height: grid.cellHeight
@@ -112,6 +113,14 @@ Kirigami.ScrollablePage {
                     level: 4
                     text: card.name
                     elide: Text.ElideRight
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: cell.characters !== ""
+                    text: "Character: " + cell.characters
+                    elide: Text.ElideRight
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.8
                 }
                 QQC2.Label {
                     Layout.fillWidth: true

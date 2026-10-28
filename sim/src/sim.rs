@@ -22,8 +22,18 @@ const TURN_COOLDOWN: f32 = 1.2;
 const TURN_RATE: f32 = 6.0;
 /// Fastest a fish swims backwards, as a fraction of its top speed.
 const BACKUP_SPEED: f32 = 0.3;
-/// Neighbours within this distance (and similar depth) influence schooling.
-const SCHOOL_RADIUS: f32 = 320.0;
+/// Fish of the same kind within this distance can school together.
+const SCHOOL_RADIUS: f32 = 600.0;
+/// Chance per second (times sociability) that a fish with its own kind nearby starts a school.
+const SCHOOL_START_PER_SEC: f32 = 1.0 / 90.0;
+/// Wander targets avoid spots within about this distance of other fish.
+const CROWD_RADIUS: f32 = 320.0;
+/// The cursor has to stay this close to a fish...
+const CURSOR_NOTICE_RADIUS: f32 = 220.0;
+/// ...for this long before a curious fish notices it.
+const CURSOR_DWELL_SECS: f32 = 1.0;
+/// A follower loses track of a cursor farther away than this.
+const CURSOR_LOSE_RADIUS: f32 = 700.0;
 /// Downward pull on a newly added fish dropping in through the surface, px/s².
 const ENTRY_GRAVITY: f32 = 260.0;
 /// Hunger gained per second (full to starving in about half an hour), scaled by appetite.
@@ -73,9 +83,66 @@ pub struct FishSpec {
     pub adult: bool,
 }
 
+/// What kind of fish it is at heart; shapes where it swims and how it behaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Character {
+    /// Roams far across the whole tank, quick
+    Explorer,
+    /// Keeps to its own patch of the tank
+    Homebody,
+    /// Stays low, near the sand, unhurried
+    Bottom,
+    /// Stays in the upper water
+    Skimmer,
+    /// Rests a lot, swims slowly
+    Lazy,
+    /// Now and then darts off in a quick burst
+    Playful,
+    /// Keeps its distance from other fish and swims away from the cursor
+    Shy,
+}
+
+impl Character {
+    const ALL: [Character; 7] = [
+        Character::Explorer,
+        Character::Homebody,
+        Character::Bottom,
+        Character::Skimmer,
+        Character::Lazy,
+        Character::Playful,
+        Character::Shy,
+    ];
+
+    fn random(rng: &mut Rng) -> Self {
+        Self::ALL[(rng.unit() * Self::ALL.len() as f32) as usize % Self::ALL.len()]
+    }
+
+    /// Stable number for the C ABI (see DC_CHARACTER_* in the header)
+    pub fn index(self) -> u32 {
+        Self::ALL.iter().position(|c| *c == self).unwrap_or(0) as u32
+    }
+
+    /// Preferred slice of the water column, 0 = surface .. 1 = sand.
+    fn band(self, rng: &mut Rng) -> (f32, f32) {
+        match self {
+            Character::Bottom => (0.6, 1.0),
+            Character::Skimmer => (0.0, 0.4),
+            // Everyone else gets a personal half of the column, centred
+            // anywhere in it, so together they fill it evenly
+            _ => {
+                let centre = rng.unit();
+                ((centre - 0.25).max(0.0), (centre + 0.25).min(1.0))
+            }
+        }
+    }
+}
+
 /// Fixed traits rolled when a fish is created.
 #[derive(Debug, Clone, Copy)]
 pub struct Personality {
+    pub character: Character,
+    /// 0..1, how quickly it notices food appearing
+    pub alertness: f32,
     /// Multiplier on top speed
     pub speed: f32,
     /// 0..1, how strongly it sticks to and aligns with nearby fish
@@ -90,17 +157,52 @@ pub struct Personality {
 
 impl Personality {
     fn random(rng: &mut Rng) -> Self {
-        Self {
+        let mut p = Self {
+            character: Character::random(rng),
+            alertness: rng.unit(),
             speed: rng.range(0.8, 1.2),
             sociability: rng.unit(),
             curiosity: rng.unit(),
             appetite: rng.range(0.2, 1.0),
             restlessness: rng.unit(),
+        };
+        // The character nudges the dice
+        match p.character {
+            Character::Explorer => {
+                p.restlessness = p.restlessness.max(0.7);
+                p.speed *= 1.1;
+                p.curiosity += 0.2;
+            }
+            Character::Homebody => p.restlessness *= 0.7,
+            Character::Bottom => {
+                p.speed *= 0.85;
+                p.curiosity *= 0.7;
+            }
+            Character::Skimmer => p.alertness += 0.2,
+            Character::Lazy => {
+                p.restlessness *= 0.3;
+                p.speed *= 0.8;
+                p.alertness *= 0.6;
+            }
+            Character::Playful => {
+                p.restlessness = p.restlessness.max(0.6);
+                p.curiosity += 0.3;
+                p.sociability += 0.2;
+            }
+            Character::Shy => {
+                p.curiosity *= 0.3;
+                p.sociability *= 0.5;
+            }
         }
+        p.alertness = p.alertness.clamp(0.0, 1.0);
+        p.curiosity = p.curiosity.clamp(0.0, 1.0);
+        p.sociability = p.sociability.clamp(0.0, 1.0);
+        p
     }
 
+    /// Curious, not shy: notices a cursor that lingers nearby and follows it a while
     pub fn follows_cursor(&self) -> bool {
-        self.curiosity >= 0.55
+        self.curiosity >= 0.55 && self.character != Character::Shy
     }
 }
 
@@ -158,6 +260,27 @@ pub struct Fish {
     pub adult: bool,
     /// Seconds (of life time) until it may have another baby
     birth_cooldown: f32,
+    /// Preferred slice of the water column (0 = surface .. 1 = sand)
+    band: (f32, f32),
+    /// Homebodies stay around here (fractions of the tank)
+    home: (f32, f32),
+    /// Has noticed the food that is in the tank right now
+    food_aware: bool,
+    /// Seconds until it notices food; negative while not counting
+    notice_in: f32,
+    /// How long the cursor has lingered near this fish
+    cursor_near: f32,
+    /// Seconds left following the cursor
+    follow_left: f32,
+    /// Seconds before it can take an interest in the cursor again
+    follow_cooldown: f32,
+    /// Shy fish: seconds left swimming away from the cursor
+    flee_left: f32,
+    /// Seconds left schooling with its own kind
+    school_left: f32,
+    /// Playful fish: seconds until the next dash, and seconds left in one
+    dash_timer: f32,
+    dash_left: f32,
 }
 
 impl Fish {
@@ -238,6 +361,10 @@ impl Food {
 #[derive(Clone, Copy)]
 struct Neighbour {
     id: u64,
+    /// Same sprite = same kind of fish
+    sprite: u32,
+    schooling: bool,
+    entering: bool,
     /// Rival this fish is chasing right now, if any
     chasing: Option<u64>,
     x: f32,
@@ -333,9 +460,9 @@ impl Sim {
         &self.food
     }
 
-    /// Whether curious fish are currently following the cursor.
+    /// Whether any fish is following the cursor right now.
     pub fn lure_active(&self) -> bool {
-        self.pointer_anchor.is_some() && self.pointer_still_for < POINTER_INTEREST_SECS
+        self.fish.iter().any(|f| f.follow_left > 0.0)
     }
 
     pub fn clear_food(&mut self) {
@@ -528,6 +655,9 @@ impl Sim {
             && let Some(first) = list.first_mut()
         {
             first.personality.curiosity = 0.8;
+            if first.personality.character == Character::Shy {
+                first.personality.character = Character::Explorer;
+            }
         }
         self.fish = list;
     }
@@ -537,32 +667,91 @@ impl Sim {
         f.h = f.w * spec.aspect.clamp(0.15, 1.5);
     }
 
-    /// Picks the next wander target, usually ahead so fish don't keep turning.
+    /// Picks the next wander target from a few candidates: within the fish's
+    /// range and depth band (both from its character), mostly ahead so it
+    /// doesn't keep turning, and in the least crowded spot so the fish spread
+    /// out over the whole tank instead of bunching up.
     fn pick_target(&mut self, f: &mut Fish) {
         let (wt, st) = (self.water_top(), self.sand_top());
         let (lo, hi) = (f.w * 0.6, (self.width - f.w * 0.6).max(f.w * 0.6 + 1.0));
-        let span = self.rng.range(0.15, 0.5) * self.width;
-        let ahead = if self.rng.chance(0.8) { 1.0 } else { -1.0 };
-        let mut tx = f.x + f.dir * ahead * span;
-        if !(lo..=hi).contains(&tx) {
-            // Would leave the tank: head the other way instead.
-            tx = f.x - f.dir * ahead * span;
-        }
-        f.tx = tx.clamp(lo, hi);
-
         let (top, bottom) = (wt + f.h, (st - f.h * 0.7).max(wt + f.h + 1.0));
-        let mut ty = f.y + self.rng.range(-0.25, 0.25) * self.height;
-        let night = 1.0 - self.daylight;
-        if night > 0.5 {
-            // Rest in the lower part of the tank
-            ty = bottom - self.rng.range(0.0, 0.3) * (bottom - top);
+        let water = bottom - top;
+
+        let (mut band_lo, mut band_hi) = f.band;
+        if self.daylight < 0.5 {
+            // Night: everyone settles into the lower part
+            band_lo = band_lo.max(0.55);
+            band_hi = band_hi.max(band_lo + 0.25).min(1.0);
         } else if f.hunger > 0.7 {
-            // Hungry fish look for food near the surface
-            ty = top + self.rng.range(0.0, 0.35) * (bottom - top);
+            // Hungry fish look for food higher up
+            band_lo = 0.0;
+            band_hi = band_hi.clamp(0.25, 0.5);
         }
-        f.ty = ty.clamp(top, bottom);
-        f.cruise = self.rng.range(0.45, 1.0) * f.max_speed;
+        let character = f.personality.character;
+        let (span_lo, span_hi) = match character {
+            Character::Explorer => (0.35, 0.85),
+            Character::Lazy => (0.08, 0.25),
+            _ => (0.15, 0.5),
+        };
+
+        let candidates = if character == Character::Explorer {
+            6
+        } else {
+            4
+        };
+        let mut best = (f.x, f.y, f32::INFINITY);
+        for _ in 0..candidates {
+            let x = if character == Character::Homebody {
+                f.home.0 * self.width + self.rng.range(-0.15, 0.15) * self.width
+            } else if self.rng.chance(0.5) {
+                // Anywhere across the tank, weighted toward the sides: fish
+                // travelling between random points pass through the middle
+                // far more often, so the sides need the extra pull
+                lo + (hi - lo) * 0.5 * (1.0 - (std::f32::consts::PI * self.rng.unit()).cos())
+            } else {
+                let span = self.rng.range(span_lo, span_hi) * self.width;
+                let ahead = if self.rng.chance(0.75) { 1.0 } else { -1.0 };
+                let x = f.x + f.dir * ahead * span;
+                // Would leave the tank: head the other way instead
+                if (lo..=hi).contains(&x) {
+                    x
+                } else {
+                    f.x - f.dir * ahead * span
+                }
+            }
+            .clamp(lo, hi);
+            let y = if character == Character::Homebody && self.daylight >= 0.5 {
+                top + (f.home.1 + self.rng.range(-0.15, 0.15)).clamp(0.0, 1.0) * water
+            } else {
+                top + self.rng.range(band_lo, band_hi) * water
+            };
+            let score = self.crowding(f.id, x, y) + self.rng.range(0.0, 0.3);
+            if score < best.2 {
+                best = (x, y, score);
+            }
+        }
+        f.tx = best.0;
+        f.ty = best.1.clamp(top, bottom);
+        let lazy = if character == Character::Lazy {
+            0.7
+        } else {
+            1.0
+        };
+        f.cruise = self.rng.range(0.45, 1.0) * f.max_speed * lazy;
         f.mode = Mode::Wander;
+    }
+
+    /// How busy a spot is: ~1 per fish right there, fading out over CROWD_RADIUS.
+    fn crowding(&self, me: u64, x: f32, y: f32) -> f32 {
+        let r2 = 2.0 * CROWD_RADIUS * CROWD_RADIUS;
+        self.fish
+            .iter()
+            .filter(|g| g.id != me)
+            .map(|g| {
+                let d2 = (g.x - x).powi(2) + (g.y - y).powi(2);
+                (-d2 / r2).exp()
+            })
+            .sum()
     }
 
     fn clamp_to_water(&self, f: &mut Fish) {
@@ -581,7 +770,11 @@ impl Sim {
         let depth = self.rng.unit();
         let base_w = self.rng.range(150.0, 230.0) * (1.0 - 0.45 * depth);
         let dir = if self.rng.chance(0.5) { -1.0 } else { 1.0 };
-        let personality = Personality::random(&mut self.rng);
+        // Who a fish is comes from its id, so it keeps its character, depth
+        // band and home across restarts (the editor shows the character)
+        let mut traits =
+            Rng::new(spec.id.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xD6E8_FEB8_6659_FD93);
+        let personality = Personality::random(&mut traits);
         let mut f = Fish {
             id: spec.id,
             sprite: spec.sprite,
@@ -612,6 +805,17 @@ impl Sim {
             bubble_timer: self.rng.range(20.0, 120.0),
             adult: spec.adult,
             birth_cooldown: self.rng.range(0.3, 1.0) * BIRTH_COOLDOWN,
+            band: personality.character.band(&mut traits),
+            home: (traits.range(0.1, 0.9), traits.range(0.15, 0.85)),
+            food_aware: false,
+            notice_in: -1.0,
+            cursor_near: 0.0,
+            follow_left: 0.0,
+            follow_cooldown: 0.0,
+            flee_left: 0.0,
+            school_left: 0.0,
+            dash_timer: self.rng.range(8.0, 25.0),
+            dash_left: 0.0,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -695,9 +899,8 @@ impl Sim {
         self.update_bubbles(dt);
 
         let (wt, st) = (self.water_top(), self.sand_top());
-        // Nobody plays with the cursor at night
-        let lure =
-            pointer.filter(|&(_, y)| self.lure_active() && self.daylight > 0.3 && y > wt && y < st);
+        // The cursor, when it is in the water; nobody plays with it at night
+        let lure = pointer.filter(|&(_, y)| self.daylight > 0.3 && y > wt && y < st);
 
         for (_, left) in &mut self.newcomers {
             *left -= dt;
@@ -712,6 +915,9 @@ impl Sim {
             .iter()
             .map(|g| Neighbour {
                 id: g.id,
+                sprite: g.sprite,
+                schooling: g.school_left > 0.0,
+                entering: g.entering,
                 chasing: match g.mode {
                     Mode::Chase { target, .. } => Some(target),
                     _ => None,
@@ -799,10 +1005,32 @@ impl Sim {
         f.hunger = (f.hunger + dt * HUNGER_RATE * (0.6 + 0.8 * p.appetite)).min(1.0);
         f.chase_cooldown = (f.chase_cooldown - dt).max(0.0);
 
-        // Full fish ignore food. Hungry fish notice it from across the tank,
+        // Food is noticed with a delay that depends on how alert the fish is
+        // and how far away the food is, so not everyone rushes at once.
+        let closest_pellet = self
+            .food
+            .iter()
+            .filter(|food| !food.eaten)
+            .map(|food| (food.x - mx).hypot(food.y - my))
+            .fold(f32::INFINITY, f32::min);
+        if !closest_pellet.is_finite() || f.hunger <= FULL {
+            f.food_aware = false;
+            f.notice_in = -1.0;
+        } else if !f.food_aware {
+            if f.notice_in < 0.0 {
+                let reaction = 0.3 + (1.0 - p.alertness) * 3.5 + self.rng.range(0.0, 2.0);
+                f.notice_in = reaction * (1.0 + closest_pellet / self.width);
+            } else {
+                f.notice_in -= dt;
+                f.food_aware = f.notice_in <= 0.0;
+            }
+        }
+
+        // Full fish ignore food. Hungry fish go for it from across the tank,
         // picky ones only nearby. Pellets behind the fish count as farther
-        // away, so it prefers to keep going rather than turn for every crumb.
-        let notice = if f.hunger > FULL {
+        // away, so it prefers to keep going rather than turn for every crumb,
+        // and pellets others are already after count as farther too.
+        let notice = if f.food_aware {
             250.0 + (0.5 * p.appetite + f.hunger) * self.width
         } else {
             0.0
@@ -816,10 +1044,44 @@ impl Sim {
             .filter(|&(_, d)| d < notice)
             .map(|(j, d)| {
                 let behind = (self.food[j].x - f.x) * f.dir < 0.0;
-                (j, if behind { d + f.w * 2.0 } else { d })
+                let taken = self.food_targets[..index]
+                    .iter()
+                    .filter(|t| **t == Some(j))
+                    .count() as f32;
+                (j, d + if behind { f.w * 2.0 } else { 0.0 } + taken * 150.0)
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(j, _)| j);
+
+        // The cursor: a curious fish notices it only once it has lingered
+        // close by for a moment, then follows it for a while; shy fish swim off.
+        let cursor_dist = lure.map(|(px, py)| (px - f.x).hypot(py - f.y));
+        match cursor_dist {
+            Some(d) if d < CURSOR_NOTICE_RADIUS => f.cursor_near += dt,
+            Some(_) => f.cursor_near = (f.cursor_near - 2.0 * dt).max(0.0),
+            None => f.cursor_near = 0.0,
+        }
+        f.follow_cooldown = (f.follow_cooldown - dt).max(0.0);
+        f.flee_left = (f.flee_left - dt).max(0.0);
+        if f.follow_left > 0.0 {
+            // Losing track: the cursor left the water, went far away or stopped moving
+            let lost = cursor_dist.is_none_or(|d| d > CURSOR_LOSE_RADIUS)
+                || self.pointer_still_for > POINTER_INTEREST_SECS;
+            f.follow_left -= dt * if lost { 4.0 } else { 1.0 };
+            if f.follow_left <= 0.0 {
+                f.follow_left = 0.0;
+                f.follow_cooldown = 8.0;
+                f.cursor_near = 0.0;
+            }
+        } else if p.follows_cursor()
+            && f.cursor_near >= CURSOR_DWELL_SECS
+            && f.follow_cooldown == 0.0
+        {
+            f.follow_left = 5.0 + 10.0 * p.curiosity;
+        } else if p.character == Character::Shy && f.cursor_near >= 0.6 {
+            f.flee_left = 2.0;
+            f.cursor_near = 0.0;
+        }
 
         self.food_targets[index] = nearest_food;
 
@@ -870,7 +1132,7 @@ impl Sim {
             ))
         } else if let Some(r) = rival {
             Some((r.x, r.y, f.max_speed * 1.3))
-        } else if let (true, Some((px, py))) = (p.follows_cursor(), lure) {
+        } else if let (true, Some((px, py))) = (f.follow_left > 0.0, lure) {
             Some((px - f.dir * 40.0, py, f.max_speed * 1.1))
         } else if let Some(n) = newcomer {
             // Gather in a loose ring around the newcomer
@@ -964,7 +1226,31 @@ impl Sim {
                     let arrive = (dist / 90.0).min(1.0);
                     des_x = dx / dist * f.cruise * activity * arrive;
                     des_y = dy / dist * f.cruise * activity * arrive;
+
+                    // Playful fish dash off now and then
+                    if p.character == Character::Playful && self.daylight > 0.4 {
+                        f.dash_timer -= dt;
+                        if f.dash_timer <= 0.0 {
+                            f.dash_timer = self.rng.range(8.0, 25.0);
+                            f.dash_left = 0.8;
+                        }
+                    }
+                    if f.dash_left > 0.0 {
+                        f.dash_left -= dt;
+                        des_x = f.dir * f.max_speed * 2.2;
+                    }
                 }
+            }
+
+            // Shy fish swim away from a cursor that comes too close
+            if f.flee_left > 0.0
+                && let Some((px, py)) = lure
+            {
+                // A startled burst, faster than everyday swimming
+                let (sx, sy) = (f.x - px, f.y - py);
+                let d = sx.hypot(sy).max(1.0);
+                des_x += sx / d * f.max_speed * 2.0;
+                des_y += sy / d * f.max_speed * 1.2;
             }
 
             // Friends swim side by side
@@ -995,24 +1281,41 @@ impl Sim {
                 }
             }
 
-            // Schooling: drift toward and align with nearby fish at a similar depth.
-            let (mut n, mut cx, mut cy, mut cvx, mut cvy) = (0.0, 0.0, 0.0, 0.0, 0.0);
-            for (k, g) in others.iter().enumerate() {
-                if k == index || (g.depth - f.depth).abs() > 0.3 {
-                    continue;
+            // Schooling, only with their own kind (same drawing) and only now
+            // and then: a fish may start a school, and nearby mates join in.
+            f.school_left = (f.school_left - dt).max(0.0);
+            let (fx, fy, kind) = (f.x, f.y, f.sprite);
+            let mates = || {
+                others.iter().enumerate().filter(move |(k, g)| {
+                    *k != index
+                        && g.sprite == kind
+                        && !g.entering
+                        && (g.x - fx).hypot(g.y - fy) < SCHOOL_RADIUS
+                })
+            };
+            if f.school_left == 0.0 && matches!(f.mode, Mode::Wander) && mates().next().is_some() {
+                let mate_schooling = mates().any(|(_, g)| g.schooling);
+                let start = SCHOOL_START_PER_SEC * p.sociability * dt;
+                if self
+                    .rng
+                    .chance(if mate_schooling { 0.5 * dt } else { start })
+                {
+                    f.school_left = self.rng.range(30.0, 90.0);
                 }
-                if (g.x - f.x).hypot(g.y - f.y) < SCHOOL_RADIUS {
+            }
+            if f.school_left > 0.0 && matches!(f.mode, Mode::Wander) {
+                let (mut n, mut cx, mut cy, mut cvx, mut cvy) = (0.0, 0.0, 0.0, 0.0, 0.0);
+                for (_, g) in mates() {
                     n += 1.0;
                     cx += g.x;
                     cy += g.y;
                     cvx += g.vx;
                     cvy += g.vy;
                 }
-            }
-            if n > 0.0 && matches!(f.mode, Mode::Wander) {
-                let s = p.sociability;
-                des_x += (cx / n - f.x) * 0.12 * s + (cvx / n - f.vx) * 0.5 * s;
-                des_y += (cy / n - f.y) * 0.12 * s + (cvy / n - f.vy) * 0.5 * s;
+                if n > 0.0 {
+                    des_x += (cx / n - f.x) * 0.2 + (cvx / n - f.vx) * 0.8;
+                    des_y += (cy / n - f.y) * 0.2 + (cvy / n - f.vy) * 0.8;
+                }
             }
         }
 
@@ -1023,7 +1326,13 @@ impl Sim {
             }
             let (sx, sy) = (f.x - g.x, (f.y - g.y) * 1.6);
             let d = sx.hypot(sy);
-            let min_d = (f.w + g.w) * 0.38;
+            // Shy fish keep a wider berth
+            let shy = if p.character == Character::Shy {
+                1.7
+            } else {
+                1.0
+            };
+            let min_d = (f.w + g.w) * 0.38 * shy;
             if d > 0.001 && d < min_d {
                 des_x += sx / d * (min_d - d) * 1.5;
                 des_y += sy / d * (min_d - d) * 1.5;
@@ -1060,7 +1369,13 @@ impl Sim {
         f.vx += (des_x - f.vx) * k;
         f.vy += (des_y - f.vy) * k;
         // Mostly horizontal swimmers, except when heading up to the surface
-        let climb = if surface.is_some() { 1.5 } else { 0.55 };
+        let climb = if surface.is_some() {
+            1.5
+        } else if f.flee_left > 0.0 {
+            1.0
+        } else {
+            0.55
+        };
         f.vy = f.vy.clamp(-climb * f.max_speed, climb * f.max_speed);
 
         f.x += f.vx * dt;
@@ -1158,6 +1473,28 @@ mod tests {
 
     fn sim() -> Sim {
         sim_with(42, 7, 1920.0, 1080.0)
+    }
+
+    #[test]
+    fn a_fish_keeps_its_character_across_restarts() {
+        let a = sim_with(1, 7, 1920.0, 1080.0);
+        let b = sim_with(999, 7, 1920.0, 1080.0);
+        for (fa, fb) in a.fish().iter().zip(b.fish()) {
+            assert_eq!(fa.personality.character, fb.personality.character);
+            assert_eq!(fa.band, fb.band);
+        }
+        // ...while different fish still get different characters
+        let s = sim_with(1, 30, 1920.0, 1080.0);
+        let kinds: HashSet<u32> = s
+            .fish()
+            .iter()
+            .map(|f| f.personality.character.index())
+            .collect();
+        assert!(
+            kinds.len() >= 5,
+            "only {} different characters among 30 fish",
+            kinds.len()
+        );
     }
 
     #[test]
@@ -1545,12 +1882,13 @@ mod tests {
             d / 8.0
         };
         let before = mean_distance(&s);
-        for _ in 0..30 * 6 {
+        // For as long as a newcomer stays interesting
+        for _ in 0..30 * 8 {
             s.step(DT, None);
         }
         let after = mean_distance(&s);
         assert!(
-            after < before * 0.7,
+            after < before * 0.75,
             "the others did not come closer: {before:.0} -> {after:.0}"
         );
     }
@@ -1781,35 +2119,221 @@ mod tests {
         assert!(worst < 0.5, "a fish stayed mid-turn for {worst:.2}s");
     }
 
-    #[test]
-    fn curious_fish_approaches_moving_cursor_then_gets_bored() {
-        let mut s = sim();
-        let target = (300.0, 500.0);
-        let follower = s
-            .fish()
-            .iter()
-            .position(|f| f.personality.follows_cursor())
-            .unwrap();
-        // Slow circular drag (~1 px per frame) must still count as movement.
-        for n in 0..30 * 25 {
-            let a = n as f32 * 0.02;
-            s.step(
-                DT,
-                Some((target.0 + 30.0 * a.cos(), target.1 + 30.0 * a.sin())),
-            );
-            if n > 30 {
-                assert!(s.lure_active(), "slow movement not detected at frame {n}");
-            }
-        }
-        let f = &s.fish()[follower];
-        let near = (f.x - target.0).hypot(f.y - target.1);
-        assert!(near < 150.0, "curious fish did not approach: {near}px away");
+    /// A cursor circling slowly around (x, y), as a hand on the mouse would
+    fn wiggle(n: usize, x: f32, y: f32) -> Option<(f32, f32)> {
+        let a = n as f32 * 0.15;
+        Some((x + 25.0 * a.cos(), y + 25.0 * a.sin()))
+    }
 
-        // Cursor held still: interest fades after POINTER_INTEREST_SECS.
-        for _ in 0..30 * 5 {
+    fn make(s: &mut Sim, id: u64, character: Character, curiosity: f32) {
+        let f = s.fish.iter_mut().find(|f| f.id == id).unwrap();
+        f.personality.character = character;
+        f.personality.curiosity = curiosity;
+        f.hunger = 0.0;
+    }
+
+    #[test]
+    fn cursor_must_linger_before_a_curious_fish_follows() {
+        let mut s = sim_with(5, 2, 1920.0, 1080.0);
+        make(&mut s, 1, Character::Explorer, 0.9);
+        make(&mut s, 2, Character::Lazy, 0.1);
+        // Park both fish together and hold the cursor right on them
+        for f in s.fish.iter_mut() {
+            f.x = 900.0;
+            f.y = 500.0;
+        }
+        let (x, y) = (900.0, 500.0);
+        for n in 0..15 {
+            s.fish.iter_mut().for_each(|f| (f.x, f.y) = (x, y));
+            s.step(DT, wiggle(n, x, y));
+        }
+        assert!(
+            !s.lure_active(),
+            "half a second is not enough to notice the cursor"
+        );
+        for n in 15..45 {
+            s.fish.iter_mut().for_each(|f| (f.x, f.y) = (x, y));
+            s.step(DT, wiggle(n, x, y));
+        }
+        let follows = |s: &Sim, id| s.fish().iter().find(|f| f.id == id).unwrap().follow_left > 0.0;
+        assert!(
+            follows(&s, 1),
+            "the curious fish should follow after a second"
+        );
+        assert!(!follows(&s, 2), "an incurious fish never follows");
+
+        // It follows the cursor as it moves away...
+        let target = (400.0, 300.0);
+        for n in 0..30 * 6 {
+            let t = (n as f32 / 60.0).min(1.0);
+            let (cx, cy) = (x + (target.0 - x) * t, y + (target.1 - y) * t);
+            s.step(DT, wiggle(n, cx, cy));
+        }
+        let f = s.fish().iter().find(|f| f.id == 1).unwrap();
+        assert!(
+            (f.x - target.0).hypot(f.y - target.1) < 250.0,
+            "follower should have come along"
+        );
+        // ...and gives up once the cursor stops moving for a while
+        for _ in 0..30 * 8 {
             s.step(DT, Some(target));
         }
-        assert!(!s.lure_active());
+        assert!(
+            !follows(&s, 1),
+            "interest fades when the cursor is left alone"
+        );
+    }
+
+    #[test]
+    fn shy_fish_swim_away_from_a_lingering_cursor() {
+        let mut s = sim_with(6, 1, 1920.0, 1080.0);
+        make(&mut s, 1, Character::Shy, 0.9);
+        s.fish[0].x = 900.0;
+        s.fish[0].y = 500.0;
+        for n in 0..30 * 3 {
+            s.step(DT, wiggle(n, 900.0, 500.0));
+        }
+        let f = &s.fish()[0];
+        assert!(f.follow_left == 0.0, "shy fish never follow");
+        assert!(
+            (f.x - 900.0).hypot(f.y - 500.0) > 150.0,
+            "shy fish should have moved off"
+        );
+    }
+
+    #[test]
+    fn fish_spread_over_the_whole_tank() {
+        // Fraction of fish-time spent in each third of the width and height
+        let (mut cols, mut rows, mut n) = ([0.0f32; 3], [0.0f32; 3], 0.0);
+        for seed in 1..6 {
+            // Characters come from the fish ids: use different fish every
+            // round so this averages over many mixes of characters
+            let mut s = Sim::new(seed);
+            let specs: Vec<FishSpec> = (0..12)
+                .map(|k| FishSpec {
+                    id: seed * 100 + k,
+                    sprite: (k % 4) as u32,
+                    aspect: 0.6,
+                    scale: 1.0,
+                    adult: true,
+                })
+                .collect();
+            s.set_population(&specs, false);
+            s.resize(2560.0, 1440.0);
+            for k in 0..30 * 180 {
+                s.step(DT, None);
+                if k % 15 == 0 {
+                    for f in s.fish() {
+                        cols[((f.x / 2560.0 * 3.0) as usize).min(2)] += 1.0;
+                        let water = (f.y - 1440.0 * WATER_TOP) / (1440.0 * (SAND_TOP - WATER_TOP));
+                        rows[((water * 3.0) as usize).min(2)] += 1.0;
+                        n += 1.0;
+                    }
+                }
+            }
+        }
+        // Regression guard: fish used to spend 55% of their time in the middle third
+        for (name, parts) in [("columns", cols), ("rows", rows)] {
+            for share in parts.map(|c| c / n) {
+                assert!(
+                    (0.22..0.45).contains(&share),
+                    "{name} are uneven: {:?}",
+                    parts.map(|c| (c / n * 100.0).round())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn food_is_noticed_one_fish_at_a_time() {
+        let mut s = sim_with(8, 12, 2560.0, 1440.0);
+        s.fish.iter_mut().for_each(|f| f.hunger = 0.8);
+        s.feed(Some(1280.0));
+        let aware = |s: &Sim| s.fish().iter().filter(|f| f.food_aware).count();
+        for _ in 0..10 {
+            s.step(DT, None);
+        }
+        let early = aware(&s);
+        for _ in 0..30 * 8 {
+            s.step(DT, None);
+            s.fish.iter_mut().for_each(|f| f.hunger = 0.8);
+        }
+        let later = aware(&s);
+        assert!(
+            early <= 2,
+            "{early} fish noticed the food within a third of a second"
+        );
+        assert!(
+            later >= 6,
+            "only {later} of 12 hungry fish noticed the food after 8 s"
+        );
+    }
+
+    #[test]
+    fn fish_school_with_their_own_kind_now_and_then() {
+        // Two kinds, six of each, all sociable
+        let mut s = Sim::new(13);
+        let specs: Vec<FishSpec> = (1..=12)
+            .map(|id| FishSpec {
+                id,
+                sprite: (id % 2) as u32,
+                aspect: 0.6,
+                scale: 1.0,
+                adult: true,
+            })
+            .collect();
+        s.set_population(&specs, false);
+        s.resize(2560.0, 1440.0);
+        s.fish.iter_mut().for_each(|f| {
+            f.personality.sociability = 1.0;
+            f.hunger = 0.0;
+        });
+        let mut schooled = 0.0;
+        for _ in 0..30 * 240 {
+            s.step(DT, None);
+            schooled += s.fish().iter().filter(|f| f.school_left > 0.0).count() as f32;
+        }
+        let share = schooled / (30.0 * 240.0 * 12.0);
+        assert!(
+            share > 0.1,
+            "fish hardly ever schooled ({:.0}% of the time)",
+            share * 100.0
+        );
+        assert!(
+            share < 0.9,
+            "fish should not school all the time ({:.0}%)",
+            share * 100.0
+        );
+    }
+
+    #[test]
+    fn characters_shape_where_fish_swim() {
+        let mean_y = |character: Character| {
+            let mut total = 0.0;
+            for seed in 1..4 {
+                let mut s = sim_with(seed, 6, 1920.0, 1080.0);
+                s.fish.iter_mut().for_each(|f| {
+                    f.personality.character = character;
+                    f.band = Character::band(character, &mut Rng::new(1));
+                    f.hunger = 0.0;
+                });
+                let (mut y, mut n) = (0.0, 0.0);
+                for k in 0..30 * 120 {
+                    s.step(DT, None);
+                    if k > 30 * 30 {
+                        y += s.fish().iter().map(|f| f.y).sum::<f32>();
+                        n += 6.0;
+                    }
+                }
+                total += y / n;
+            }
+            total / 3.0
+        };
+        let (bottom, skimmer) = (mean_y(Character::Bottom), mean_y(Character::Skimmer));
+        assert!(
+            bottom > skimmer + 250.0,
+            "bottom fish at {bottom:.0}, skimmers at {skimmer:.0}"
+        );
     }
 
     #[test]

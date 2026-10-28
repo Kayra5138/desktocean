@@ -21,7 +21,15 @@ decorations and drop them into the tank.
 
 - Runs as a native Plasma wallpaper plugin, so desktop icons and widgets stay on top and keep working
 - Fish sprites bend along the spine, so a flat drawing swims convincingly; all fish and food are drawn in a single draw call
-- Every fish has its own personality: speed, sociability (schooling), curiosity, appetite, restlessness
+- Every fish has a **character** that shapes how it lives: explorer (roams far), homebody (keeps to
+  its own patch), bottom dweller, skimmer (upper water), lazy (rests a lot), playful (sudden dashes)
+  or shy (keeps its distance, swims away from the cursor). It stays the same across restarts and is
+  shown on the editor's fish cards
+- Fish spread out over the whole tank: they pick the least crowded of a few spots to swim to
+- Fish of the same kind (copies of one drawing) sometimes form a school for a minute or so
+- Food is noticed one fish at a time, depending on how alert each one is and how far away it is
+- A curious fish only notices the cursor once it has lingered near it for a second, then follows it
+  for a while
 - **Hunger**: fish get hungry over time and look for food near the surface; full fish ignore food and rest more
 - **Friends and rivals**: fish that spend time together become friends and swim side by side; snatching
   each other's food makes rivals, who chase each other now and then. Shown on the editor's fish cards
@@ -42,7 +50,6 @@ decorations and drop them into the tank.
   bubbles rise. Fish also let out a few bubbles now and then. Both can be turned off
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
 - Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
-- Curious fish follow the cursor while it moves, and lose interest when it stops
 - Unlimited food; **Clear food** removes it
 - Simulation written in Rust; a panic inside it freezes the aquarium instead of crashing plasmashell
 - Stops ticking and redrawing while a maximized or fullscreen window covers the screen

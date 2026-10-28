@@ -11,6 +11,7 @@ extern "C" {
 typedef struct DcSim DcSim;
 
 typedef struct DcFish {
+    uint64_t id;       // from DcFishSpec
     float x, y;        // centre, scene pixels
     float w, h;
     float facing;      // -1 left .. 1 right
@@ -20,7 +21,17 @@ typedef struct DcFish {
     float depth;       // 0 front .. 1 back
     uint32_t sprite;   // from DcFishSpec
     float hunger;      // 0 full .. 1 starving
+    uint32_t character; // DC_CHARACTER_*
 } DcFish;
+
+// What kind of fish it is at heart
+#define DC_CHARACTER_EXPLORER 0u
+#define DC_CHARACTER_HOMEBODY 1u
+#define DC_CHARACTER_BOTTOM   2u
+#define DC_CHARACTER_SKIMMER  3u
+#define DC_CHARACTER_LAZY     4u
+#define DC_CHARACTER_PLAYFUL  5u
+#define DC_CHARACTER_SHY      6u
 
 // Affinity between two fish (ids from DcFishSpec), -1..1
 typedef struct DcRelation {

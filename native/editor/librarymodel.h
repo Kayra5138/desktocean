@@ -24,7 +24,7 @@ class LibraryModel : public QAbstractListModel
 public:
     enum Role {
         IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole,
-        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole
+        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole
     };
 
     explicit LibraryModel(QObject *parent = nullptr);
@@ -62,6 +62,8 @@ private:
     // Names of friends / rivals per entry id, from the wallpaper's state.json
     QHash<QString, QStringList> m_friends;
     QHash<QString, QStringList> m_rivals;
+    // Characters of the swimming copies per entry id, e.g. "explorer, 2× shy"
+    QHash<QString, QString> m_characters;
     QTimer m_relationsRefresh;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;

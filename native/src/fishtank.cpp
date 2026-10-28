@@ -498,9 +498,22 @@ void FishTank::saveState() const
         else if (r.affinity < DC_RIVAL)
             rivals.append(QJsonArray{a, b});
     }
+    // Character of every copy, by library fish, for the editor's cards
+    static const char *const kCharacters[] = {"explorer", "homebody", "bottom dweller", "skimmer", "lazy", "playful", "shy"};
+    QHash<QString, QStringList> characters;
+    for (const DcFish &f : m_fish) {
+        const QString owner = m_specOwner.value(f.id);
+        if (!owner.isEmpty() && f.character < std::size(kCharacters))
+            characters[owner] << QString::fromLatin1(kCharacters[f.character]);
+    }
+    QJsonObject characterMap;
+    for (auto it = characters.cbegin(); it != characters.cend(); ++it)
+        characterMap.insert(it.key(), QJsonArray::fromStringList(it.value()));
+
     const QJsonObject root{{QStringLiteral("relations"), relations},
                            {QStringLiteral("friends"), friends},
                            {QStringLiteral("rivals"), rivals},
+                           {QStringLiteral("characters"), characterMap},
                            {QStringLiteral("theme"), m_theme}};
     QSaveFile file(FishLibrary::statePath());
     if (file.open(QIODevice::WriteOnly)) {

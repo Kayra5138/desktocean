@@ -59,6 +59,8 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return e.sway;
     case PlacedRole:
         return int(e.placements.size());
+    case CharactersRole:
+        return m_characters.value(e.id);
     case FamilyRole: {
         // "Baby of Orange & Blue · growing 45%" for babies, "" for drawn fish
         if (e.bornAt <= 0)
@@ -76,7 +78,8 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
     return {{IdRole, "fishId"},   {NameRole, "name"},       {ImageRole, "image"},  {CopiesRole, "copies"},
             {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"},
             {FriendsRole, "friends"}, {RivalsRole, "rivals"}, {KindRole, "kind"},
-            {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"}};
+            {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"},
+            {CharactersRole, "characters"}};
 }
 
 QVariantMap LibraryModel::get(int row) const
@@ -187,6 +190,7 @@ void LibraryModel::loadRelations()
 {
     m_friends.clear();
     m_rivals.clear();
+    m_characters.clear();
     QFile file(FishLibrary::statePath());
     if (!file.open(QIODevice::ReadOnly))
         return;
@@ -208,6 +212,23 @@ void LibraryModel::loadRelations()
     };
     collect(QStringLiteral("friends"), m_friends);
     collect(QStringLiteral("rivals"), m_rivals);
+
+    // ["shy", "explorer", "shy"] -> "2× shy, explorer"
+    const QJsonObject characters = root.value(QStringLiteral("characters")).toObject();
+    for (auto it = characters.constBegin(); it != characters.constEnd(); ++it) {
+        QStringList order;
+        QHash<QString, int> counts;
+        for (const QJsonValue &v : it.value().toArray()) {
+            const QString name = v.toString();
+            if (!counts.contains(name))
+                order << name;
+            ++counts[name];
+        }
+        QStringList parts;
+        for (const QString &name : std::as_const(order))
+            parts << (counts[name] > 1 ? QStringLiteral("%1× %2").arg(counts[name]).arg(name) : name);
+        m_characters.insert(it.key(), parts.join(QStringLiteral(", ")));
+    }
 }
 
 void LibraryModel::setError(const QString &error)

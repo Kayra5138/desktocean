@@ -18,6 +18,8 @@ pub struct DcSim {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DcFish {
+    /// From DcFishSpec
+    pub id: u64,
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -29,6 +31,8 @@ pub struct DcFish {
     pub depth: f32,
     pub sprite: u32,
     pub hunger: f32,
+    /// Character::index(): 0 explorer, 1 homebody, 2 bottom, 3 skimmer, 4 lazy, 5 playful, 6 shy
+    pub character: u32,
 }
 
 #[repr(C)]
@@ -382,6 +386,7 @@ pub unsafe extern "C" fn dc_sim_fish(handle: *mut DcSim, out: *mut DcFish, cap: 
             let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
             for (d, f) in dst.iter_mut().zip(fish) {
                 *d = DcFish {
+                    id: f.id,
                     x: f.x,
                     y: f.y,
                     w: f.w,
@@ -393,6 +398,7 @@ pub unsafe extern "C" fn dc_sim_fish(handle: *mut DcSim, out: *mut DcFish, cap: 
                     depth: f.depth,
                     sprite: f.sprite,
                     hunger: f.hunger,
+                    character: f.personality.character.index(),
                 };
             }
         }
