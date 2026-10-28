@@ -37,6 +37,9 @@ public:
     Q_INVOKABLE void resize(qreal width, qreal height);
     // x < 0 drops food somewhere random
     Q_INVOKABLE void feed(qreal x = -1);
+    Q_INVOKABLE void clearFood();
+    // Curious fish are following the cursor right now
+    Q_INVOKABLE bool lureActive() const;
     // pointer with negative coordinates means "not over the aquarium"
     Q_INVOKABLE void step(qreal dt, QPointF pointer);
     // [x, y, w, h, facing, phase, amplitude, tilt, depth] per fish

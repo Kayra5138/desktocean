@@ -65,6 +65,17 @@ void Simulation::feed(qreal x)
     checkHealth();
 }
 
+void Simulation::clearFood()
+{
+    dc_sim_clear_food(m_sim);
+    checkHealth();
+}
+
+bool Simulation::lureActive() const
+{
+    return dc_sim_lure_active(m_sim);
+}
+
 void Simulation::step(qreal dt, QPointF pointer)
 {
     dc_sim_step(m_sim, float(dt), float(pointer.x()), float(pointer.y()));

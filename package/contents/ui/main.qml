@@ -36,6 +36,12 @@ WallpaperItem {
             onTriggered: aquarium.feedAtCursor()
         },
         PlasmaCore.Action {
+            text: "Clear food"
+            icon.name: "edit-clear-all"
+            visible: aquarium.foodCount > 0
+            onTriggered: aquarium.clearFood()
+        },
+        PlasmaCore.Action {
             text: root.userPaused ? "Resume aquarium" : "Pause aquarium"
             icon.name: root.userPaused ? "media-playback-start" : "media-playback-pause"
             onTriggered: root.userPaused = !root.userPaused

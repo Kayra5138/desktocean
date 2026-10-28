@@ -34,6 +34,8 @@ bool dc_sim_ok(const DcSim *sim);
 void dc_sim_resize(DcSim *sim, float width, float height);
 void dc_sim_set_fish_count(DcSim *sim, uint32_t count);
 void dc_sim_feed(DcSim *sim, float x);                       // x < 0: random spot
+void dc_sim_clear_food(DcSim *sim);
+bool dc_sim_lure_active(DcSim *sim);                         // curious fish following the cursor
 void dc_sim_step(DcSim *sim, float dt, float pointer_x, float pointer_y); // < 0: no pointer
 
 uint32_t dc_sim_fish(DcSim *sim, DcFish *out, uint32_t cap); // returns total count

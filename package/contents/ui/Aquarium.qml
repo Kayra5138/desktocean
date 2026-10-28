@@ -22,7 +22,9 @@ Item {
     // Must match SAND_TOP in sim/src/sim.rs
     readonly property real sandTopRatio: 0.86
     readonly property color fogColor: "#0b3048"
-    readonly property int maxFood: 24
+    // Food sprites are pooled; the pool grows with demand and shrinks once the food is gone
+    readonly property int foodPoolMin: 32
+    property int foodPool: foodPoolMin
 
     property real time: 0
     property int foodCount: 0
@@ -37,6 +39,11 @@ Item {
     function feedAtCursor() {
         const p = cursorInScene();
         feed(p.x >= 0 ? p.x : -1);
+    }
+
+    function clearFood() {
+        sim.clearFood();
+        applyState();
     }
 
     function cursorInScene() {
@@ -79,9 +86,13 @@ Item {
 
         const food = sim.food();
         const F = sim.foodStride;
-        const n = Math.min(food.length / F, maxFood);
+        const n = food.length / F;
         if (n === 0 && foodCount === 0)
             return;
+        if (n > foodPool)
+            foodPool = Math.ceil(n / foodPoolMin) * foodPoolMin;   // Repeater adds items synchronously
+        else if (n === 0 && foodPool > foodPoolMin)
+            foodPool = foodPoolMin;
         for (let i = 0; i < foodRepeater.count; i++) {
             const item = foodRepeater.itemAt(i);
             item.visible = i < n;
@@ -135,7 +146,7 @@ Item {
 
     Repeater {
         id: foodRepeater
-        model: aquarium.maxFood
+        model: aquarium.foodPool
         Rectangle {
             visible: false
             width: 9
@@ -183,6 +194,7 @@ Item {
                 + "FPS: " + measuredFps + " (target " + aquarium.fps + ")\n"
                 + "State: " + (aquarium.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
                 + "Fish: " + sim.fishCount + "  Food: " + aquarium.foodCount + "\n"
+                + "Following cursor: " + (sim.lureActive() ? "yes" : "no") + "\n"
                 + "Cursor: global " + Math.round(g.x) + "," + Math.round(g.y)
                 + " / scene " + (aquarium.pointerValid ? Math.round(aquarium.pointer.x) + "," + Math.round(aquarium.pointer.y) : "none");
         }

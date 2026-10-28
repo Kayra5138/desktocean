@@ -4,11 +4,16 @@ use crate::rng::Rng;
 pub const SAND_TOP: f32 = 0.86;
 /// Fraction of the height where the water surface is.
 pub const WATER_TOP: f32 = 0.05;
-pub const MAX_FOOD: usize = 24;
 /// Food lies on the sand this long before it dissolves.
 const FOOD_LIFETIME: f32 = 10.0;
-/// The curious fish loses interest once the cursor has been still this long.
+/// Curious fish lose interest once the cursor has been still this long.
 const POINTER_INTEREST_SECS: f32 = 4.0;
+/// The cursor counts as moved once it leaves a circle of this radius.
+const POINTER_MOVE_RADIUS: f32 = 6.0;
+/// Seconds a fish keeps its heading after turning, so it can't flip back and forth.
+const TURN_COOLDOWN: f32 = 0.6;
+/// Speed of the visual turn, in "facing units" per second (full turn = 2).
+const TURN_RATE: f32 = 6.0;
 
 #[derive(Debug, Clone)]
 pub struct Fish {
@@ -25,8 +30,11 @@ pub struct Fish {
     pub w: f32,
     pub h: f32,
     pub max_speed: f32,
-    /// -1 = facing left, 1 = facing right; in between while turning
+    /// Where the fish is heading: exactly -1 (left) or 1 (right)
+    pub dir: f32,
+    /// Visual orientation; eases toward `dir`, values between squash the sprite mid-turn
     pub facing: f32,
+    turn_cooldown: f32,
     /// Tail-wave phase, radians
     pub phase: f32,
     pub speed: f32,
@@ -46,7 +54,7 @@ impl Fish {
     /// Body pitch in degrees, nose following the vertical velocity.
     pub fn tilt(&self) -> f32 {
         let deg = self.vy.atan2(self.vx.abs() + 20.0).to_degrees() * 0.7;
-        deg.clamp(-28.0, 28.0) * if self.facing < 0.0 { -1.0 } else { 1.0 }
+        deg.clamp(-28.0, 28.0) * self.dir
     }
 }
 
@@ -79,7 +87,7 @@ pub struct Sim {
     food: Vec<Food>,
     time: f32,
     rng: Rng,
-    last_pointer: Option<(f32, f32)>,
+    pointer_anchor: Option<(f32, f32)>,
     pointer_still_for: f32,
 }
 
@@ -93,7 +101,7 @@ impl Sim {
             food: Vec::new(),
             time: 0.0,
             rng: Rng::new(seed),
-            last_pointer: None,
+            pointer_anchor: None,
             pointer_still_for: f32::INFINITY,
         }
     }
@@ -104,6 +112,15 @@ impl Sim {
 
     pub fn food(&self) -> &[Food] {
         &self.food
+    }
+
+    /// Whether curious fish are currently following the cursor.
+    pub fn lure_active(&self) -> bool {
+        self.pointer_anchor.is_some() && self.pointer_still_for < POINTER_INTEREST_SECS
+    }
+
+    pub fn clear_food(&mut self) {
+        self.food.clear();
     }
 
     fn water_top(&self) -> f32 {
@@ -170,6 +187,7 @@ impl Sim {
         for i in 0..self.fish_count {
             let depth = self.rng.unit();
             let w = self.rng.range(150.0, 230.0) * (1.0 - 0.45 * depth);
+            let dir = if self.rng.chance(0.5) { -1.0 } else { 1.0 };
             let mut f = Fish {
                 x: self.rng.range(0.0, self.width),
                 y: self.rng.range(self.water_top(), self.sand_top()),
@@ -182,10 +200,13 @@ impl Sim {
                 w,
                 h: w * 0.6,
                 max_speed: self.rng.range(60.0, 115.0) * (1.0 - 0.3 * depth),
-                facing: if self.rng.chance(0.5) { -1.0 } else { 1.0 },
+                dir,
+                facing: dir,
+                turn_cooldown: 0.0,
                 phase: self.rng.range(0.0, std::f32::consts::TAU),
                 speed: 0.0,
-                curious: i == 0,
+                // Every third fish is the curious type
+                curious: i % 3 == 0,
             };
             self.clamp_to_water(&mut f);
             self.pick_target(&mut f);
@@ -205,9 +226,6 @@ impl Sim {
         };
         let wt = self.water_top();
         for _ in 0..8 {
-            if self.food.len() >= MAX_FOOD {
-                break;
-            }
             let food = Food {
                 x: cx + self.rng.range(-90.0, 90.0),
                 y: wt + self.rng.range(-10.0, 30.0),
@@ -229,15 +247,21 @@ impl Sim {
         let dt = dt.clamp(0.0, 0.1);
         self.time += dt;
 
-        // The cursor only counts as interesting while it moves.
-        match (pointer, self.last_pointer) {
-            (Some((x, y)), Some((lx, ly))) if (x - lx).hypot(y - ly) < 2.0 => {
+        // The cursor only counts as interesting while it moves. Movement is
+        // measured from an anchor rather than frame to frame, so slow drags count.
+        match (pointer, self.pointer_anchor) {
+            (Some((x, y)), Some((ax, ay))) if (x - ax).hypot(y - ay) < POINTER_MOVE_RADIUS => {
                 self.pointer_still_for += dt
             }
-            (Some(_), _) => self.pointer_still_for = 0.0,
-            (None, _) => self.pointer_still_for = f32::INFINITY,
+            (Some(p), _) => {
+                self.pointer_anchor = Some(p);
+                self.pointer_still_for = 0.0;
+            }
+            (None, _) => {
+                self.pointer_anchor = None;
+                self.pointer_still_for = f32::INFINITY;
+            }
         }
-        self.last_pointer = pointer;
         let wt = self.water_top();
         let st = self.sand_top();
         let lure = pointer
@@ -277,7 +301,7 @@ impl Sim {
             let (tx, ty, speed, from_mouth) = if let Some(j) = nearest_food {
                 (self.food[j].x, self.food[j].y, f.max_speed * 1.6, true)
             } else if let (true, Some((px, py))) = (f.curious, lure) {
-                (px - f.facing * 40.0, py, f.max_speed * 0.8, true)
+                (px - f.dir * 40.0, py, f.max_speed * 1.1, true)
             } else {
                 (f.tx, f.ty, f.cruise, false)
             };
@@ -321,10 +345,19 @@ impl Sim {
             f.y += f.vy * dt;
             self.clamp_to_water(&mut f);
 
-            if f.vx.abs() > 10.0 {
-                let want = if f.vx > 0.0 { 1.0 } else { -1.0 };
-                f.facing += (want - f.facing) * (3.5 * dt).min(1.0);
+            // Heading flips only on clear sideways motion and not right after a turn;
+            // the visual turn then always completes, whatever the velocity does.
+            f.turn_cooldown = (f.turn_cooldown - dt).max(0.0);
+            if f.vx.abs() > 15.0 && f.vx.signum() != f.dir && f.turn_cooldown == 0.0 {
+                f.dir = f.vx.signum();
+                f.turn_cooldown = TURN_COOLDOWN;
             }
+            let step = TURN_RATE * dt;
+            f.facing = if (f.dir - f.facing).abs() <= step {
+                f.dir
+            } else {
+                f.facing + step * (f.dir - f.facing).signum()
+            };
 
             f.speed = f.vx.hypot(f.vy);
             f.phase = (f.phase + dt * (3.0 + f.speed * 0.07)) % (std::f32::consts::TAU * 64.0);
@@ -388,22 +421,52 @@ mod tests {
     }
 
     #[test]
-    fn food_is_capped() {
+    fn food_is_unlimited_and_clearable() {
         let mut s = sim();
-        for _ in 0..10 {
+        for _ in 0..50 {
             s.feed(None);
         }
-        assert_eq!(s.food().len(), MAX_FOOD);
+        assert_eq!(s.food().len(), 400);
+        s.clear_food();
+        assert!(s.food().is_empty());
+    }
+
+    #[test]
+    fn fish_never_stay_squashed() {
+        let mut s = sim();
+        s.set_fish_count(12);
+        let dt = 1.0 / 30.0;
+        let mut squashed_for = [0.0f32; 12];
+        let mut worst = 0.0f32;
+        for n in 0..30 * 90 {
+            // Keep dropping food at awkward spots: right above/below the school
+            if n % 45 == 0 {
+                let x = s.fish()[n / 45 % 12].x;
+                s.feed(Some(x));
+            }
+            s.step(dt, None);
+            for (t, f) in squashed_for.iter_mut().zip(s.fish()) {
+                *t = if f.facing.abs() < 0.9 { *t + dt } else { 0.0 };
+                worst = worst.max(*t);
+            }
+        }
+        assert!(worst < 0.5, "a fish stayed mid-turn for {worst:.2}s");
     }
 
     #[test]
     fn curious_fish_approaches_moving_cursor_then_gets_bored() {
         let mut s = sim();
         let target = (300.0, 500.0);
-        // Wiggle the cursor so it counts as moving; even the slowest fish gets there in 25 s.
+        // Slow circular drag (~1 px per frame) must still count as movement.
         for n in 0..30 * 25 {
-            let wiggle = if n % 2 == 0 { 3.0 } else { -3.0 };
-            s.step(1.0 / 30.0, Some((target.0 + wiggle, target.1)));
+            let a = n as f32 * 0.02;
+            s.step(
+                1.0 / 30.0,
+                Some((target.0 + 30.0 * a.cos(), target.1 + 30.0 * a.sin())),
+            );
+            if n > 30 {
+                assert!(s.lure_active(), "slow movement not detected at frame {n}");
+            }
         }
         let f = &s.fish()[0];
         let near = (f.x - target.0).hypot(f.y - target.1);
@@ -413,7 +476,7 @@ mod tests {
         for _ in 0..30 * 5 {
             s.step(1.0 / 30.0, Some(target));
         }
-        assert!(s.pointer_still_for >= POINTER_INTEREST_SECS);
+        assert!(!s.lure_active());
     }
 
     #[test]

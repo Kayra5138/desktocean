@@ -116,6 +116,20 @@ pub unsafe extern "C" fn dc_sim_feed(handle: *mut DcSim, x: f32) {
     });
 }
 
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_clear_food(handle: *mut DcSim) {
+    with_sim(handle, (), |s| s.clear_food());
+}
+
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_lure_active(handle: *mut DcSim) -> bool {
+    with_sim(handle, false, |s| s.lure_active())
+}
+
 /// Pointer coordinates `< 0` mean the cursor is not over the aquarium.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
