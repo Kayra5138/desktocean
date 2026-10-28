@@ -32,7 +32,12 @@ WallpaperItem {
     // consumes them. Aquarium reads the cursor through Desktocean.Core instead.
 
     // A fish surfaces to blow bubbles whenever a notification arrives (the
-    // notification server lives in plasmashell, so this needs no D-Bus snooping)
+    // notification server lives in plasmashell, so this needs no D-Bus snooping).
+    // Notifications usually arrive while a window covers the desktop, so one
+    // that comes in while the tank is hidden is kept for when it shows again.
+    readonly property bool tankVisible: aquarium.running && !aquarium.paused
+    property double pendingAnnounce: 0   // ms timestamp, 0 = none
+
     NotificationManager.Notifications {
         id: notifications
         showNotifications: root.configuration.ReactToNotifications
@@ -40,9 +45,31 @@ WallpaperItem {
         showExpired: false
         showDismissed: false
         onRowsInserted: {
-            if (!inhibited && aquarium.running && !aquarium.paused)
+            // Do Not Disturb is a property of the notification server, not of this model
+            const quiet = NotificationManager.Server.inhibited;
+            console.debug("Desktocean: notification arrived,", quiet ? "do not disturb" : root.tankVisible ? "announcing" : "tank hidden, keeping it for later");
+            if (quiet)
+                return;
+            if (root.tankVisible)
                 aquarium.announce();
+            else
+                root.pendingAnnounce = Date.now();
         }
+    }
+
+    onTankVisibleChanged: {
+        if (tankVisible && pendingAnnounce > 0) {
+            // Only if it is still news
+            if (Date.now() - pendingAnnounce < 2 * 60 * 1000)
+                announceLater.start();
+            pendingAnnounce = 0;
+        }
+    }
+    // Give the desktop a moment to come into view first
+    Timer {
+        id: announceLater
+        interval: 1200
+        onTriggered: aquarium.announce()
     }
 
     contextualActions: [
