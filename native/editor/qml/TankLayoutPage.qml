@@ -200,6 +200,23 @@ Kirigami.Page {
                 Kirigami.Heading {
                     Layout.topMargin: Kirigami.Units.largeSpacing
                     level: 4
+                    text: "Theme"
+                }
+                QQC2.ComboBox {
+                    Layout.fillWidth: true
+                    model: layout.themes
+                    textRole: "label"
+                    valueRole: "id"
+                    currentIndex: Math.max(0, indexOfValue(layout.theme))
+                    onActivated: layout.theme = currentValue
+                }
+
+                Kirigami.Separator {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Kirigami.Units.largeSpacing
+                }
+                Kirigami.Heading {
+                    level: 4
                     text: page.selectedItem ? page.selectedItem.name : "Nothing selected"
                 }
                 QQC2.Label {

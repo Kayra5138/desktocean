@@ -82,11 +82,15 @@ Kirigami.ScrollablePage {
                 Kirigami.Action {
                     text: "Flip"
                     icon.name: "object-flip-horizontal"
+                    // In the card's "more" menu
+                    displayHint: Kirigami.DisplayHint.AlwaysHide
                     onTriggered: library.flip(cell.fishId)
                 },
                 Kirigami.Action {
                     text: "Remove"
                     icon.name: "edit-delete-remove"
+                    // Deleting can't be undone: keep it in the "more" menu too
+                    displayHint: Kirigami.DisplayHint.AlwaysHide
                     onTriggered: {
                         removePrompt.fishId = card.fishId;
                         removePrompt.fishName = card.name;

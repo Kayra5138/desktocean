@@ -190,296 +190,313 @@ Kirigami.Page {
         anchors.fill: parent
         spacing: 0
 
-        // --- Tools -------------------------------------------------------------
-        QQC2.ScrollView {
-            id: toolScroll
+        // --- Tools (scroll) and the save section (always visible) ---------------
+        ColumnLayout {
             Layout.fillHeight: true
             Layout.preferredWidth: Kirigami.Units.gridUnit * 16
-            QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 16
+            spacing: 0
 
-            ColumnLayout {
-                // availableWidth leaves room for the vertical scroll bar
-                width: toolScroll.availableWidth - Kirigami.Units.largeSpacing * 2
-                x: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.smallSpacing
+            QQC2.ScrollView {
+                id: toolScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.topMargin: Kirigami.Units.largeSpacing
-                    spacing: 0
-                    enabled: !page.editing
-                    Repeater {
-                        model: [
-                            { kind: "fish", text: "Fish" },
-                            { kind: "plant", text: "Plant" },
-                            { kind: "decor", text: "Decoration" }
-                        ]
-                        QQC2.Button {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            text: modelData.text
-                            checkable: true
-                            checked: page.kind === modelData.kind
-                            onClicked: {
-                                page.kind = modelData.kind;
-                                canvas.motionMode = false;
-                                if (modelData.kind !== "fish" && canvas.tool === DrawingCanvas.Mouth)
-                                    canvas.tool = DrawingCanvas.Brush;
-                            }
-                        }
-                    }
-                }
-
-                Kirigami.Heading { text: "Tool"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
-                GridLayout {
-                    Layout.fillWidth: true
-                    columns: 4
-                    columnSpacing: 0
-                    rowSpacing: 0
-                    Repeater {
-                        model: [
-                            { tool: DrawingCanvas.Brush, text: "Brush", icon: "draw-brush" },
-                            { tool: DrawingCanvas.Eraser, text: "Eraser", icon: "draw-eraser" },
-                            { tool: DrawingCanvas.Fill, text: "Fill", icon: "color-fill" },
-                            { tool: DrawingCanvas.Picker, text: "Pick", icon: "color-picker" },
-                            { tool: DrawingCanvas.Line, text: "Line", icon: "draw-line" },
-                            { tool: DrawingCanvas.Rectangle, text: "Box", icon: "draw-rectangle" },
-                            { tool: DrawingCanvas.Ellipse, text: "Ellipse", icon: "draw-ellipse" },
-                            { tool: DrawingCanvas.Select, text: "Select", icon: "select-rectangular" },
-                            { tool: DrawingCanvas.Mouth, text: "Mouth", icon: "crosshairs", fishOnly: true }
-                        ]
-                        QQC2.ToolButton {
-                            required property var modelData
-                            visible: !modelData.fishOnly || page.isFish
-                            Layout.fillWidth: true
-                            text: modelData.text
-                            icon.name: modelData.icon
-                            display: QQC2.AbstractButton.TextUnderIcon
-                            checkable: true
-                            checked: canvas.tool === modelData.tool
-                            onClicked: canvas.tool = modelData.tool
-                            QQC2.ToolTip.text: modelData.text
-                            QQC2.ToolTip.visible: hovered
-                            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                        }
-                    }
-                }
-                QQC2.CheckBox {
-                    visible: canvas.tool === DrawingCanvas.Rectangle || canvas.tool === DrawingCanvas.Ellipse
-                    text: "Filled shape"
-                    checked: canvas.shapeFilled
-                    onToggled: canvas.shapeFilled = checked
-                }
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: canvas.tool === DrawingCanvas.Mouth
-                    wrapMode: Text.WordWrap
-                    opacity: 0.7
-                    text: canvas.mouthMarked
-                        ? "Click to move the mouth. The fish eats food only with this spot."
-                        : "Click where the mouth is. The dashed circle is a guess from the drawing."
-                }
-                QQC2.Button {
-                    Layout.fillWidth: true
-                    visible: canvas.tool === DrawingCanvas.Mouth && canvas.mouthMarked
-                    text: "Guess it again"
-                    icon.name: "edit-reset"
-                    onClicked: canvas.resetMouth()
-                }
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: canvas.tool === DrawingCanvas.Select && !canvas.hasSelection
-                    wrapMode: Text.WordWrap
-                    opacity: 0.7
-                    text: "Drag a box around part of the drawing to move it. Ctrl+A selects everything."
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: canvas.hasSelection
-                    QQC2.Button {
-                        Layout.fillWidth: true
-                        icon.name: "object-flip-horizontal"
-                        text: "Flip"
-                        onClicked: canvas.flipHorizontal()
-                    }
-                    QQC2.Button {
-                        Layout.fillWidth: true
-                        icon.name: "edit-delete"
-                        text: "Delete"
-                        onClicked: canvas.deleteSelection()
-                    }
-                    QQC2.Button {
-                        Layout.fillWidth: true
-                        icon.name: "dialog-ok-apply"
-                        text: "Done"
-                        onClicked: canvas.commitSelection()
-                    }
-                }
-
-                Kirigami.Heading { text: "Brush size"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
-                RowLayout {
-                    Layout.fillWidth: true
-                    QQC2.Slider {
-                        Layout.fillWidth: true
-                        from: 2
-                        to: 80
-                        value: canvas.brushSize
-                        enabled: canvas.motionMode || [DrawingCanvas.Brush, DrawingCanvas.Eraser, DrawingCanvas.Line, DrawingCanvas.Rectangle, DrawingCanvas.Ellipse].includes(canvas.tool)
-                        onMoved: canvas.brushSize = Math.round(value)
-                    }
-                    QQC2.Label { text: canvas.brushSize; Layout.minimumWidth: Kirigami.Units.gridUnit * 1.5 }
-                }
-
-                Kirigami.Heading { text: "Colour"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
-                GridLayout {
-                    columns: 4
-                    columnSpacing: Kirigami.Units.smallSpacing
-                    rowSpacing: Kirigami.Units.smallSpacing
-                    Repeater {
-                        model: page.swatches
-                        Rectangle {
-                            required property string modelData
-                            readonly property bool selected: Qt.colorEqual(canvas.color, modelData)
-                            implicitWidth: Kirigami.Units.gridUnit * 2.4
-                            implicitHeight: implicitWidth
-                            radius: Kirigami.Units.cornerRadius
-                            color: modelData
-                            border.width: selected ? 3 : 1
-                            border.color: selected ? Kirigami.Theme.highlightColor : Qt.rgba(0, 0, 0, 0.25)
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: canvas.color = parent.modelData
-                            }
-                        }
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Rectangle {
-                        implicitWidth: Kirigami.Units.gridUnit * 2.4
-                        implicitHeight: Kirigami.Units.gridUnit * 1.6
-                        radius: Kirigami.Units.cornerRadius
-                        color: canvas.color
-                        border.width: 1
-                        border.color: Qt.rgba(0, 0, 0, 0.25)
-                    }
-                    QQC2.Button {
-                        Layout.fillWidth: true
-                        text: "Custom…"
-                        icon.name: "color-picker"
-                        onClicked: colorDialog.open()
-                    }
-                }
-
-                Kirigami.Heading {
-                    level: 4
-                    Layout.topMargin: Kirigami.Units.largeSpacing
-                    text: page.kind === "decor" ? "Preview" : "Motion"
-                }
-                QQC2.ComboBox {
-                    id: styleBox
-                    Layout.fillWidth: true
-                    visible: page.isFish
-                    model: preview.styles
-                    textRole: "label"
-                    valueRole: "id"
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: page.kind === "plant"
-                    QQC2.Label { text: "Sway:" }
-                    QQC2.Slider {
-                        id: swaySlider
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 2.5
-                        value: 1
-                    }
-                }
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 6
-                    radius: Kirigami.Units.cornerRadius
-                    clip: true
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: "#2185a8" }
-                        GradientStop { position: 1; color: "#0a2a44" }
-                    }
-                    // Sand for plants and decorations to stand on
-                    Rectangle {
-                        visible: !page.isFish
-                        anchors.bottom: parent.bottom
-                        width: parent.width
-                        height: Kirigami.Units.smallSpacing * 2
-                        color: "#8f8268"
-                    }
-                    SwimPreview {
-                        id: preview
-                        anchors.fill: parent
-                        canvas: canvas
-                        kind: page.kind
-                        sway: swaySlider.value
-                        swimStyle: styleBox.currentValue ?? "classic"
-                    }
-                    QQC2.Label {
-                        anchors.centerIn: parent
-                        visible: canvas.empty
-                        text: page.isFish ? "Your fish will swim here" : "Your " + page.kindLabel + " will stand here"
-                        color: "white"
-                        opacity: 0.7
-                    }
-                }
-                QQC2.Button {
-                    Layout.fillWidth: true
-                    visible: page.isFish
-                    checkable: true
-                    checked: canvas.motionMode
-                    onToggled: canvas.motionMode = checked
-                    icon.name: "transform-move"
-                    text: canvas.motionMode ? "Done painting wiggle" : "Paint wiggle…"
-                    enabled: !canvas.empty
-                }
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: canvas.motionMode
+                    // availableWidth leaves room for the vertical scroll bar
+                    width: toolScroll.availableWidth - Kirigami.Units.largeSpacing * 2
+                    x: Kirigami.Units.largeSpacing
                     spacing: Kirigami.Units.smallSpacing
+
                     RowLayout {
                         Layout.fillWidth: true
+                        Layout.topMargin: Kirigami.Units.largeSpacing
                         spacing: 0
+                        enabled: !page.editing
                         Repeater {
                             model: [
-                                { brush: DrawingCanvas.More, text: "More" },
-                                { brush: DrawingCanvas.Less, text: "Stiffer" },
-                                { brush: DrawingCanvas.Normal, text: "Normal" }
+                                { kind: "fish", text: "Fish" },
+                                { kind: "plant", text: "Plant" },
+                                { kind: "decor", text: "Decoration" }
                             ]
-                            QQC2.ToolButton {
+                            QQC2.Button {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 text: modelData.text
                                 checkable: true
-                                checked: canvas.wiggleBrush === modelData.brush
-                                onClicked: canvas.wiggleBrush = modelData.brush
+                                checked: page.kind === modelData.kind
+                                onClicked: {
+                                    page.kind = modelData.kind;
+                                    canvas.motionMode = false;
+                                    if (modelData.kind !== "fish" && canvas.tool === DrawingCanvas.Mouth)
+                                        canvas.tool = DrawingCanvas.Brush;
+                                }
                             }
                         }
                     }
+
+                    Kirigami.Heading { text: "Tool"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 4
+                        columnSpacing: 0
+                        rowSpacing: 0
+                        Repeater {
+                            model: [
+                                { tool: DrawingCanvas.Brush, text: "Brush", icon: "draw-brush" },
+                                { tool: DrawingCanvas.Eraser, text: "Eraser", icon: "draw-eraser" },
+                                { tool: DrawingCanvas.Fill, text: "Fill", icon: "color-fill" },
+                                { tool: DrawingCanvas.Picker, text: "Pick", icon: "color-picker" },
+                                { tool: DrawingCanvas.Line, text: "Line", icon: "draw-line" },
+                                { tool: DrawingCanvas.Rectangle, text: "Box", icon: "draw-rectangle" },
+                                { tool: DrawingCanvas.Ellipse, text: "Ellipse", icon: "draw-ellipse" },
+                                { tool: DrawingCanvas.Select, text: "Select", icon: "select-rectangular" },
+                                { tool: DrawingCanvas.Mouth, text: "Mouth", icon: "crosshairs", fishOnly: true }
+                            ]
+                            QQC2.ToolButton {
+                                required property var modelData
+                                visible: !modelData.fishOnly || page.isFish
+                                Layout.fillWidth: true
+                                text: modelData.text
+                                icon.name: modelData.icon
+                                display: QQC2.AbstractButton.TextUnderIcon
+                                checkable: true
+                                checked: canvas.tool === modelData.tool
+                                onClicked: canvas.tool = modelData.tool
+                                QQC2.ToolTip.text: modelData.text
+                                QQC2.ToolTip.visible: hovered
+                                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                            }
+                        }
+                    }
+                    QQC2.CheckBox {
+                        visible: canvas.tool === DrawingCanvas.Rectangle || canvas.tool === DrawingCanvas.Ellipse
+                        text: "Filled shape"
+                        checked: canvas.shapeFilled
+                        onToggled: canvas.shapeFilled = checked
+                    }
                     QQC2.Label {
                         Layout.fillWidth: true
+                        visible: canvas.tool === DrawingCanvas.Mouth
                         wrapMode: Text.WordWrap
                         opacity: 0.7
-                        text: "Paint over fins and tail: red parts wiggle more, blue parts stay stiff."
+                        text: canvas.mouthMarked
+                            ? "Click to move the mouth. The fish eats food only with this spot."
+                            : "Click where the mouth is. The dashed circle is a guess from the drawing."
                     }
                     QQC2.Button {
                         Layout.fillWidth: true
-                        text: "Reset wiggle"
+                        visible: canvas.tool === DrawingCanvas.Mouth && canvas.mouthMarked
+                        text: "Guess it again"
                         icon.name: "edit-reset"
-                        enabled: canvas.hasWiggle
-                        onClicked: canvas.resetWiggle()
+                        onClicked: canvas.resetMouth()
                     }
-                }
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        visible: canvas.tool === DrawingCanvas.Select && !canvas.hasSelection
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        text: "Drag a box around part of the drawing to move it. Ctrl+A selects everything."
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: canvas.hasSelection
+                        QQC2.Button {
+                            Layout.fillWidth: true
+                            icon.name: "object-flip-horizontal"
+                            text: "Flip"
+                            onClicked: canvas.flipHorizontal()
+                        }
+                        QQC2.Button {
+                            Layout.fillWidth: true
+                            icon.name: "edit-delete"
+                            text: "Delete"
+                            onClicked: canvas.deleteSelection()
+                        }
+                        QQC2.Button {
+                            Layout.fillWidth: true
+                            icon.name: "dialog-ok-apply"
+                            text: "Done"
+                            onClicked: canvas.commitSelection()
+                        }
+                    }
 
-                Item { Layout.fillHeight: true; Layout.minimumHeight: Kirigami.Units.largeSpacing }
-                Kirigami.Separator { Layout.fillWidth: true }
+                    Kirigami.Heading { text: "Brush size"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        QQC2.Slider {
+                            Layout.fillWidth: true
+                            from: 2
+                            to: 80
+                            value: canvas.brushSize
+                            enabled: canvas.motionMode || [DrawingCanvas.Brush, DrawingCanvas.Eraser, DrawingCanvas.Line, DrawingCanvas.Rectangle, DrawingCanvas.Ellipse].includes(canvas.tool)
+                            onMoved: canvas.brushSize = Math.round(value)
+                        }
+                        QQC2.Label { text: canvas.brushSize; Layout.minimumWidth: Kirigami.Units.gridUnit * 1.5 }
+                    }
+
+                    Kirigami.Heading { text: "Colour"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
+                    GridLayout {
+                        columns: 4
+                        columnSpacing: Kirigami.Units.smallSpacing
+                        rowSpacing: Kirigami.Units.smallSpacing
+                        Repeater {
+                            model: page.swatches
+                            Rectangle {
+                                required property string modelData
+                                readonly property bool selected: Qt.colorEqual(canvas.color, modelData)
+                                implicitWidth: Kirigami.Units.gridUnit * 2.4
+                                implicitHeight: implicitWidth
+                                radius: Kirigami.Units.cornerRadius
+                                color: modelData
+                                border.width: selected ? 3 : 1
+                                border.color: selected ? Kirigami.Theme.highlightColor : Qt.rgba(0, 0, 0, 0.25)
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: canvas.color = parent.modelData
+                                }
+                            }
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Rectangle {
+                            implicitWidth: Kirigami.Units.gridUnit * 2.4
+                            implicitHeight: Kirigami.Units.gridUnit * 1.6
+                            radius: Kirigami.Units.cornerRadius
+                            color: canvas.color
+                            border.width: 1
+                            border.color: Qt.rgba(0, 0, 0, 0.25)
+                        }
+                        QQC2.Button {
+                            Layout.fillWidth: true
+                            text: "Custom…"
+                            icon.name: "color-picker"
+                            onClicked: colorDialog.open()
+                        }
+                    }
+
+                    Kirigami.Heading {
+                        level: 4
+                        Layout.topMargin: Kirigami.Units.largeSpacing
+                        text: page.kind === "decor" ? "Preview" : "Motion"
+                    }
+                    QQC2.ComboBox {
+                        id: styleBox
+                        Layout.fillWidth: true
+                        visible: page.isFish
+                        model: preview.styles
+                        textRole: "label"
+                        valueRole: "id"
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: page.kind === "plant"
+                        QQC2.Label { text: "Sway:" }
+                        QQC2.Slider {
+                            id: swaySlider
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 2.5
+                            value: 1
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Kirigami.Units.gridUnit * 6
+                        radius: Kirigami.Units.cornerRadius
+                        clip: true
+                        gradient: Gradient {
+                            GradientStop { position: 0; color: "#2185a8" }
+                            GradientStop { position: 1; color: "#0a2a44" }
+                        }
+                        // Sand for plants and decorations to stand on
+                        Rectangle {
+                            visible: !page.isFish
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: Kirigami.Units.smallSpacing * 2
+                            color: "#8f8268"
+                        }
+                        SwimPreview {
+                            id: preview
+                            anchors.fill: parent
+                            canvas: canvas
+                            kind: page.kind
+                            sway: swaySlider.value
+                            swimStyle: styleBox.currentValue ?? "classic"
+                        }
+                        QQC2.Label {
+                            anchors.centerIn: parent
+                            visible: canvas.empty
+                            text: page.isFish ? "Your fish will swim here" : "Your " + page.kindLabel + " will stand here"
+                            color: "white"
+                            opacity: 0.7
+                        }
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        visible: page.isFish
+                        checkable: true
+                        checked: canvas.motionMode
+                        onToggled: canvas.motionMode = checked
+                        icon.name: "transform-move"
+                        text: canvas.motionMode ? "Done painting wiggle" : "Paint wiggle…"
+                        enabled: !canvas.empty
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: canvas.motionMode
+                        spacing: Kirigami.Units.smallSpacing
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Repeater {
+                                model: [
+                                    { brush: DrawingCanvas.More, text: "More" },
+                                    { brush: DrawingCanvas.Less, text: "Stiffer" },
+                                    { brush: DrawingCanvas.Normal, text: "Normal" }
+                                ]
+                                QQC2.ToolButton {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.text
+                                    checkable: true
+                                    checked: canvas.wiggleBrush === modelData.brush
+                                    onClicked: canvas.wiggleBrush = modelData.brush
+                                }
+                            }
+                        }
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            opacity: 0.7
+                            text: "Paint over fins and tail: red parts wiggle more, blue parts stay stiff."
+                        }
+                        QQC2.Button {
+                            Layout.fillWidth: true
+                            text: "Reset wiggle"
+                            icon.name: "edit-reset"
+                            enabled: canvas.hasWiggle
+                            onClicked: canvas.resetWiggle()
+                        }
+                    }
+
+                    Item { Layout.preferredHeight: Kirigami.Units.largeSpacing }
+                }
+            }
+
+            Kirigami.Separator { Layout.fillWidth: true }
+
+            // Name, size and the save buttons stay put while the tools scroll
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.largeSpacing
+                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 Kirigami.Heading {
                     Layout.fillWidth: true

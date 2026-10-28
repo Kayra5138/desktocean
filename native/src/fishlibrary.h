@@ -70,6 +70,17 @@ bool exists();
 // the tank reloads whenever something in there changes.
 QString statePath();
 
+// The editor asks the wallpaper to switch theme by writing this request; the
+// wallpaper applies a request only once (by its time) and stores the theme in
+// its own settings, which stay the source of truth.
+struct ThemeRequest {
+    QString theme;
+    qint64 at = 0;   // ms since epoch; 0 = none
+};
+bool requestTheme(const QString &theme, QString *error = nullptr);
+ThemeRequest themeRequest();
+QString themeRequestPath();
+
 QString kindName(FishEntry::Kind kind);
 FishEntry::Kind kindFromName(const QString &name);
 

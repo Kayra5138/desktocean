@@ -179,7 +179,17 @@ FishTank::FishTank(QQuickItem *parent)
     m_reloadDebounce.setSingleShot(true);
     m_reloadDebounce.setInterval(250);
     connect(&m_reloadDebounce, &QTimer::timeout, this, [this] { loadLibrary(true); });
-    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_reloadDebounce, qOverload<>(&QTimer::start));
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &path) {
+        // The fish directory: drawings changed. Its parent: state or requests.
+        if (path == FishLibrary::directory())
+            m_reloadDebounce.start();
+        else
+            checkRequests();
+    });
+    // Also the request file itself, in case it is rewritten in place
+    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, &FishTank::checkRequests);
+    // Requests already waiting when the tank starts are old news
+    m_handledRequest = FishLibrary::themeRequest().at;
 
     // Friendships take hours to grow; keep them across restarts
     m_saveTimer.setInterval(60 * 1000);
@@ -863,8 +873,28 @@ void FishTank::watchLibrary()
 {
     const QString dir = FishLibrary::directory();
     QDir().mkpath(dir);
-    if (!m_watcher.directories().contains(dir))
-        m_watcher.addPath(dir);
+    const QString parent = QFileInfo(dir).dir().path();
+    for (const QString &path : {dir, parent}) {
+        if (!m_watcher.directories().contains(path))
+            m_watcher.addPath(path);
+    }
+    const QString requests = FishLibrary::themeRequestPath();
+    if (QFileInfo::exists(requests) && !m_watcher.files().contains(requests))
+        m_watcher.addPath(requests);
+}
+
+void FishTank::checkRequests()
+{
+    // Replacing a file drops it from the watcher; keep watching the new one
+    const QString file = FishLibrary::themeRequestPath();
+    if (QFileInfo::exists(file) && !m_watcher.files().contains(file))
+        m_watcher.addPath(file);
+    const FishLibrary::ThemeRequest request = FishLibrary::themeRequest();
+    if (request.at <= m_handledRequest || request.theme.isEmpty())
+        return;
+    m_handledRequest = request.at;
+    if (request.theme != m_theme)
+        Q_EMIT themeRequested(request.theme);
 }
 
 void FishTank::loadLibrary(bool animateNew)

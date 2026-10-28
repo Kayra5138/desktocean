@@ -202,6 +202,38 @@ QString statePath()
     return QFileInfo(directory()).dir().filePath(QStringLiteral("state.json"));
 }
 
+QString themeRequestPath()
+{
+    return QFileInfo(directory()).dir().filePath(QStringLiteral("requests.json"));
+}
+
+bool requestTheme(const QString &theme, QString *error)
+{
+    QDir().mkpath(QFileInfo(themeRequestPath()).path());
+    const QJsonObject root{{QStringLiteral("theme"), theme},
+                           {QStringLiteral("at"), QString::number(QDateTime::currentMSecsSinceEpoch())}};
+    QSaveFile file(themeRequestPath());
+    if (!file.open(QIODevice::WriteOnly)) {
+        setError(error, file.errorString());
+        return false;
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    if (!file.commit()) {
+        setError(error, file.errorString());
+        return false;
+    }
+    return true;
+}
+
+ThemeRequest themeRequest()
+{
+    QFile file(themeRequestPath());
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    const QJsonObject o = QJsonDocument::fromJson(file.readAll()).object();
+    return {o.value(QStringLiteral("theme")).toString(), o.value(QStringLiteral("at")).toString().toLongLong()};
+}
+
 QString kindName(FishEntry::Kind kind)
 {
     switch (kind) {

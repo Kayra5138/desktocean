@@ -21,6 +21,8 @@ Item {
     property alias lifeSpeed: tank.lifeSpeed
     // Theme id, see native/src/themes.cpp
     property alias theme: tank.theme
+    // The editor asked for another theme
+    signal themeRequested(string theme)
     readonly property var themeColors: tank.themeColors
     property alias hourOverride: tank.hourOverride
     property string pauseReason: ""
@@ -75,6 +77,7 @@ Item {
     FishTank {
         id: tank
         anchors.fill: parent
+        onThemeRequested: theme => aquarium.themeRequested(theme)
         // Distant fish fade into the water colour, which darkens at night
         readonly property color themeFog: Qt.tint(aquarium.themeColors.deep, Qt.rgba(aquarium.themeColors.shallow.r, aquarium.themeColors.shallow.g, aquarium.themeColors.shallow.b, 0.35))
         fogColor: Qt.rgba(themeFog.r * (0.2 + 0.8 * daylight), themeFog.g * (0.2 + 0.8 * daylight), themeFog.b * (0.3 + 0.7 * daylight), 1)

@@ -27,6 +27,11 @@ WallpaperItem {
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu
         babies: root.configuration.Babies
+        // Chosen in the editor's tank layout: store it like a choice made in the settings
+        onThemeRequested: theme => {
+            root.configuration.Theme = theme;
+            root.configuration.writeConfig();
+        }
         maxFish: root.configuration.MaxFish
         running: !root.covered
         pauseReason: root.covered ? "window covers screen" : ""

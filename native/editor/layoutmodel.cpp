@@ -1,7 +1,9 @@
 #include "layoutmodel.h"
 #include "themes.h"
 
+#include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -73,7 +75,13 @@ void LayoutModel::reload()
     QString theme;
     if (state.open(QIODevice::ReadOnly))
         theme = QJsonDocument::fromJson(state.readAll()).object().value(QStringLiteral("theme")).toString();
-    m_themeColors = Themes::colors(theme);
+    // A theme just chosen here may not have reached the wallpaper's state yet
+    const FishLibrary::ThemeRequest request = FishLibrary::themeRequest();
+    if (!request.theme.isEmpty() && request.at > QFileInfo(FishLibrary::statePath()).lastModified().toMSecsSinceEpoch())
+        theme = request.theme;
+    m_theme = Themes::byId(theme).id;
+    m_themeColors = Themes::colors(m_theme);
+    Q_EMIT themeChanged();
 
     beginResetModel();
     m_entries.clear();
@@ -211,6 +219,28 @@ int LayoutModel::add(const QString &entryId)
             return r;
     }
     return -1;
+}
+
+void LayoutModel::setTheme(const QString &theme)
+{
+    if (theme == m_theme)
+        return;
+    QString error;
+    if (!FishLibrary::requestTheme(theme, &error)) {
+        setError(error);
+        return;
+    }
+    m_theme = theme;
+    m_themeColors = Themes::colors(theme);
+    Q_EMIT themeChanged();
+}
+
+QVariantList LayoutModel::themes() const
+{
+    QVariantList list;
+    for (const Theme &t : Themes::all())
+        list << QVariantMap{{QStringLiteral("id"), t.id}, {QStringLiteral("label"), t.label}};
+    return list;
 }
 
 void LayoutModel::setError(const QString &error)

@@ -17,7 +17,11 @@ class LayoutModel : public QAbstractListModel
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     // Colours of the wallpaper's theme {shallow, deep, sandLight, sandDark}
-    Q_PROPERTY(QVariantMap themeColors READ themeColors NOTIFY countChanged)
+    Q_PROPERTY(QVariantMap themeColors READ themeColors NOTIFY themeChanged)
+    // The wallpaper's theme id; setting it asks the wallpaper to switch
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
+    // [{id, label}] of every theme, for a ComboBox
+    Q_PROPERTY(QVariantList themes READ themes CONSTANT)
 
 public:
     enum Role { EntryIdRole = Qt::UserRole + 1, NameRole, ImageRole, AspectRole, KindRole, XRole, YRole, ScaleRole, FrontRole, FlipRole };
@@ -29,6 +33,9 @@ public:
     QHash<int, QByteArray> roleNames() const override;
     QString lastError() const { return m_lastError; }
     QVariantMap themeColors() const { return m_themeColors; }
+    QString theme() const { return m_theme; }
+    void setTheme(const QString &theme);
+    QVariantList themes() const;
 
     Q_INVOKABLE void reload();
     // x, y: middle of the bottom edge, as fractions of the tank
@@ -45,6 +52,7 @@ public:
 Q_SIGNALS:
     void countChanged();
     void lastErrorChanged();
+    void themeChanged();
 
 private:
     struct Item {
@@ -62,4 +70,5 @@ private:
     QHash<QString, double> m_aspect;   // entry id -> sprite height / width
     QString m_lastError;
     QVariantMap m_themeColors;
+    QString m_theme;
 };

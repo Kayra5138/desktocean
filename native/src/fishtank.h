@@ -149,6 +149,8 @@ Q_SIGNALS:
     void starterDecorChanged();
     void fogColorChanged();
     void themeChanged();
+    // The editor asked for this theme; the wallpaper stores it in its settings
+    void themeRequested(const QString &theme);
     void followTimeOfDayChanged();
     void hourOverrideChanged();
     void daylightChanged();
@@ -176,6 +178,7 @@ private:
     void seedLibrary();
     void seedDecor();
     void watchLibrary();
+    void checkRequests();
     void rebuildAtlas(const QList<QImage> &images);
     void updateDaylight();
     void sampleCpu();
@@ -199,6 +202,8 @@ private:
     quint64 m_cpuBusy = 0;
     quint64 m_cpuTotal = 0;
     bool m_libraryLoaded = false;
+    // Time of the last editor request already handled (requests.json)
+    qint64 m_handledRequest = 0;
     bool m_stateLoaded = false;
     // Which library fish each simulated fish is a copy of (spec id -> entry id)
     QHash<quint64, QString> m_specOwner;
