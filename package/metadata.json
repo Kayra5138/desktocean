@@ -1,0 +1,23 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Desktocean"
+            }
+        ],
+        "Description": "Çizilebilir, hafif, canlı akvaryum duvar kağıdı",
+        "Icon": "preferences-desktop-wallpaper",
+        "Id": "desktocean.aquarium",
+        "License": "GPL-3.0-or-later",
+        "Name": "Desktocean",
+        "Version": "0.0.1"
+    },
+    "Keywords": [
+        "aquarium",
+        "fish",
+        "akvaryum"
+    ],
+    "X-KDE-ParentApp": "org.kde.plasmashell",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
