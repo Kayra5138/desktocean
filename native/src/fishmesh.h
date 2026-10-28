@@ -61,6 +61,24 @@ std::vector<float> weightsFromMask(const QImage &mask);
 void writeFish(const Pose &pose, const QRectF &uv, const Style &style, const std::vector<float> &weights,
                Vertex *v, quint32 *idx, quint32 base);
 
+// Plants and decorations: a grid standing on (x, bottom), bending sideways in
+// the current more and more toward the top. sway = 0 keeps it still.
+constexpr int kDecorCols = 4;
+constexpr int kDecorRows = 12;
+constexpr int kVertsPerDecor = (kDecorCols + 1) * (kDecorRows + 1);
+constexpr int kIndicesPerDecor = kDecorCols * kDecorRows * 6;
+
+struct DecorPose {
+    float x, bottom;   // middle of the bottom edge
+    float w, h;
+    float sway;        // 0 = still, 1 = gentle current
+    float phase;       // per-placement offset so plants don't move in lockstep
+    bool flip;
+    float fog;
+};
+
+void writeDecor(const DecorPose &pose, const QRectF &uv, float time, Vertex *v, quint32 *idx, quint32 base);
+
 // Axis-aligned sprite, e.g. a food pellet
 void writeQuad(QRectF rect, const QRectF &uv, float alpha, Vertex *v, quint32 *idx, quint32 base);
 

@@ -112,6 +112,41 @@ void writeFish(const Pose &f, const QRectF &uv, const Style &st, const std::vect
     }
 }
 
+void writeDecor(const DecorPose &d, const QRectF &uv, float time, Vertex *v, quint32 *idx, quint32 base)
+{
+    for (int r = 0; r <= kDecorRows; ++r) {
+        const float vv = float(r) / kDecorRows;     // 0 = top, 1 = roots
+        const float height = 1.f - vv;
+        // Roots stay put; the top follows a slow current with a little flutter
+        const float bend = std::pow(height, 1.6f);
+        const float current = std::sin(time * 0.7f + d.phase + height * 1.2f) * 0.065f
+                            + std::sin(time * 1.9f + d.phase * 1.7f + height * 3.0f) * 0.015f;
+        const float dx = current * d.sway * d.h * bend;
+        for (int c = 0; c <= kDecorCols; ++c) {
+            const float u = float(c) / kDecorCols;
+            Vertex &out = *v++;
+            out.x = d.x + (u - 0.5f) * d.w + dx;
+            out.y = d.bottom - height * d.h + std::abs(dx) * 0.08f;
+            const float tu = d.flip ? 1.f - u : u;
+            out.u = float(uv.x() + tu * uv.width());
+            out.v = float(uv.y() + vv * uv.height());
+            out.fog = d.fog;
+            out.alpha = 1.f;
+        }
+    }
+    const quint32 stride = kDecorCols + 1;
+    for (int r = 0; r < kDecorRows; ++r) {
+        for (int c = 0; c < kDecorCols; ++c) {
+            const quint32 i0 = base + r * stride + c;
+            const quint32 i1 = i0 + 1;
+            const quint32 i2 = i0 + stride;
+            const quint32 i3 = i2 + 1;
+            *idx++ = i0; *idx++ = i2; *idx++ = i1;
+            *idx++ = i1; *idx++ = i2; *idx++ = i3;
+        }
+    }
+}
+
 void writeQuad(QRectF rect, const QRectF &uv, float alpha, Vertex *v, quint32 *idx, quint32 base)
 {
     for (int r = 0; r < 2; ++r) {

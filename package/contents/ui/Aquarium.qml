@@ -56,6 +56,8 @@ Item {
         // Seeds an empty fish library on first run; after that the library is the source of truth
         starterFish: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
+        starterDecor: ["decor-seaweed-tall.svg", "decor-seaweed-bushy.svg", "decor-rock.svg", "decor-coral.svg"]
+            .map(name => Qt.resolvedUrl("../images/" + name))
     }
 
     // Diagnostics, top-right so desktop icons (top-left) stay readable
@@ -76,7 +78,7 @@ Item {
 
         function refreshSnapshot() {
             const p = tank.pointer;
-            snapshot = "Desktocean · Phase 3\n"
+            snapshot = "Desktocean · Phase 4\n"
                 + "Core: rust " + tank.coreVersion + (tank.healthy ? " (ok)" : " (STOPPED)") + "\n"
                 + "FPS: " + measuredFps + " (target " + tank.fps + ")\n"
                 + "State: " + (tank.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"

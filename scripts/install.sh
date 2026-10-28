@@ -52,6 +52,7 @@ esac
 # --- wallpaper package -------------------------------------------------------
 "$ROOT/scripts/build-shaders.sh"
 python3 "$ROOT/scripts/make-test-fish.py"
+python3 "$ROOT/scripts/make-starter-decor.py"
 if kpackagetool6 -t Plasma/Wallpaper -s desktocean.aquarium >/dev/null 2>&1; then
     kpackagetool6 -t Plasma/Wallpaper -u "$ROOT/package"
     echo "Upgraded. Plasma caches QML and plugins: run scripts/reload-plasma.sh to see changes."

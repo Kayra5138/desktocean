@@ -18,6 +18,8 @@ class LibraryModel : public QAbstractListModel
     // Fish swimming in the tank (sum of copies)
     Q_PROPERTY(int swimming READ swimming NOTIFY countChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    // Which entries to list: "fish" (default), "plant", "decor" or "scenery" (plants and decorations)
+    Q_PROPERTY(QString kind READ kind WRITE setKind NOTIFY kindChanged)
 
 public:
     enum Role { IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole, FriendsRole, RivalsRole };
@@ -30,6 +32,8 @@ public:
 
     int swimming() const;
     QString lastError() const { return m_lastError; }
+    QString kind() const { return m_kind; }
+    void setKind(const QString &kind);
 
     Q_INVOKABLE void reload();
     // Row as {fishId, name, image, copies, scale, swimStyle, wiggle}, or empty
@@ -43,6 +47,7 @@ public:
 Q_SIGNALS:
     void countChanged();
     void lastErrorChanged();
+    void kindChanged();
 
 private:
     bool modify(const QString &id, const std::function<void(FishEntry &)> &change);
@@ -58,4 +63,5 @@ private:
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
     QString m_lastError;
+    QString m_kind = QStringLiteral("fish");
 };

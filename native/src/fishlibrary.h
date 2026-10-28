@@ -7,6 +7,16 @@
 
 #include <optional>
 
+// Where one copy of a plant or decoration stands in the tank. Coordinates are
+// fractions of the tank size; (x, y) is the middle of the bottom edge.
+struct Placement {
+    double x = 0.5;
+    double y = 0.93;
+    double scale = 1.0;
+    bool front = false;   // drawn in front of the fish
+    bool flip = false;    // mirrored
+};
+
 // The user's fish collection on disk, shared by the wallpaper and the editor:
 //
 //   ~/.local/share/desktocean/fish/
@@ -14,15 +24,23 @@
 //       <id>[-<n>].png        one sprite per entry, head facing right, cropped
 //       <...>.wiggle.png      optional motion mask, same size (grey 128 = normal)
 //
+// Besides fish it holds plants (sway in the current) and decorations (still),
+// which are placed in the tank rather than swimming.
+//
 // The editor writes, the wallpaper watches the directory and reloads.
 struct FishEntry {
+    enum class Kind { Fish, Plant, Decor };
+
     QString id;
+    Kind kind = Kind::Fish;
     QString name;
     QString file;                          // sprite file name inside directory()
     QString wiggle;                        // wiggle mask file name, or empty
     QString style = QStringLiteral("classic");  // FishMesh swim style id
     double scale = 1.0;                    // size multiplier
     int count = 1;                         // how many of this fish swim in the tank
+    double sway = 1.0;                     // plants: how much they move in the current
+    QList<Placement> placements;           // plants and decorations: where they stand
 
     QString path() const;
     QString wigglePath() const;            // empty when there is no mask
@@ -41,13 +59,20 @@ QString directory();
 QString manifestPath();
 bool exists();
 
+QString kindName(FishEntry::Kind kind);
+FishEntry::Kind kindFromName(const QString &name);
+
+// Starter decorations are added once per library, even if the user deletes them
+bool decorSeeded();
+void markDecorSeeded();
+
 QList<FishEntry> load(QString *error = nullptr);
 
 // Crops the drawing to its visible pixels, saves it and appends an entry with
 // meta's name, style, scale and count.
 std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, QString *error = nullptr);
 bool remove(const QString &id, QString *error = nullptr);
-// Updates name, style, scale and count of the entry with meta.id
+// Updates name, style, scale, count, sway and placements of the entry with meta.id
 bool update(const FishEntry &meta, QString *error = nullptr);
 // Replaces the drawing of an existing fish, keeping its id so it stays in the
 // tank where it is; also applies meta like update()

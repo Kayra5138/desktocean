@@ -55,6 +55,7 @@ bool save(const QList<FishEntry> &entries, QString *error)
     for (const FishEntry &e : entries) {
         QJsonObject o{
             {QStringLiteral("id"), e.id},
+            {QStringLiteral("kind"), FishLibrary::kindName(e.kind)},
             {QStringLiteral("name"), e.name},
             {QStringLiteral("file"), e.file},
             {QStringLiteral("style"), e.style},
@@ -63,6 +64,18 @@ bool save(const QList<FishEntry> &entries, QString *error)
         };
         if (!e.wiggle.isEmpty())
             o.insert(QStringLiteral("wiggle"), e.wiggle);
+        if (e.kind != FishEntry::Kind::Fish) {
+            o.insert(QStringLiteral("sway"), e.sway);
+            QJsonArray places;
+            for (const Placement &p : e.placements) {
+                places.append(QJsonObject{{QStringLiteral("x"), p.x},
+                                          {QStringLiteral("y"), p.y},
+                                          {QStringLiteral("scale"), p.scale},
+                                          {QStringLiteral("front"), p.front},
+                                          {QStringLiteral("flip"), p.flip}});
+            }
+            o.insert(QStringLiteral("placements"), places);
+        }
         list.append(o);
     }
     const QJsonObject root{{QStringLiteral("version"), kManifestVersion}, {QStringLiteral("fish"), list}};
@@ -97,6 +110,15 @@ void applyMeta(FishEntry &e, const FishEntry &meta, int minCount)
     e.style = meta.style.isEmpty() ? QStringLiteral("classic") : meta.style;
     e.scale = std::clamp(meta.scale, 0.3, 3.0);
     e.count = std::clamp(meta.count, minCount, 50);
+    e.kind = meta.kind;
+    e.sway = std::clamp(meta.sway, 0.0, 3.0);
+    e.placements.clear();
+    for (Placement p : meta.placements) {
+        p.x = std::clamp(p.x, -0.2, 1.2);
+        p.y = std::clamp(p.y, 0.0, 1.2);
+        p.scale = std::clamp(p.scale, 0.1, 5.0);
+        e.placements << p;
+    }
 }
 
 // Crops sprite and mask with the same box; false if the drawing is empty
@@ -164,6 +186,40 @@ bool exists()
     return QFileInfo::exists(manifestPath());
 }
 
+QString kindName(FishEntry::Kind kind)
+{
+    switch (kind) {
+    case FishEntry::Kind::Plant:
+        return QStringLiteral("plant");
+    case FishEntry::Kind::Decor:
+        return QStringLiteral("decor");
+    case FishEntry::Kind::Fish:
+        break;
+    }
+    return QStringLiteral("fish");
+}
+
+FishEntry::Kind kindFromName(const QString &name)
+{
+    if (name == QLatin1String("plant"))
+        return FishEntry::Kind::Plant;
+    if (name == QLatin1String("decor"))
+        return FishEntry::Kind::Decor;
+    return FishEntry::Kind::Fish;
+}
+
+bool decorSeeded()
+{
+    return QFileInfo::exists(QDir(directory()).filePath(QStringLiteral(".decor-seeded")));
+}
+
+void markDecorSeeded()
+{
+    QFile marker(QDir(directory()).filePath(QStringLiteral(".decor-seeded")));
+    if (marker.open(QIODevice::WriteOnly))
+        marker.write("1\n");
+}
+
 QList<FishEntry> load(QString *error)
 {
     QFile file(manifestPath());
@@ -190,6 +246,18 @@ QList<FishEntry> load(QString *error)
         e.style = o.value(QStringLiteral("style")).toString(QStringLiteral("classic"));
         e.scale = std::clamp(o.value(QStringLiteral("scale")).toDouble(1.0), 0.3, 3.0);
         e.count = std::clamp(o.value(QStringLiteral("count")).toInt(1), 0, 50);
+        e.kind = kindFromName(o.value(QStringLiteral("kind")).toString());
+        e.sway = std::clamp(o.value(QStringLiteral("sway")).toDouble(1.0), 0.0, 3.0);
+        for (const QJsonValue &pv : o.value(QStringLiteral("placements")).toArray()) {
+            const QJsonObject po = pv.toObject();
+            Placement p;
+            p.x = po.value(QStringLiteral("x")).toDouble(0.5);
+            p.y = po.value(QStringLiteral("y")).toDouble(0.93);
+            p.scale = po.value(QStringLiteral("scale")).toDouble(1.0);
+            p.front = po.value(QStringLiteral("front")).toBool();
+            p.flip = po.value(QStringLiteral("flip")).toBool();
+            e.placements << p;
+        }
         if (e.id.isEmpty() || e.file.isEmpty() || !safeName(e.file) || !safeName(e.wiggle))
             continue;
         entries << e;
@@ -290,7 +358,11 @@ bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *
 
     const FishEntry old = *it;
     FishEntry updated = *it;
-    applyMeta(updated, meta, 0);
+    FishEntry merged = meta;
+    // A redrawn plant or decoration stays where it was placed
+    if (merged.placements.isEmpty())
+        merged.placements = old.placements;
+    applyMeta(updated, merged, 0);
     if (!writeDrawing(updated, sprite, wiggle, error))
         return false;
     *it = updated;

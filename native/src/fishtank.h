@@ -15,6 +15,7 @@
 
 #include <desktocean_sim.h>
 
+#include "fishlibrary.h"
 #include "fishmesh.h"
 
 #include <vector>
@@ -34,6 +35,8 @@ class FishTank : public QQuickItem
     Q_PROPERTY(int fps READ fps WRITE setFps NOTIFY fpsChanged)
     // Sprites (head facing right) copied into an empty library on first run
     Q_PROPERTY(QList<QUrl> starterFish READ starterFish WRITE setStarterFish NOTIFY starterFishChanged)
+    // Plants and decorations ("decor-<name>.svg") added once to every library
+    Q_PROPERTY(QList<QUrl> starterDecor READ starterDecor WRITE setStarterDecor NOTIFY starterDecorChanged)
     Q_PROPERTY(QColor fogColor READ fogColor WRITE setFogColor NOTIFY fogColorChanged)
     // Day and night follow the local clock; when off it is always day
     Q_PROPERTY(bool followTimeOfDay READ followTimeOfDay WRITE setFollowTimeOfDay NOTIFY followTimeOfDayChanged)
@@ -64,6 +67,8 @@ public:
     void setFps(int fps);
     QList<QUrl> starterFish() const { return m_starterFish; }
     void setStarterFish(const QList<QUrl> &urls);
+    QList<QUrl> starterDecor() const { return m_starterDecor; }
+    void setStarterDecor(const QList<QUrl> &urls);
     QColor fogColor() const { return m_fogColor; }
     void setFogColor(const QColor &color);
     bool followTimeOfDay() const { return m_followTimeOfDay; }
@@ -95,6 +100,7 @@ Q_SIGNALS:
     void runningChanged();
     void fpsChanged();
     void starterFishChanged();
+    void starterDecorChanged();
     void fogColorChanged();
     void followTimeOfDayChanged();
     void hourOverrideChanged();
@@ -116,6 +122,7 @@ private:
     void updateTimer();
     void loadLibrary(bool animateNew);
     void seedLibrary();
+    void seedDecor();
     void watchLibrary();
     void rebuildAtlas(const QList<QImage> &images);
     void updateDaylight();
@@ -138,6 +145,7 @@ private:
     bool m_running = true;
     int m_fps = 30;
     QList<QUrl> m_starterFish;
+    QList<QUrl> m_starterDecor;
     QColor m_fogColor = QColor(0x0b, 0x30, 0x48);
     bool m_followTimeOfDay = true;
     qreal m_hourOverride = -1;
@@ -155,10 +163,20 @@ private:
     // One per library fish drawing, indexed by DcFish::sprite
     struct SpriteInfo {
         QRectF uv;                                  // normalised atlas rect
+        float aspect = 1.f;                         // height / width
         const FishMesh::Style *style = nullptr;
         std::vector<float> weights;                 // wiggle mask per vertex, or empty
     };
     std::vector<SpriteInfo> m_sprites;
+
+    // Plants and decorations standing in the tank
+    struct DecorItem {
+        uint32_t sprite;
+        float sway;          // 0 for decorations
+        float phase;
+        Placement placement;
+    };
+    std::vector<DecorItem> m_decor;
 
     // Sprite atlas: every fish drawing plus the food pellet
     QImage m_atlas;

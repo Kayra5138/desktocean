@@ -84,13 +84,28 @@ int LibraryModel::swimming() const
     return n;
 }
 
+void LibraryModel::setKind(const QString &kind)
+{
+    if (kind == m_kind)
+        return;
+    m_kind = kind;
+    reload();
+    Q_EMIT kindChanged();
+}
+
 void LibraryModel::reload()
 {
     QString error;
-    QList<FishEntry> entries = FishLibrary::load(&error);
+    QList<FishEntry> all = FishLibrary::load(&error);
     if (!error.isEmpty()) {
         setError(error);
         return;
+    }
+    QList<FishEntry> entries;
+    for (const FishEntry &e : std::as_const(all)) {
+        const QString kind = FishLibrary::kindName(e.kind);
+        if (kind == m_kind || (m_kind == QLatin1String("scenery") && e.kind != FishEntry::Kind::Fish))
+            entries << e;
     }
     beginResetModel();
     m_entries = entries;
