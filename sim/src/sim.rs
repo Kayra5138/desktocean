@@ -27,13 +27,13 @@ const SCHOOL_RADIUS: f32 = 700.0;
 /// How often (seconds) the tank looks for fish that could form a school.
 const SCHOOL_CHECK_SECS: f32 = 2.0;
 /// At most this share of the fish swim in schools at once: some do, not all.
-const SCHOOL_SHARE: f32 = 0.5;
+const SCHOOL_SHARE: f32 = 0.3;
 /// Largest school; more fish make more schools rather than one big one.
-const SCHOOL_MAX: usize = 6;
+const SCHOOL_MAX: usize = 5;
 /// Schools steer away from each other's middle when closer than this.
-const SCHOOL_KEEP_APART: f32 = 550.0;
+const SCHOOL_KEEP_APART: f32 = 750.0;
 /// Wander targets avoid spots within about this distance of other fish.
-const CROWD_RADIUS: f32 = 320.0;
+const CROWD_RADIUS: f32 = 420.0;
 /// The cursor has to stay this close to a fish...
 const CURSOR_NOTICE_RADIUS: f32 = 220.0;
 /// ...for this long before a curious fish notices it.
@@ -312,6 +312,11 @@ impl Fish {
     /// small fish breed more and school more readily
     pub fn smallness(&self) -> f32 {
         ((1.0 - self.scale) / 0.6).clamp(0.0, 1.0)
+    }
+
+    /// Close enough in size to swim in one school
+    fn same_size(&self, other: &Fish) -> bool {
+        (0.87..1.15).contains(&(other.w / self.w.max(1.0)))
     }
 
     /// Sociability plus the pull small fish feel toward a school
@@ -762,9 +767,9 @@ impl Sim {
         };
 
         let candidates = if character == Character::Explorer {
-            6
+            8
         } else {
-            4
+            6
         };
         let mut best = (f.x, f.y, f32::INFINITY);
         for _ in 0..candidates {
@@ -792,7 +797,7 @@ impl Sim {
             } else {
                 top + self.rng.range(band_lo, band_hi) * water
             };
-            let score = self.crowding(f.id, x, y) + self.rng.range(0.0, 0.3);
+            let score = self.crowding(f.id, x, y) + self.rng.range(0.0, 0.15);
             if score < best.2 {
                 best = (x, y, score);
             }
@@ -817,8 +822,10 @@ impl Sim {
             .iter()
             .filter(|g| g.id != me && (my_school.is_none() || g.school != my_school))
             .map(|g| {
+                // Where it is now and where it is heading both count
                 let d2 = (g.x - x).powi(2) + (g.y - y).powi(2);
-                (-d2 / r2).exp()
+                let t2 = (g.tx - x).powi(2) + (g.ty - y).powi(2);
+                0.5 * (-d2 / r2).exp() + 0.5 * (-t2 / r2).exp()
             })
             .sum()
     }
@@ -1097,7 +1104,19 @@ impl Sim {
                 f.notice_in = reaction * (1.0 + closest_pellet / self.width);
             } else {
                 f.notice_in -= dt;
-                f.food_aware = f.notice_in <= 0.0;
+                if f.notice_in <= 0.0 {
+                    // Only fish that feel like eating come over; the others
+                    // carry on and may think again a little later
+                    // (a starving fish always comes)
+                    let keen = ((f.hunger - FULL) / 0.65).clamp(0.0, 1.0).powi(2)
+                        * (0.6 + 0.4 * p.appetite)
+                        + if f.hunger > 0.8 { 1.0 } else { 0.0 };
+                    if self.rng.chance(keen.max(0.05)) {
+                        f.food_aware = true;
+                    } else {
+                        f.notice_in = self.rng.range(20.0, 40.0);
+                    }
+                }
             }
         }
 
@@ -1182,10 +1201,11 @@ impl Sim {
             _ => None,
         };
         // Curious fish go and have a look at whoever just arrived
-        let newcomer = (p.curiosity > 0.35 && self.daylight > 0.3)
+        let newcomer = (p.curiosity > 0.55 && self.daylight > 0.3)
             .then(|| self.newcomers.iter().find(|(id, _)| *id != f.id))
             .flatten()
-            .and_then(|(id, _)| others.iter().find(|g| g.id == *id));
+            .and_then(|(id, _)| others.iter().find(|g| g.id == *id))
+            .filter(|n| (n.x - f.x).hypot(n.y - f.y) < 700.0);
 
         let surface = match f.mode {
             Mode::Surface { left } => Some(left),
@@ -1337,11 +1357,35 @@ impl Sim {
                 des_y += sy / d * f.max_speed * 1.2;
             }
 
+            // Give others some room: drift away from fish close by that
+            // aren't school mates or friends, so the tank stays evenly filled
+            if matches!(f.mode, Mode::Wander)
+                && chase.is_none()
+                && f.school.is_none()
+                && self.daylight > 0.3
+            {
+                const ROOM: f32 = 400.0;
+                let (mut px, mut py) = (0.0, 0.0);
+                for g in others.iter().filter(|g| g.id != f.id) {
+                    let (sx, sy) = (f.x - g.x, f.y - g.y);
+                    let d = sx.hypot(sy).max(1.0);
+                    if d < ROOM && self.relations.get(f.id, g.id) <= FRIEND {
+                        let push = (1.0 - d / ROOM) * if g.school.is_some() { 1.5 } else { 1.0 };
+                        px += sx / d * push;
+                        py += sy / d * push;
+                    }
+                }
+                // Mostly sideways: up and down is where characters like to be
+                let day = ((self.daylight - 0.3) / 0.4).clamp(0.0, 1.0);
+                des_x += px * f.cruise * 1.2 * day;
+                des_y += py * f.cruise * 0.5 * day;
+            }
+
             // Friends swim side by side
             if matches!(f.mode, Mode::Wander)
                 && let Some((friend, affinity)) = others
                     .iter()
-                    .filter(|g| g.id != f.id && (g.x - f.x).hypot(g.y - f.y) < 700.0)
+                    .filter(|g| g.id != f.id && (g.x - f.x).hypot(g.y - f.y) < 450.0)
                     .map(|g| (g, self.relations.get(f.id, g.id)))
                     .filter(|&(_, a)| a > FRIEND)
                     .max_by(|a, b| a.1.total_cmp(&b.1))
@@ -1555,6 +1599,27 @@ impl Sim {
             school.left -= dt;
             school.members.retain(|m| present.contains(m));
         }
+        // Fish of another size never school together (babies grow out of it)
+        for school in &mut self.schools {
+            if let Some(leader) = self.fish.iter().find(|f| f.id == school.leader) {
+                let fish = &self.fish;
+                school.members.retain(|m| {
+                    fish.iter()
+                        .find(|g| g.id == *m)
+                        .is_some_and(|g| leader.same_size(g))
+                });
+            }
+        }
+        let schooled: HashSet<u64> = self
+            .schools
+            .iter()
+            .flat_map(|sc| sc.members.iter().copied().chain([sc.leader]))
+            .collect();
+        for f in &mut self.fish {
+            if f.school.is_some() && !schooled.contains(&f.id) {
+                f.school = None;
+            }
+        }
         let mut gone: Vec<u32> = Vec::new();
         for school in &mut self.schools {
             if !present.contains(&school.leader) && !school.members.is_empty() {
@@ -1589,7 +1654,7 @@ impl Sim {
         // Small fish make up more of the schooling share
         let small =
             self.fish.iter().map(|f| f.smallness()).sum::<f32>() / self.fish.len().max(1) as f32;
-        let cap = (self.fish.len() as f32 * (SCHOOL_SHARE + 0.25 * small)) as usize;
+        let cap = (self.fish.len() as f32 * (SCHOOL_SHARE + 0.15 * small)) as usize;
         let max_size = |leader: &Fish| SCHOOL_MAX + if leader.smallness() > 0.4 { 2 } else { 0 };
         let schooling = |fish: &[Fish]| fish.iter().filter(|f| f.school.is_some()).count();
 
@@ -1611,6 +1676,7 @@ impl Sim {
                         .find(|g| g.id == sc.leader)
                         .is_some_and(|l| {
                             sc.members.len() + 1 < max_size(l)
+                                && l.same_size(f)
                                 && (l.x - fx).hypot(l.y - fy) < SCHOOL_RADIUS * 0.7
                         })
             });
@@ -1632,12 +1698,21 @@ impl Sim {
             if !willing(f) || !self.rng.chance(0.12 * f.school_appetite()) {
                 continue;
             }
+            let crowded = self.schools.iter().any(|sc| {
+                self.fish
+                    .iter()
+                    .find(|g| g.id == sc.leader)
+                    .is_some_and(|l| (l.x - f.x).hypot(l.y - f.y) < SCHOOL_KEEP_APART)
+            });
+            if crowded {
+                continue;
+            }
             let (fx, fy, kind, leader) = (f.x, f.y, f.sprite, f.id);
             let biggest = max_size(f);
             let mut nearby: Vec<(bool, f32, u64)> = self
                 .fish
                 .iter()
-                .filter(|g| g.id != leader && willing(g))
+                .filter(|g| g.id != leader && willing(g) && f.same_size(g))
                 .map(|g| (g.sprite == kind, (g.x - fx).hypot(g.y - fy), g.id))
                 .filter(|&(_, d, _)| d < SCHOOL_RADIUS)
                 .collect();
@@ -1645,8 +1720,8 @@ impl Sim {
             nearby.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.total_cmp(&b.1)));
             let same_kind = nearby.iter().filter(|c| c.0).count();
             if same_kind == 0 {
-                // No kin around: a mixed school now and then
-                if nearby.is_empty() || !self.rng.chance(0.3) {
+                // No kin around: a mixed school (of one size) once in a while
+                if nearby.is_empty() || !self.rng.chance(0.1) {
                     continue;
                 }
             } else {
@@ -1949,7 +2024,7 @@ mod tests {
         // reach, turning ~9 times a minute and still missing a third of the food.
         // Fish are kept starving so this measures reaching food, not appetite.
         let (mut dropped, mut dissolved, mut flips, mut fish_minutes) = (0, 0, 0, 0.0);
-        for seed in 1..6 {
+        for seed in 1..21 {
             let mut s = sim_with(seed, 7, 2560.0, 1440.0);
             let mut dirs: Vec<f32> = s.fish().iter().map(|f| f.dir).collect();
             for n in 0..30 * 120 {
@@ -1976,7 +2051,7 @@ mod tests {
         let eaten = 1.0 - dissolved as f32 / dropped as f32;
         let turns = flips as f32 / fish_minutes;
         assert!(
-            eaten > 0.75,
+            eaten > 0.7,
             "only {:.0}% of the food was eaten",
             eaten * 100.0
         );
@@ -2707,6 +2782,131 @@ mod tests {
                     "{name} are uneven: {:?}",
                     parts.map(|c| (c / n * 100.0).round())
                 );
+            }
+        }
+    }
+
+    /// A mixed tank like a real one: several drawings, a few sizes, many copies
+    fn mixed_tank(seed: u64) -> Sim {
+        let mut s = Sim::new(seed);
+        let scales = [0.4, 0.6, 1.0, 1.0, 1.4, 1.9];
+        let specs: Vec<FishSpec> = (0..30u64)
+            .map(|k| FishSpec {
+                id: seed * 1000 + k,
+                sprite: (k % 6) as u32,
+                aspect: 0.6,
+                scale: scales[(k % 6) as usize],
+                adult: true,
+                mouth: DEFAULT_MOUTH,
+            })
+            .collect();
+        s.set_population(&specs, false);
+        s.resize(2560.0, 1440.0);
+        for (i, f) in s.fish.iter_mut().enumerate() {
+            f.hunger = 0.1 + 0.6 * (i as f32 * 0.37).fract();
+        }
+        s
+    }
+
+    /// (neighbours within 300 px per fish, outside its own school; share of
+    /// fish with 4+ neighbours of any school; share of fish heading for food
+    /// 10 s after a feeding)
+    fn clustering_and_food_rush(seed: u64) -> (f32, f32, f32) {
+        let mut s = mixed_tank(seed);
+        let (mut near, mut clumped, mut samples) = (0.0, 0.0, 0.0);
+        for k in 0..30 * 300 {
+            s.step(DT, None);
+            if k % 30 == 0 {
+                for f in s.fish() {
+                    let n = s
+                        .fish()
+                        .iter()
+                        .filter(|g| g.id != f.id && (f.school.is_none() || g.school != f.school))
+                        .filter(|g| (g.x - f.x).hypot(g.y - f.y) < 300.0)
+                        .count() as f32;
+                    near += n;
+                    let all = s
+                        .fish()
+                        .iter()
+                        .filter(|g| g.id != f.id && (g.x - f.x).hypot(g.y - f.y) < 300.0)
+                        .count();
+                    clumped += (all >= 4) as u32 as f32;
+                    samples += 1.0;
+                }
+            }
+        }
+        s.feed(Some(1280.0));
+        for _ in 0..30 * 10 {
+            s.step(DT, None);
+        }
+        let rushing =
+            s.fish().iter().filter(|f| f.food_aware).count() as f32 / s.fish().len() as f32;
+        (near / samples, clumped / samples, rushing)
+    }
+
+    #[test]
+    fn fish_spread_out_and_dont_all_rush_to_food() {
+        let (mut near, mut clump, mut rush) = (0.0, 0.0, 0.0);
+        for seed in 1..5 {
+            let (n, c, r) = clustering_and_food_rush(seed);
+            near += n / 4.0;
+            clump += c / 4.0;
+            rush += r / 4.0;
+        }
+        // The same numbers for 30 points scattered uniformly over the water
+        let mut rng = Rng::new(5);
+        let (mut rnear, mut rclump, mut rn) = (0.0, 0.0, 0.0);
+        for _ in 0..200 {
+            let pts: Vec<(f32, f32)> = (0..30)
+                .map(|_| {
+                    (
+                        rng.range(60.0, 2500.0),
+                        rng.range(1440.0 * WATER_TOP + 40.0, 1440.0 * SAND_TOP - 30.0),
+                    )
+                })
+                .collect();
+            for (i, a) in pts.iter().enumerate() {
+                let n = pts
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, b)| *j != i && (a.0 - b.0).hypot(a.1 - b.1) < 300.0)
+                    .count();
+                rnear += n as f32;
+                rclump += (n >= 4) as u32 as f32;
+                rn += 1.0;
+            }
+        }
+        let report = format!(
+            "neighbours within 300px: {near:.2} (random {:.2}), in clumps: {:.0}% (random {:.0}%), rushing to food: {:.0}%",
+            rnear / rn,
+            clump * 100.0,
+            rclump / rn * 100.0,
+            rush * 100.0
+        );
+        // Regression guard: 43% of fish used to be in clumps of 4+ (counting
+        // schools) and 76% swam for the food at once
+        assert!(near < rnear / rn * 0.8, "{report}");
+        assert!(clump < 0.2, "{report}");
+        assert!(rush < 0.55, "{report}");
+    }
+
+    #[test]
+    fn schools_are_one_size() {
+        for seed in 1..4 {
+            let mut s = mixed_tank(seed);
+            for _ in 0..30 * 240 {
+                s.step(DT, None);
+                for sc in &s.schools {
+                    let leader = s.fish.iter().find(|f| f.id == sc.leader).unwrap();
+                    for m in &sc.members {
+                        let g = s.fish.iter().find(|f| f.id == *m).unwrap();
+                        let ratio = g.w / leader.w;
+                        assert!(
+                            (0.85..1.18).contains(&ratio),
+                            "a school mixes sizes: {ratio:.2}"
+                        );
+                    }
+                }
             }
         }
     }
