@@ -555,10 +555,49 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
+                clip: true
+
                 DrawingCanvas {
                     id: canvas
                     anchors.fill: parent
                     anchors.margins: Kirigami.Units.gridUnit
+
+                    // Stylus pressure; the mouse never activates this, so it stays at 1
+                    PointHandler {
+                        acceptedDevices: PointerDevice.Stylus | PointerDevice.Airbrush
+                        target: null
+                        onPointChanged: if (active) canvas.pressure = point.pressure
+                        onActiveChanged: if (!active) canvas.pressure = 1
+                    }
+                }
+
+                // Zoom controls
+                Row {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Kirigami.Units.gridUnit + Kirigami.Units.smallSpacing
+                    spacing: 0
+                    z: 10
+                    QQC2.ToolButton {
+                        icon.name: "zoom-out"
+                        enabled: canvas.zoom > 1
+                        onClicked: canvas.zoomBy(1 / 1.25)
+                        QQC2.ToolTip.text: "Zoom out (Ctrl+wheel)"
+                        QQC2.ToolTip.visible: hovered
+                    }
+                    QQC2.ToolButton {
+                        text: Math.round(canvas.zoom * 100) + "%"
+                        onClicked: canvas.resetView()
+                        QQC2.ToolTip.text: "Fit to window"
+                        QQC2.ToolTip.visible: hovered
+                    }
+                    QQC2.ToolButton {
+                        icon.name: "zoom-in"
+                        enabled: canvas.zoom < 8
+                        onClicked: canvas.zoomBy(1.25)
+                        QQC2.ToolTip.text: "Zoom in (Ctrl+wheel) · middle-drag to move around"
+                        QQC2.ToolTip.visible: hovered
+                    }
                 }
 
                 // Which way is the head

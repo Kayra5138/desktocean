@@ -7,7 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Qml Quick QuickControls2 ShaderTools Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Network Qml Quick QuickControls2 ShaderTools Widgets)
 find_package(Threads REQUIRED)
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -88,8 +88,9 @@ qt_add_qml_module(desktocean-editor
         editor/librarymodel.h editor/librarymodel.cpp
         editor/swimpreview.h editor/swimpreview.cpp
         editor/layoutmodel.h editor/layoutmodel.cpp
+        editor/appinstance.h editor/appinstance.cpp
 )
 target_include_directories(desktocean-editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/editor)
 target_link_libraries(desktocean-editor PRIVATE
-    Qt6::Widgets Qt6::Quick Qt6::QuickControls2 desktocean_render desktocean_library
+    Qt6::Widgets Qt6::Quick Qt6::QuickControls2 Qt6::Network desktocean_render desktocean_library
 )

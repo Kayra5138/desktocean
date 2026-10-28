@@ -1,3 +1,5 @@
+#include "appinstance.h"
+
 #include <QApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -10,6 +12,13 @@ int main(int argc, char *argv[])
     app.setApplicationDisplayName(QStringLiteral("Desktocean"));
     app.setDesktopFileName(QStringLiteral("desktocean-editor"));
     app.setWindowIcon(QIcon::fromTheme(QStringLiteral("draw-brush")));
+
+    // One editor window: a second launch brings the first one forward. Test runs
+    // (--screenshot) stay separate so they never drive the user's open editor.
+    const bool testRun = app.arguments().contains(QStringLiteral("--screenshot"));
+    if (!testRun && AppInstance::forwardToRunning(app.arguments().mid(1)))
+        return 0;
+    AppInstance::instance(!testRun);
 
     // Match the Plasma look unless the user asked for something else
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))

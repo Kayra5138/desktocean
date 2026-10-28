@@ -38,6 +38,12 @@ class DrawingCanvas : public QQuickPaintedItem
     Q_PROPERTY(bool hasWiggle READ hasWiggle NOTIFY contentChanged)
     // Where the canvas is drawn inside the item, for overlays
     Q_PROPERTY(QRectF viewRect READ viewRect NOTIFY viewRectChanged)
+    // 1 = whole canvas fits; Ctrl+wheel zooms around the cursor, wheel or middle-drag pans
+    Q_PROPERTY(qreal zoom READ zoom WRITE setZoom NOTIFY viewRectChanged)
+    // Stylus pressure 0..1, fed from a PointHandler in QML; 1 for the mouse
+    Q_PROPERTY(qreal pressure READ pressure WRITE setPressure NOTIFY pressureChanged)
+    // Changed since it was last saved or loaded
+    Q_PROPERTY(bool dirty READ dirty NOTIFY contentChanged)
 
 public:
     enum Tool { Brush, Eraser, Fill, Picker, Line, Rectangle, Ellipse, Select };
@@ -68,6 +74,15 @@ public:
     // Full-canvas drawing and wiggle mask (null if unused), for saving and previews
     FishDrawing drawing() const;
     QRectF viewRect() const { return m_view; }
+    qreal zoom() const { return m_zoom; }
+    void setZoom(qreal zoom);
+    qreal pressure() const { return m_pressure; }
+    void setPressure(qreal pressure);
+    bool dirty() const { return m_dirty; }
+
+    // Zooms by `factor` keeping the canvas point under `around` (item coordinates) in place
+    Q_INVOKABLE void zoomBy(qreal factor, QPointF around = QPointF(-1, -1));
+    Q_INVOKABLE void resetView();
 
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
@@ -112,6 +127,7 @@ Q_SIGNALS:
     void motionModeChanged();
     void wiggleBrushChanged();
     void viewRectChanged();
+    void pressureChanged();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -119,10 +135,11 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void hoverMoveEvent(QHoverEvent *event) override;
     void hoverLeaveEvent(QHoverEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
 private:
-    enum class Drag { None, Stroke, Shape, Rubber, Move, Resize };
+    enum class Drag { None, Stroke, Shape, Rubber, Move, Resize, Pan };
 
     QPointF toImage(QPointF itemPos) const;
     QRectF toView(const QRectF &imageRect) const;
@@ -174,4 +191,9 @@ private:
     QRectF m_floatRect;
 
     QRectF m_view;
+    qreal m_zoom = 1;
+    QPointF m_pan;            // offset of the canvas centre from the item centre
+    QPointF m_panStart;
+    qreal m_pressure = 1;
+    bool m_dirty = false;
 };

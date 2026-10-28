@@ -1,5 +1,6 @@
 import QtQuick
 import org.kde.kirigami as Kirigami
+import Desktocean.Editor
 
 Kirigami.ApplicationWindow {
     id: window
@@ -17,17 +18,90 @@ Kirigami.ApplicationWindow {
         onOpenLayout: window.pageStack.push(layoutPage)
     }
 
+    // Runs `action` now, or after the user agrees to drop an unsaved drawing
+    function unlessUnsaved(action) {
+        if (!drawPage.canvas.dirty) {
+            action();
+            return;
+        }
+        discardPrompt.pending = action;
+        discardPrompt.open();
+    }
+
+    function openPage(page) {
+        while (pageStack.depth > 1)
+            pageStack.pop();
+        if (page === "fish")
+            pageStack.push(libraryPage);
+        else if (page === "layout")
+            pageStack.push(layoutPage);
+    }
+
+    // Closing with an unsaved drawing asks first
+    property bool closeConfirmed: false
+    onClosing: close => {
+        if (closeConfirmed || !drawPage.canvas.dirty)
+            return;
+        close.accepted = false;
+        unlessUnsaved(() => {
+            window.closeConfirmed = true;
+            window.close();
+        });
+    }
+
+    Kirigami.PromptDialog {
+        id: discardPrompt
+        property var pending: null
+        title: "Discard your drawing?"
+        subtitle: "It has not been added to the aquarium yet."
+        standardButtons: Kirigami.Dialog.NoButton
+        customFooterActions: [
+            Kirigami.Action {
+                text: "Discard"
+                icon.name: "edit-delete"
+                onTriggered: {
+                    discardPrompt.close();
+                    const action = discardPrompt.pending;
+                    discardPrompt.pending = null;
+                    if (action)
+                        action();
+                }
+            },
+            Kirigami.Action {
+                text: "Keep drawing"
+                icon.name: "draw-brush"
+                onTriggered: {
+                    discardPrompt.pending = null;
+                    discardPrompt.close();
+                }
+            }
+        ]
+    }
+
+    // Another launch (e.g. "Draw a fish…" while the editor is open) brings this window forward
+    Connections {
+        target: AppInstance
+        function onActivated(args) {
+            window.show();
+            window.raise();
+            window.requestActivate();
+            const i = args.indexOf("--page");
+            if (i >= 0)
+                window.openPage(args[i + 1]);
+        }
+    }
+
     Component {
         id: layoutPage
         TankLayoutPage {
-            onDrawNew: kind => {
+            onDrawNew: kind => window.unlessUnsaved(() => {
                 window.pageStack.pop();
                 drawPage.startNew(kind);
-            }
-            onEditScenery: entry => {
+            })
+            onEditScenery: entry => window.unlessUnsaved(() => {
                 window.pageStack.pop();
                 drawPage.startEditing(entry);
-            }
+            })
         }
     }
 
@@ -35,20 +109,18 @@ Kirigami.ApplicationWindow {
     Component.onCompleted: {
         const args = Qt.application.arguments;
         const i = args.indexOf("--page");
-        if (i >= 0 && args[i + 1] === "fish")
-            pageStack.push(libraryPage);
-        else if (i >= 0 && args[i + 1] === "layout")
-            pageStack.push(layoutPage);
+        if (i >= 0)
+            openPage(args[i + 1]);
     }
 
     Component {
         id: libraryPage
         LibraryPage {
             onDrawNew: window.pageStack.pop()
-            onEditFish: fish => {
+            onEditFish: fish => window.unlessUnsaved(() => {
                 window.pageStack.pop();
                 drawPage.startEditing(fish);
-            }
+            })
         }
     }
 

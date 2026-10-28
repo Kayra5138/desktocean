@@ -186,7 +186,7 @@ DrawingCanvas::DrawingCanvas(QQuickItem *parent)
 {
     m_image.fill(Qt::transparent);
     m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
-    setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton);
     setAcceptHoverEvents(true);
     setAntialiasing(true);
 }
@@ -415,6 +415,10 @@ QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle)
         return QStringLiteral("Could not open the fish: %1").arg(reader.errorString());
     const QImage mask = wiggle.isEmpty() ? QImage() : QImage(QQmlFile::urlToLocalFileOrQrc(wiggle));
     replaceImage(img.convertToFormat(QImage::Format_ARGB32), mask.size() == img.size() ? mask : QImage(), false);
+    // Freshly opened: nothing to lose yet
+    m_dirty = false;
+    resetView();
+    Q_EMIT contentChanged();
     return {};
 }
 
@@ -461,6 +465,8 @@ QString DrawingCanvas::saveToLibrary(const QVariantMap &meta)
     QString error;
     if (!FishLibrary::add(drawing(), entry, &error))
         return error.isEmpty() ? QStringLiteral("Could not save") : error;
+    m_dirty = false;
+    Q_EMIT contentChanged();
     return {};
 }
 
@@ -472,12 +478,71 @@ QString DrawingCanvas::saveOver(const QString &id, const QVariantMap &meta)
     QString error;
     if (!FishLibrary::replaceDrawing(entry, drawing(), &error))
         return error.isEmpty() ? QStringLiteral("Could not save") : error;
+    m_dirty = false;
+    Q_EMIT contentChanged();
     return {};
+}
+
+void DrawingCanvas::setZoom(qreal zoom)
+{
+    zoom = std::clamp(zoom, 1.0, 8.0);
+    if (qFuzzyCompare(zoom, m_zoom))
+        return;
+    m_zoom = zoom;
+    updateViewRect();
+}
+
+void DrawingCanvas::zoomBy(qreal factor, QPointF around)
+{
+    if (around.x() < 0)
+        around = QPointF(width() / 2, height() / 2);
+    // Keep the canvas point under `around` where it is
+    const QPointF anchor = toImage(around);
+    setZoom(m_zoom * factor);
+    const qreal s = m_view.width() / kCanvasSize.width();
+    const QPointF now = m_view.topLeft() + anchor * s;
+    m_pan += around - now;
+    updateViewRect();
+}
+
+void DrawingCanvas::resetView()
+{
+    m_zoom = 1;
+    m_pan = {};
+    updateViewRect();
+}
+
+void DrawingCanvas::setPressure(qreal pressure)
+{
+    pressure = std::clamp(pressure, 0.0, 1.0);
+    if (qFuzzyCompare(pressure, m_pressure))
+        return;
+    m_pressure = pressure;
+    Q_EMIT pressureChanged();
+}
+
+void DrawingCanvas::wheelEvent(QWheelEvent *event)
+{
+    if (event->modifiers() & Qt::ControlModifier) {
+        zoomBy(std::pow(1.15, event->angleDelta().y() / 120.0), event->position());
+    } else if (m_zoom > 1) {
+        // Plain wheel pans a zoomed canvas; Shift turns vertical scrolling sideways
+        QPointF delta = QPointF(event->angleDelta()) / 2;
+        if (event->modifiers() & Qt::ShiftModifier)
+            delta = QPointF(delta.y(), delta.x());
+        m_pan += delta;
+        updateViewRect();
+    } else {
+        event->ignore();
+        return;
+    }
+    event->accept();
 }
 
 void DrawingCanvas::contentModified()
 {
     m_empty = !hasSelection() && FishLibrary::contentBox(m_image, 0).isNull();
+    m_dirty = !m_empty;
     // Any pixel away from neutral means the user painted motion
     m_hasWiggle = false;
     for (int y = 0; y < m_mask.height() && !m_hasWiggle; ++y) {
@@ -623,7 +688,9 @@ void DrawingCanvas::drawSegment(QPointF from, QPointF to)
     p.setRenderHint(QPainter::Antialiasing);
     if (m_tool == Eraser)
         p.setCompositionMode(QPainter::CompositionMode_Clear);
-    p.setPen(QPen(m_color, m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    // A stylus draws thinner when pressed lightly; the mouse always reports 1
+    const qreal width = std::max(1.0, m_brushSize * (0.2 + 0.8 * m_pressure));
+    p.setPen(QPen(m_color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     if (from == to)
         p.drawPoint(from);
     else
@@ -676,6 +743,11 @@ bool DrawingCanvas::onResizeHandle(QPointF itemPos) const
 
 void DrawingCanvas::mousePressEvent(QMouseEvent *event)
 {
+    if (event->button() == Qt::MiddleButton) {
+        m_drag = Drag::Pan;
+        m_panStart = event->position() - m_pan;
+        return;
+    }
     const QPointF p = toImage(event->position());
     m_start = m_last = p;
 
@@ -732,6 +804,10 @@ void DrawingCanvas::mouseMoveEvent(QMouseEvent *event)
     const QPointF p = toImage(event->position());
     switch (m_drag) {
     case Drag::None:
+        return;
+    case Drag::Pan:
+        m_pan = event->position() - m_panStart;
+        updateViewRect();
         return;
     case Drag::Stroke:
         if (m_motionMode)
@@ -805,8 +881,13 @@ void DrawingCanvas::geometryChange(const QRectF &newGeometry, const QRectF &oldG
 
 void DrawingCanvas::updateViewRect()
 {
-    const QSizeF fitted = QSizeF(kCanvasSize).scaled(size(), Qt::KeepAspectRatio);
-    const QRectF view(QPointF((width() - fitted.width()) / 2, (height() - fitted.height()) / 2), fitted);
+    const QSizeF fitted = QSizeF(kCanvasSize).scaled(size(), Qt::KeepAspectRatio) * m_zoom;
+    // Never let the canvas slide completely out of view
+    const qreal maxX = std::max(0.0, (fitted.width() - width()) / 2 + width() * 0.4);
+    const qreal maxY = std::max(0.0, (fitted.height() - height()) / 2 + height() * 0.4);
+    m_pan = QPointF(std::clamp(m_pan.x(), -maxX, maxX), std::clamp(m_pan.y(), -maxY, maxY));
+    const QPointF centre = QPointF(width() / 2, height() / 2) + m_pan;
+    const QRectF view(centre - QPointF(fitted.width() / 2, fitted.height() / 2), fitted);
     if (view == m_view)
         return;
     m_view = view;
