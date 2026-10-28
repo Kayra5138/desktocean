@@ -11,6 +11,7 @@ Item {
     property alias running: tank.running
     property alias paused: tank.paused
     property alias fps: tank.fps
+    property alias matchRefresh: tank.matchRefresh
     readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
     property alias followTimeOfDay: tank.followTimeOfDay
@@ -104,7 +105,7 @@ Item {
             const p = tank.pointer;
             snapshot = "Desktocean · Phase 4\n"
                 + "Core: rust " + tank.coreVersion + (tank.healthy ? " (ok)" : " (STOPPED)") + "\n"
-                + "FPS: " + measuredFps + " (target " + tank.fps + ")\n"
+                + "FPS: " + measuredFps + " (target " + (tank.matchRefresh ? "screen refresh" : tank.fps) + ")\n"
                 + "State: " + (tank.running && !tank.paused ? "running" : "paused (" + (tank.paused ? "by user" : aquarium.pauseReason) + ")") + "\n"
                 + "Fish: " + tank.fishCount + "  Food: " + tank.foodCount + "\n"
                 + "Following cursor: " + (tank.lureActive ? "yes" : "no") + "\n"

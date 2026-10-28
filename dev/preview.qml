@@ -22,6 +22,8 @@ Window {
             const i = Qt.application.arguments.indexOf("--theme");
             return i >= 0 ? Qt.application.arguments[i + 1] : "tropical";
         }
+        // `--vsync` ticks once per screen refresh
+        matchRefresh: Qt.application.arguments.indexOf("--vsync") >= 0
         // `--fps 20` tries another frame rate
         fps: {
             const i = Qt.application.arguments.indexOf("--fps");

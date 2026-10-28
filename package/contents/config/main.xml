@@ -8,6 +8,9 @@
     <entry name="Fps" type="Int">
       <default>30</default>
     </entry>
+    <entry name="MatchRefresh" type="Bool">
+      <default>false</default>
+    </entry>
     <entry name="PauseOnMaximized" type="Bool">
       <default>true</default>
     </entry>

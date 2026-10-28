@@ -6,6 +6,7 @@ Kirigami.FormLayout {
     id: page
 
     property alias cfg_Fps: fps.value
+    property alias cfg_MatchRefresh: matchRefresh.checked
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
     property string cfg_Theme
     property alias cfg_FollowTimeOfDay: followTimeOfDay.checked
@@ -20,6 +21,12 @@ Kirigami.FormLayout {
         Kirigami.FormData.label: "Frame rate (FPS):"
         from: 5
         to: 60
+        enabled: !matchRefresh.checked
+    }
+
+    QQC2.CheckBox {
+        id: matchRefresh
+        text: "Match the screen's refresh rate (smoothest, uses more CPU)"
     }
 
     QQC2.CheckBox {

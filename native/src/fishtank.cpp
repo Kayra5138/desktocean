@@ -186,6 +186,17 @@ FishTank::FishTank(QQuickItem *parent)
     connect(&m_saveTimer, &QTimer::timeout, this, &FishTank::saveState);
     m_saveTimer.start();
 
+    // In refresh-synced mode frames drive the ticks; if a frame ever goes
+    // missing (nothing else changed on screen), this keeps the loop alive
+    m_vsyncWatchdog.setSingleShot(true);
+    m_vsyncWatchdog.setInterval(250);
+    connect(&m_vsyncWatchdog, &QTimer::timeout, this, [this] {
+        if (m_vsyncActive) {
+            tick();
+            m_vsyncWatchdog.start();
+        }
+    });
+
     // Babies grow slowly; once a minute is smooth enough
     m_growthTimer.setInterval(60 * 1000);
     connect(&m_growthTimer, &QTimer::timeout, this, &FishTank::refreshGrowth);
@@ -517,6 +528,38 @@ void FishTank::setRunning(bool running)
     Q_EMIT runningChanged();
 }
 
+void FishTank::setMatchRefresh(bool match)
+{
+    if (match == m_matchRefresh)
+        return;
+    m_matchRefresh = match;
+    m_timer.stop();
+    m_vsyncActive = false;
+    updateTimer();
+    Q_EMIT fpsChanged();
+}
+
+void FishTank::itemChange(ItemChange change, const ItemChangeData &data)
+{
+    QQuickItem::itemChange(change, data);
+    if (change != ItemSceneChange)
+        return;
+    disconnect(m_frameSwapped);
+    if (data.window) {
+        // Emitted on the render thread; queued so ticks run on the GUI thread
+        m_frameSwapped = connect(data.window, &QQuickWindow::frameSwapped, this, &FishTank::onFrameSwapped,
+                                 Qt::QueuedConnection);
+    }
+}
+
+void FishTank::onFrameSwapped()
+{
+    if (!m_vsyncActive)
+        return;
+    tick();   // asks for the next frame via update()
+    m_vsyncWatchdog.start();
+}
+
 void FishTank::setPaused(bool paused)
 {
     if (paused == m_paused)
@@ -642,7 +685,18 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
 void FishTank::updateTimer()
 {
     const bool shouldRun = m_running && !m_paused && m_healthy && isComponentComplete() && width() > 0 && height() > 0;
-    if (shouldRun && !m_timer.isActive()) {
+    if (m_matchRefresh) {
+        m_timer.stop();
+        if (shouldRun && !m_vsyncActive) {
+            m_vsyncActive = true;
+            m_clock.start();
+            tick();   // the first frame; each swap then ticks again
+            m_vsyncWatchdog.start();
+        } else if (!shouldRun) {
+            m_vsyncActive = false;
+            m_vsyncWatchdog.stop();
+        }
+    } else if (shouldRun && !m_timer.isActive()) {
         m_timer.start(1000 / m_fps);
         m_clock.start();
     } else if (!shouldRun && m_timer.isActive()) {

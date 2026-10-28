@@ -106,9 +106,12 @@ Measured on a 2560x1440 screen with 30 fish (Ryzen-class CPU, RTX 5070 Ti):
 | 20 | ~3.3% | <1% |
 | 30 (default) | ~4.1% | <1% |
 | 60 | ~10.5% | ~0.5% |
+| screen refresh (165 Hz) | ~18% | ~3% |
 
 Simulation and geometry take ~0.3 ms per frame together; the rest is Qt Quick's
-fixed per-frame cost, so the frame rate setting is the knob that matters. The
+fixed per-frame cost, so the frame rate setting is the knob that matters.
+"Match the screen's refresh rate" (off by default) ticks once per refresh,
+in step with the display, instead of on a timer. The
 aquarium adds about 60 MB of memory, mostly the sprite atlas.
 
 ### Layout

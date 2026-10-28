@@ -20,6 +20,7 @@ WallpaperItem {
         id: aquarium
         anchors.fill: parent
         fps: root.configuration.Fps
+        matchRefresh: root.configuration.MatchRefresh
         showDebug: root.configuration.ShowDebug
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme

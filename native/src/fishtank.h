@@ -36,6 +36,8 @@ class FishTank : public QQuickItem
     // running and not paused
     Q_PROPERTY(bool paused READ paused WRITE setPaused NOTIFY pausedChanged)
     Q_PROPERTY(int fps READ fps WRITE setFps NOTIFY fpsChanged)
+    // Tick once per screen refresh (e.g. 165 Hz) instead of at `fps`
+    Q_PROPERTY(bool matchRefresh READ matchRefresh WRITE setMatchRefresh NOTIFY fpsChanged)
     // Sprites (head facing right) copied into an empty library on first run
     Q_PROPERTY(QList<QUrl> starterFish READ starterFish WRITE setStarterFish NOTIFY starterFishChanged)
     // Plants and decorations ("decor-<name>.svg") added once to every library
@@ -85,6 +87,8 @@ public:
     void setPaused(bool paused);
     int fps() const { return m_fps; }
     void setFps(int fps);
+    bool matchRefresh() const { return m_matchRefresh; }
+    void setMatchRefresh(bool match);
     QList<QUrl> starterFish() const { return m_starterFish; }
     void setStarterFish(const QList<QUrl> &urls);
     QList<QUrl> starterDecor() const { return m_starterDecor; }
@@ -160,10 +164,12 @@ Q_SIGNALS:
 protected:
     void componentComplete() override;
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void itemChange(ItemChange change, const ItemChangeData &data) override;
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
 private:
     void tick();
+    void onFrameSwapped();
     void pullState();
     void updateTimer();
     void loadLibrary(bool animateNew);
@@ -200,6 +206,11 @@ private:
     bool m_running = true;
     bool m_paused = false;
     int m_fps = 30;
+    bool m_matchRefresh = false;
+    // Refresh-synced ticking is running: each swapped frame ticks and asks for the next
+    bool m_vsyncActive = false;
+    QTimer m_vsyncWatchdog;
+    QMetaObject::Connection m_frameSwapped;
     QList<QUrl> m_starterFish;
     QList<QUrl> m_starterDecor;
     QColor m_fogColor = QColor(0x0b, 0x30, 0x48);
