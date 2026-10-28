@@ -80,6 +80,19 @@ QImage makeBubbleSprite()
     return img;
 }
 
+// A soft ring, drawn squashed flat on the surface
+QImage makeRippleSprite()
+{
+    QImage img(kFoodCell * 2, kFoodCell * 2, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(235, 250, 255, 240), 5));
+    p.drawEllipse(QRectF(4, 4, img.width() - 8, img.height() - 8));
+    return img;
+}
+
 QImage makeFoodSprite()
 {
     QImage img(kFoodCell, kFoodCell, QImage::Format_ARGB32_Premultiplied);
@@ -493,6 +506,10 @@ void FishTank::pullState()
     m_bubbles.resize(n);
     m_bubbles.resize(std::min(n, dc_sim_bubbles(m_sim, m_bubbles.data(), n)));
 
+    n = dc_sim_ripples(m_sim, nullptr, 0);
+    m_ripples.resize(n);
+    m_ripples.resize(std::min(n, dc_sim_ripples(m_sim, m_ripples.data(), n)));
+
     if (m_fish.size() != oldFish)
         Q_EMIT fishCountChanged();
     if (m_food.size() != oldFood)
@@ -670,6 +687,7 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
         place(img.size());
     place(QSize(kFoodCell, kFoodCell));
     place(QSize(kFoodCell, kFoodCell));
+    place(QSize(kFoodCell * 2, kFoodCell * 2));
     const int atlasH = y + shelf + kPad;
 
     QImage atlas(kAtlasWidth, atlasH, QImage::Format_ARGB32_Premultiplied);
@@ -685,12 +703,15 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
         painter.drawImage(placed[i].topLeft(), images[i]);
         m_sprites[i].uv = normalised(placed[i]);
     }
-    const QRect foodRect = placed[placed.size() - 2];
-    const QRect bubbleRect = placed.back();
+    const QRect foodRect = placed[placed.size() - 3];
+    const QRect bubbleRect = placed[placed.size() - 2];
+    const QRect rippleRect = placed.back();
     painter.drawImage(foodRect.topLeft(), makeFoodSprite());
     painter.drawImage(bubbleRect.topLeft(), makeBubbleSprite());
+    painter.drawImage(rippleRect.topLeft(), makeRippleSprite());
     m_foodUv = normalised(foodRect);
     m_bubbleUv = normalised(bubbleRect);
+    m_rippleUv = normalised(rippleRect);
     painter.end();
 
     m_atlas = atlas;
@@ -721,7 +742,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     const int nFish = int(order.size());
     const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
-    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size()) : 0;
+    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size()) : 0;
     const int nDecor = node->hasAtlas() ? int(std::count_if(m_decor.begin(), m_decor.end(), [&](const DecorItem &d) {
                                                return d.sprite < m_sprites.size();
                                            }))
@@ -775,13 +796,24 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         idx += 6;
         base += 4;
     }
-    for (int i = 0; i < nBubbles; ++i) {
-        const DcBubble &b = m_bubbles[i];
-        FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv, b.alpha, v,
-                            idx, base);
-        v += 4;
-        idx += 6;
-        base += 4;
+    if (nBubbles > 0) {
+        for (const DcBubble &b : m_bubbles) {
+            FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv,
+                                b.alpha, v, idx, base);
+            v += 4;
+            idx += 6;
+            base += 4;
+        }
+        // Rings spread out along the surface and fade
+        for (const DcRipple &r : m_ripples) {
+            const float w = r.strength * (2.f + 9.f * r.progress);
+            const float h = w * 0.22f;
+            const float alpha = (1.f - r.progress) * (1.f - r.progress);
+            FishMesh::writeQuad(QRectF(r.x - w, r.y - h, w * 2, h * 2), m_rippleUv, alpha, v, idx, base);
+            v += 4;
+            idx += 6;
+            base += 4;
+        }
     }
     writeDecorLayer(true);
 

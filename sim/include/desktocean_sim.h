@@ -44,6 +44,12 @@ typedef struct DcBubble {
     float alpha;
 } DcBubble;
 
+typedef struct DcRipple {
+    float x, y;        // centre, on the surface
+    float progress;    // 0 .. 1 over its life
+    float strength;    // radius of the bubble that made it
+} DcRipple;
+
 typedef struct DcFood {
     float x, y;
     float opacity;
@@ -64,6 +70,7 @@ bool dc_sim_lure_active(DcSim *sim);                         // curious fish fol
 void dc_sim_set_daylight(DcSim *sim, float daylight);        // 0 night .. 1 day
 bool dc_sim_announce(DcSim *sim);                            // a fish swims up and blows bubbles
 uint32_t dc_sim_bubbles(DcSim *sim, DcBubble *out, uint32_t cap);
+uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
 uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
 void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);
 void dc_sim_step(DcSim *sim, float dt, float pointer_x, float pointer_y); // < 0: no pointer

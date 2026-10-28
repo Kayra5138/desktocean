@@ -46,6 +46,11 @@ const NEWCOMER_SECS: f32 = 8.0;
 const SURFACE_SECS: f32 = 15.0;
 /// Bubbles rise this fast, px/s.
 const BUBBLE_RISE: f32 = 70.0;
+/// Bubbles at least this big leave a ripple when they pop (only the
+/// notification burst makes them, so the ripple is its signature).
+const RIPPLE_BUBBLE: f32 = 8.0;
+/// How long a ripple spreads before it is gone.
+pub const RIPPLE_SECS: f32 = 1.4;
 
 /// One fish the host wants in the tank. The host owns the ids; a fish keeps
 /// its position and personality across updates as long as its id stays.
@@ -179,6 +184,16 @@ impl Bubble {
     }
 }
 
+/// A ring spreading on the surface where a big bubble popped.
+#[derive(Debug, Clone)]
+pub struct Ripple {
+    pub x: f32,
+    pub y: f32,
+    pub age: f32,
+    /// Size of the bubble that made it
+    pub strength: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Food {
     pub x: f32,
@@ -221,6 +236,7 @@ pub struct Sim {
     fish: Vec<Fish>,
     food: Vec<Food>,
     bubbles: Vec<Bubble>,
+    ripples: Vec<Ripple>,
     time: f32,
     rng: Rng,
     pointer_anchor: Option<(f32, f32)>,
@@ -245,6 +261,7 @@ impl Sim {
             fish: Vec::new(),
             food: Vec::new(),
             bubbles: Vec::new(),
+            ripples: Vec::new(),
             time: 0.0,
             rng: Rng::new(seed),
             pointer_anchor: None,
@@ -304,6 +321,10 @@ impl Sim {
         &self.bubbles
     }
 
+    pub fn ripples(&self) -> &[Ripple] {
+        &self.ripples
+    }
+
     pub fn water_level(&self) -> f32 {
         self.water_top()
     }
@@ -328,15 +349,15 @@ impl Sim {
         }
     }
 
-    fn blow_bubbles(&mut self, x: f32, y: f32, count: usize, size: (f32, f32)) {
+    /// `spread`: seconds over which the bubbles come out, a stream rather than a clump.
+    fn blow_bubbles(&mut self, x: f32, y: f32, count: usize, size: (f32, f32), spread: f32) {
         for _ in 0..count {
             let bubble = Bubble {
                 x: x + self.rng.range(-6.0, 6.0),
                 y: y + self.rng.range(-4.0, 4.0),
                 radius: self.rng.range(size.0, size.1),
                 seed: self.rng.range(0.0, TAU),
-                // Staggered: a short stream rather than a clump
-                age: -self.rng.range(0.0, 0.6),
+                age: -self.rng.range(0.0, spread),
             };
             self.bubbles.push(bubble);
         }
@@ -354,7 +375,24 @@ impl Sim {
             b.x += (b.age * 3.0 + b.seed).sin() * 14.0 / (1.0 + b.radius * 0.1) * dt;
             b.radius *= 1.0 + 0.04 * dt;
         }
+        // Big bubbles reaching the surface leave a spreading ring
+        for b in self
+            .bubbles
+            .iter()
+            .filter(|b| b.y <= wt - 4.0 && b.radius >= RIPPLE_BUBBLE)
+        {
+            self.ripples.push(Ripple {
+                x: b.x,
+                y: wt,
+                age: 0.0,
+                strength: b.radius,
+            });
+        }
         self.bubbles.retain(|b| b.y > wt - 4.0);
+        for r in &mut self.ripples {
+            r.age += dt;
+        }
+        self.ripples.retain(|r| r.age < RIPPLE_SECS);
     }
 
     fn water_top(&self) -> f32 {
@@ -692,7 +730,7 @@ impl Sim {
         if f.bubble_timer <= 0.0 {
             f.bubble_timer = self.rng.range(40.0, 140.0);
             let n = 1 + (self.rng.unit() * 3.0) as usize;
-            self.blow_bubbles(mx, my, n, (2.0, 4.5));
+            self.blow_bubbles(mx, my, n, (2.0, 4.5), 0.6);
         }
         f.hunger = (f.hunger + dt * HUNGER_RATE * (0.6 + 0.8 * p.appetite)).min(1.0);
         f.chase_cooldown = (f.chase_cooldown - dt).max(0.0);
@@ -809,7 +847,9 @@ impl Sim {
             if let Some(left) = surface {
                 // At the top: a burst of bubbles, then a short rest up there
                 if dist < 30.0 + f.h * 0.3 {
-                    self.blow_bubbles(mx, my, 7, (4.0, 8.0));
+                    // Much bigger than everyday bubbles, and each one leaves a ripple
+                    // at the surface: the burst should read as "something happened"
+                    self.blow_bubbles(mx, my, 9, (10.0, 18.0), 1.8);
                     f.mode = Mode::Idle { left: 2.5 };
                 } else if left - dt <= 0.0 {
                     f.mode = Mode::Wander;
@@ -1450,6 +1490,10 @@ mod tests {
             }
         }
         assert!(burst, "no bubble burst at the surface");
+        assert!(
+            s.bubbles().iter().any(|b| b.radius >= RIPPLE_BUBBLE),
+            "the burst should be big bubbles"
+        );
         let top = s
             .bubbles()
             .iter()
@@ -1459,13 +1503,19 @@ mod tests {
             top < 1080.0 * 0.3,
             "bubbles should come from near the surface, highest at y {top}"
         );
+        let mut rippled = false;
+        for _ in 0..30 * 6 {
+            s.step(DT, None);
+            rippled |= !s.ripples().is_empty();
+        }
+        assert!(rippled, "big bubbles should leave ripples at the surface");
     }
 
     #[test]
     fn bubbles_rise_and_pop_at_the_surface() {
         let mut s = sim();
         s.fish.iter_mut().for_each(|f| f.bubble_timer = 1000.0);
-        s.blow_bubbles(500.0, 800.0, 5, (3.0, 6.0));
+        s.blow_bubbles(500.0, 800.0, 5, (3.0, 6.0), 0.6);
         let start: f32 = s.bubbles().iter().map(|b| b.y).sum();
         for _ in 0..30 {
             s.step(DT, None);
@@ -1476,6 +1526,10 @@ mod tests {
             s.step(DT, None);
         }
         assert!(s.bubbles().is_empty(), "bubbles should pop at the surface");
+        assert!(
+            s.ripples().is_empty(),
+            "small everyday bubbles leave no ripples"
+        );
     }
 
     #[test]

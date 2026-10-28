@@ -49,6 +49,16 @@ pub struct DcBubble {
     pub alpha: f32,
 }
 
+/// A ring on the surface; `progress` runs 0..1 over its life.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcRipple {
+    pub x: f32,
+    pub y: f32,
+    pub progress: f32,
+    pub strength: f32,
+}
+
 /// Affinity between fish `a` and `b` (ids from DcFishSpec), -1..1.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -211,6 +221,29 @@ pub unsafe extern "C" fn dc_sim_bubbles(handle: *mut DcSim, out: *mut DcBubble, 
             }
         }
         bubbles.len() as u32
+    })
+}
+
+/// Same contract as `dc_sim_fish`, for surface ripples.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_ripples(handle: *mut DcSim, out: *mut DcRipple, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let ripples = s.ripples();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, r) in dst.iter_mut().zip(ripples) {
+                *d = DcRipple {
+                    x: r.x,
+                    y: r.y,
+                    progress: r.age / crate::sim::RIPPLE_SECS,
+                    strength: r.strength,
+                };
+            }
+        }
+        ripples.len() as u32
     })
 }
 

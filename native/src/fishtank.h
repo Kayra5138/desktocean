@@ -201,6 +201,7 @@ private:
     std::vector<DcFish> m_fish;
     std::vector<DcFood> m_food;
     std::vector<DcBubble> m_bubbles;
+    std::vector<DcRipple> m_ripples;
 
     // One per library fish drawing, indexed by DcFish::sprite
     struct SpriteInfo {
@@ -224,5 +225,6 @@ private:
     QImage m_atlas;
     QRectF m_foodUv;
     QRectF m_bubbleUv;
+    QRectF m_rippleUv;
     bool m_atlasDirty = false;
 };
