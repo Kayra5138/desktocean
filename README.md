@@ -4,9 +4,9 @@ A lightweight, living aquarium wallpaper for KDE Plasma 6. Fish swim behind your
 desktop icons and widgets; later you'll be able to draw your own fish and
 decorations and drop them into the tank.
 
-> Status: **Phase 3.** Draw your own fish (or import a picture) and watch it drop
-> into the tank. Fish get hungry, make friends and rivals, greet newcomers and
-> rest at night. Decorations are next on the roadmap below.
+> Status: **Phase 4.** Draw your own fish, plants and decorations (or import a
+> picture) and arrange your tank. Fish get hungry, make friends and rivals,
+> greet newcomers and rest at night.
 
 ## Features (so far)
 
@@ -27,6 +27,10 @@ decorations and drop them into the tank.
   each other's food makes rivals, who chase each other now and then. Shown on the editor's fish cards
 - **Day and night** follow the clock: at night the water darkens, plankton glows and fish rest near the bottom
 - **Newcomers**: curious fish come over to look at a fish that just arrived
+- **Plants and decorations**: draw them too; plants sway in the current, decorations stand still.
+  Arrange them on the editor's **Tank layout** page (drag, resize, in front of or behind the fish,
+  flip, copy). Starter seaweed, rocks and a coral are included
+- **Themes** for water and sand: Tropical, Lagoon, Deep sea, Kelp forest, Volcanic
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
 - Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
 - Curious fish follow the cursor while it moves, and lose interest when it stops
@@ -106,7 +110,7 @@ with the aquarium paused against one with it running.
 2. ~~**Phase 1** — Rust simulation (boids, personalities), batched fish rendering~~
 3. ~~**Phase 2** — drawing editor and PNG import~~
 4. ~~**Phase 3** — behaviour: hunger, friendships and rivalries, day/night, newcomers~~
-5. **Phase 4** — swaying plants, rocks, coral, themes
+5. ~~**Phase 4** — swaying plants, rocks, coral, themes~~
 6. **Phase 5** — settings, day/night cycle, system integrations, companion widget
 
 Inspired by [Drawquarium](https://store.steampowered.com/app/4045480/Drawquarium/).

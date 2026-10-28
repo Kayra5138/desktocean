@@ -13,6 +13,17 @@ Item {
     readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
     property alias followTimeOfDay: tank.followTimeOfDay
+    // One of the keys of `themes`
+    property string theme: "tropical"
+
+    readonly property var themes: ({
+        tropical: { shallow: "#2185a8", deep: "#05203d", sandLight: "#ccb380", sandDark: "#736145" },
+        lagoon:   { shallow: "#33b8b0", deep: "#0a4a5a", sandLight: "#f0e6cf", sandDark: "#a89c80" },
+        deepsea:  { shallow: "#174a7a", deep: "#020a1f", sandLight: "#6f6a62", sandDark: "#2e2b27" },
+        kelp:     { shallow: "#3f8a6a", deep: "#0b2a22", sandLight: "#a89a6a", sandDark: "#4f4630" },
+        volcanic: { shallow: "#2a7ab0", deep: "#061a33", sandLight: "#4a4a50", sandDark: "#18181c" }
+    })
+    readonly property var themeColors: themes[theme] || themes.tropical
     property alias hourOverride: tank.hourOverride
     property string pauseReason: ""
     readonly property alias foodCount: tank.foodCount
@@ -45,6 +56,10 @@ Item {
         property real sandTop: aquarium.sandTopRatio
         property size resolution: Qt.size(width, height)
         property real daylight: tank.daylight
+        property color shallowColor: aquarium.themeColors.shallow
+        property color deepColor: aquarium.themeColors.deep
+        property color sandLight: aquarium.themeColors.sandLight
+        property color sandDark: aquarium.themeColors.sandDark
         fragmentShader: Qt.resolvedUrl("../shaders/water.frag.qsb")
     }
 
@@ -52,7 +67,8 @@ Item {
         id: tank
         anchors.fill: parent
         // Distant fish fade into the water colour, which darkens at night
-        fogColor: Qt.rgba(0.043 * (0.2 + 0.8 * daylight), 0.188 * (0.2 + 0.8 * daylight), 0.282 * (0.3 + 0.7 * daylight), 1)
+        readonly property color themeFog: Qt.tint(aquarium.themeColors.deep, Qt.rgba(aquarium.themeColors.shallow.r, aquarium.themeColors.shallow.g, aquarium.themeColors.shallow.b, 0.35))
+        fogColor: Qt.rgba(themeFog.r * (0.2 + 0.8 * daylight), themeFog.g * (0.2 + 0.8 * daylight), themeFog.b * (0.3 + 0.7 * daylight), 1)
         // Seeds an empty fish library on first run; after that the library is the source of truth
         starterFish: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))

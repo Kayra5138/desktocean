@@ -15,6 +15,11 @@ Window {
         id: aquarium
         anchors.fill: parent
         focus: true
+        // `--theme lagoon` previews a theme
+        theme: {
+            const i = Qt.application.arguments.indexOf("--theme");
+            return i >= 0 ? Qt.application.arguments[i + 1] : "tropical";
+        }
         // `--hour 23` previews the night
         hourOverride: {
             const i = Qt.application.arguments.indexOf("--hour");

@@ -7,6 +7,7 @@ Kirigami.FormLayout {
 
     property alias cfg_Fps: fps.value
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
+    property string cfg_Theme
     property alias cfg_FollowTimeOfDay: followTimeOfDay.checked
     property alias cfg_ShowDebug: showDebug.checked
 
@@ -21,6 +22,21 @@ Kirigami.FormLayout {
         id: pauseOnMaximized
         Kirigami.FormData.label: "Performance:"
         text: "Pause while a maximized or fullscreen window is open"
+    }
+
+    QQC2.ComboBox {
+        Kirigami.FormData.label: "Theme:"
+        textRole: "text"
+        valueRole: "value"
+        model: [
+            { text: "Tropical", value: "tropical" },
+            { text: "Lagoon", value: "lagoon" },
+            { text: "Deep sea", value: "deepsea" },
+            { text: "Kelp forest", value: "kelp" },
+            { text: "Volcanic", value: "volcanic" }
+        ]
+        Component.onCompleted: currentIndex = Math.max(0, indexOfValue(page.cfg_Theme))
+        onActivated: page.cfg_Theme = currentValue
     }
 
     QQC2.CheckBox {
