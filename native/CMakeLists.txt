@@ -34,6 +34,7 @@ set_target_properties(desktocean_sim PROPERTIES
 add_library(desktocean_library STATIC
     src/fishlibrary.h src/fishlibrary.cpp
     src/fishmesh.h src/fishmesh.cpp
+    src/themes.h src/themes.cpp
 )
 set_target_properties(desktocean_library PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
 target_include_directories(desktocean_library PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

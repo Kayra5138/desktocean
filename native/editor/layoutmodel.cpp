@@ -1,4 +1,9 @@
 #include "layoutmodel.h"
+#include "themes.h"
+
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QImageReader>
 #include <QRandomGenerator>
@@ -62,6 +67,13 @@ void LayoutModel::reload()
     const QList<FishEntry> all = FishLibrary::load(&error);
     if (!error.isEmpty())
         setError(error);
+
+    // The wallpaper remembers its theme next to the friendships
+    QFile state(FishLibrary::statePath());
+    QString theme;
+    if (state.open(QIODevice::ReadOnly))
+        theme = QJsonDocument::fromJson(state.readAll()).object().value(QStringLiteral("theme")).toString();
+    m_themeColors = Themes::colors(theme);
 
     beginResetModel();
     m_entries.clear();

@@ -72,8 +72,8 @@ Kirigami.Page {
                 clip: true
                 radius: Kirigami.Units.cornerRadius
                 gradient: Gradient {
-                    GradientStop { position: 0; color: "#2185a8" }
-                    GradientStop { position: 0.86; color: "#08263f" }
+                    GradientStop { position: 0; color: layout.themeColors.shallow }
+                    GradientStop { position: 0.86; color: layout.themeColors.deep }
                 }
 
                 // Sand, matching SAND_TOP in the simulation
@@ -82,8 +82,8 @@ Kirigami.Page {
                     width: parent.width
                     height: parent.height - y
                     gradient: Gradient {
-                        GradientStop { position: 0; color: "#8f8268" }
-                        GradientStop { position: 1; color: "#5e553f" }
+                        GradientStop { position: 0; color: layout.themeColors.sandLight }
+                        GradientStop { position: 1; color: layout.themeColors.sandDark }
                     }
                 }
 

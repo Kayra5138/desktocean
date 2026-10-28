@@ -87,7 +87,8 @@ public:
     Q_INVOKABLE void resetWiggle();
     // Development aid: paints "more wiggle" over the left third (the tail) and shows it
     Q_INVOKABLE void paintTailWiggleForTest();
-    // Outline templates to colour in: 0 = classic, 1 = long, 2 = round
+    // Outline templates to colour in. Fish: 0 classic, 1 long, 2 round;
+    // plants: 3 seaweed, 4 kelp; decorations: 5 rock, 6 shell, 7 castle
     Q_INVOKABLE void loadTemplate(int index);
     // Bucket fill at a point in canvas pixels (900 x 540)
     Q_INVOKABLE void fillAt(qreal x, qreal y);

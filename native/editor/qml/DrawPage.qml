@@ -132,9 +132,14 @@ Kirigami.Page {
         Kirigami.Action {
             text: "Templates"
             icon.name: "view-preview"
-            Kirigami.Action { text: "Classic fish"; onTriggered: canvas.loadTemplate(0) }
-            Kirigami.Action { text: "Long fish"; onTriggered: canvas.loadTemplate(1) }
-            Kirigami.Action { text: "Round fish"; onTriggered: canvas.loadTemplate(2) }
+            Kirigami.Action { text: "Classic fish"; visible: page.isFish; onTriggered: canvas.loadTemplate(0) }
+            Kirigami.Action { text: "Long fish"; visible: page.isFish; onTriggered: canvas.loadTemplate(1) }
+            Kirigami.Action { text: "Round fish"; visible: page.isFish; onTriggered: canvas.loadTemplate(2) }
+            Kirigami.Action { text: "Seaweed"; visible: page.kind === "plant"; onTriggered: canvas.loadTemplate(3) }
+            Kirigami.Action { text: "Kelp"; visible: page.kind === "plant"; onTriggered: canvas.loadTemplate(4) }
+            Kirigami.Action { text: "Rock"; visible: page.kind === "decor"; onTriggered: canvas.loadTemplate(5) }
+            Kirigami.Action { text: "Shell"; visible: page.kind === "decor"; onTriggered: canvas.loadTemplate(6) }
+            Kirigami.Action { text: "Castle"; visible: page.kind === "decor"; onTriggered: canvas.loadTemplate(7) }
         },
         Kirigami.Action {
             text: "Import image…"

@@ -41,6 +41,10 @@ class FishTank : public QQuickItem
     // Plants and decorations ("decor-<name>.svg") added once to every library
     Q_PROPERTY(QList<QUrl> starterDecor READ starterDecor WRITE setStarterDecor NOTIFY starterDecorChanged)
     Q_PROPERTY(QColor fogColor READ fogColor WRITE setFogColor NOTIFY fogColorChanged)
+    // Water and sand colours by id (see themes.h); remembered for the editor
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
+    // {shallow, deep, sandLight, sandDark} of the theme, for the water shader
+    Q_PROPERTY(QVariantMap themeColors READ themeColors NOTIFY themeChanged)
     // Day and night follow the local clock; when off it is always day
     Q_PROPERTY(bool followTimeOfDay READ followTimeOfDay WRITE setFollowTimeOfDay NOTIFY followTimeOfDayChanged)
     // Pretend it is this hour (0..24) instead of the clock; -1 = use the clock
@@ -76,6 +80,9 @@ public:
     void setStarterDecor(const QList<QUrl> &urls);
     QColor fogColor() const { return m_fogColor; }
     void setFogColor(const QColor &color);
+    QString theme() const { return m_theme; }
+    void setTheme(const QString &theme);
+    QVariantMap themeColors() const;
     bool followTimeOfDay() const { return m_followTimeOfDay; }
     void setFollowTimeOfDay(bool follow);
     qreal hourOverride() const { return m_hourOverride; }
@@ -112,6 +119,7 @@ Q_SIGNALS:
     void starterFishChanged();
     void starterDecorChanged();
     void fogColorChanged();
+    void themeChanged();
     void followTimeOfDayChanged();
     void hourOverrideChanged();
     void daylightChanged();
@@ -158,6 +166,7 @@ private:
     QList<QUrl> m_starterFish;
     QList<QUrl> m_starterDecor;
     QColor m_fogColor = QColor(0x0b, 0x30, 0x48);
+    QString m_theme = QStringLiteral("tropical");
     bool m_followTimeOfDay = true;
     qreal m_hourOverride = -1;
     qreal m_daylight = 1;

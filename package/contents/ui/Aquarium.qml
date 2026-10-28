@@ -14,17 +14,9 @@ Item {
     readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
     property alias followTimeOfDay: tank.followTimeOfDay
-    // One of the keys of `themes`
-    property string theme: "tropical"
-
-    readonly property var themes: ({
-        tropical: { shallow: "#2185a8", deep: "#05203d", sandLight: "#ccb380", sandDark: "#736145" },
-        lagoon:   { shallow: "#33b8b0", deep: "#0a4a5a", sandLight: "#f0e6cf", sandDark: "#a89c80" },
-        deepsea:  { shallow: "#174a7a", deep: "#020a1f", sandLight: "#6f6a62", sandDark: "#2e2b27" },
-        kelp:     { shallow: "#3f8a6a", deep: "#0b2a22", sandLight: "#a89a6a", sandDark: "#4f4630" },
-        volcanic: { shallow: "#2a7ab0", deep: "#061a33", sandLight: "#4a4a50", sandDark: "#18181c" }
-    })
-    readonly property var themeColors: themes[theme] || themes.tropical
+    // Theme id, see native/src/themes.cpp
+    property alias theme: tank.theme
+    readonly property var themeColors: tank.themeColors
     property alias hourOverride: tank.hourOverride
     property string pauseReason: ""
     readonly property alias foodCount: tank.foodCount

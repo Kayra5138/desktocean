@@ -58,6 +58,9 @@ namespace FishLibrary {
 QString directory();
 QString manifestPath();
 bool exists();
+// The wallpaper's state (friendships, theme). Outside directory() on purpose:
+// the tank reloads whenever something in there changes.
+QString statePath();
 
 QString kindName(FishEntry::Kind kind);
 FishEntry::Kind kindFromName(const QString &name);

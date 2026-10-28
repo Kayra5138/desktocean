@@ -186,6 +186,11 @@ bool exists()
     return QFileInfo::exists(manifestPath());
 }
 
+QString statePath()
+{
+    return QFileInfo(directory()).dir().filePath(QStringLiteral("state.json"));
+}
+
 QString kindName(FishEntry::Kind kind)
 {
     switch (kind) {

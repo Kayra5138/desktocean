@@ -2,6 +2,7 @@
 #include "fishlibrary.h"
 #include "spritenode.h"
 #include "tankhub.h"
+#include "themes.h"
 
 #include <QCursor>
 #include <QDir>
@@ -62,12 +63,6 @@ double smoothstep(double a, double b, double x)
 {
     const double t = std::clamp((x - a) / (b - a), 0.0, 1.0);
     return t * t * (3 - 2 * t);
-}
-
-QString statePath()
-{
-    // Outside the fish directory on purpose: the tank reloads when that changes
-    return QFileInfo(FishLibrary::directory()).dir().filePath(QStringLiteral("state.json"));
 }
 
 QImage makeFoodSprite()
@@ -185,7 +180,7 @@ QString FishTank::stats() const
 
 void FishTank::loadState()
 {
-    QFile file(statePath());
+    QFile file(FishLibrary::statePath());
     if (!file.open(QIODevice::ReadOnly))
         return;
     std::vector<DcRelation> list;
@@ -223,8 +218,9 @@ void FishTank::saveState() const
     }
     const QJsonObject root{{QStringLiteral("relations"), relations},
                            {QStringLiteral("friends"), friends},
-                           {QStringLiteral("rivals"), rivals}};
-    QSaveFile file(statePath());
+                           {QStringLiteral("rivals"), rivals},
+                           {QStringLiteral("theme"), m_theme}};
+    QSaveFile file(FishLibrary::statePath());
     if (file.open(QIODevice::WriteOnly)) {
         file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
         file.commit();
@@ -287,6 +283,20 @@ void FishTank::setStarterDecor(const QList<QUrl> &urls)
     if (isComponentComplete() && !FishLibrary::decorSeeded())
         loadLibrary(false);
     Q_EMIT starterDecorChanged();
+}
+
+void FishTank::setTheme(const QString &theme)
+{
+    if (theme == m_theme)
+        return;
+    m_theme = theme;
+    saveState();   // so the editor's tank layout shows the same colours
+    Q_EMIT themeChanged();
+}
+
+QVariantMap FishTank::themeColors() const
+{
+    return Themes::colors(m_theme);
 }
 
 void FishTank::setFogColor(const QColor &color)

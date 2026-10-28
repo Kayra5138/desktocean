@@ -16,6 +16,8 @@ class LayoutModel : public QAbstractListModel
 
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    // Colours of the wallpaper's theme {shallow, deep, sandLight, sandDark}
+    Q_PROPERTY(QVariantMap themeColors READ themeColors NOTIFY countChanged)
 
 public:
     enum Role { EntryIdRole = Qt::UserRole + 1, NameRole, ImageRole, AspectRole, KindRole, XRole, YRole, ScaleRole, FrontRole, FlipRole };
@@ -26,6 +28,7 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
     QString lastError() const { return m_lastError; }
+    QVariantMap themeColors() const { return m_themeColors; }
 
     Q_INVOKABLE void reload();
     // x, y: middle of the bottom edge, as fractions of the tank
@@ -58,4 +61,5 @@ private:
     QList<Item> m_items;
     QHash<QString, double> m_aspect;   // entry id -> sprite height / width
     QString m_lastError;
+    QVariantMap m_themeColors;
 };

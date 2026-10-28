@@ -92,6 +92,75 @@ QPainterPath templateOutline(int index)
         path.closeSubpath();
         path.addEllipse(QPointF(640, 220), 22, 22);
         break;
+    case 3: { // seaweed: three wavy blades growing from the bottom
+        const qreal bases[] = {380, 450, 520};
+        const qreal tops[] = {90, 40, 120};
+        for (int i = 0; i < 3; ++i) {
+            const qreal x = bases[i], top = tops[i], sway = (i % 2 ? 40 : -40);
+            path.moveTo(x - 22, 530);
+            path.cubicTo(x - 40 + sway, 400, x - 10 - sway, 230, x + sway * 0.3, top);
+            path.cubicTo(x + 18 - sway, 230, x + 30 + sway, 400, x + 22, 530);
+            path.closeSubpath();
+        }
+        break;
+    }
+    case 4: { // kelp: a stem with leaves on alternating sides
+        path.moveTo(440, 532);
+        path.cubicTo(420, 380, 480, 250, 450, 30);
+        path.cubicTo(470, 250, 445, 380, 462, 532);
+        path.closeSubpath();
+        for (int i = 0; i < 5; ++i) {
+            const qreal y = 460 - i * 90;
+            const qreal side = i % 2 ? 1 : -1;
+            path.moveTo(452, y);
+            path.cubicTo(452 + side * 60, y - 60, 452 + side * 150, y - 40, 452 + side * 170, y - 70);
+            path.cubicTo(452 + side * 130, y - 5, 452 + side * 60, y + 10, 452, y);
+            path.closeSubpath();
+        }
+        break;
+    }
+    case 5: // rock
+        path.moveTo(160, 530);
+        path.cubicTo(120, 400, 260, 250, 420, 240);
+        path.cubicTo(560, 220, 720, 280, 760, 380);
+        path.cubicTo(790, 450, 780, 510, 760, 530);
+        path.closeSubpath();
+        path.moveTo(330, 330);
+        path.quadTo(420, 290, 520, 300);
+        break;
+    case 6: // scallop shell with ribs
+        path.moveTo(450, 520);
+        path.cubicTo(250, 470, 200, 220, 330, 120);
+        path.cubicTo(400, 70, 500, 70, 570, 120);
+        path.cubicTo(700, 220, 650, 470, 450, 520);
+        path.closeSubpath();
+        for (int i = -3; i <= 3; ++i) {
+            path.moveTo(450, 510);
+            path.lineTo(450 + i * 55, 110 + std::abs(i) * 25);
+        }
+        path.addRect(400, 500, 100, 30);
+        break;
+    case 7: { // castle: two towers, a wall with a door
+        auto battlements = [&](qreal x, qreal w, qreal y) {
+            const int n = 3;
+            const qreal step = w / (2 * n - 1);
+            for (int k = 0; k < n; ++k)
+                path.addRect(x + 2 * k * step, y - 30, step, 30);
+        };
+        path.addRect(250, 230, 120, 300);
+        battlements(250, 120, 230);
+        path.addRect(530, 230, 120, 300);
+        battlements(530, 120, 230);
+        path.addRect(370, 320, 160, 210);
+        battlements(370, 160, 320);
+        path.moveTo(415, 530);
+        path.lineTo(415, 440);
+        path.arcTo(415, 400, 70, 80, 180, -180);
+        path.lineTo(485, 530);
+        path.addEllipse(QPointF(310, 320), 18, 26);
+        path.addEllipse(QPointF(590, 320), 18, 26);
+        break;
+    }
     default: // classic
         path.moveTo(220, 270);
         path.cubicTo(330, 110, 650, 100, 790, 262);

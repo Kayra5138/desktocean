@@ -179,7 +179,7 @@ void LibraryModel::loadRelations()
 {
     m_friends.clear();
     m_rivals.clear();
-    QFile file(QFileInfo(FishLibrary::directory()).dir().filePath(QStringLiteral("state.json")));
+    QFile file(FishLibrary::statePath());
     if (!file.open(QIODevice::ReadOnly))
         return;
     const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
