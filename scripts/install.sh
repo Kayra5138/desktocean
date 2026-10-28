@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds everything and installs it for the current user:
 #   - Desktocean.Core QML plugin (Rust core + C++) → ~/.local/lib/qt6/qml
+#   - desktocean-editor (drawing app)              → ~/.local/bin + app menu entry
 #   - wallpaper package                            → ~/.local/share/plasma/wallpapers
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,6 +24,16 @@ for f in qmldir desktocean_core.qmltypes libdesktocean_core.so; do
     mv -f "$DST/.$f.new" "$DST/$f"
 done
 echo "Installed Desktocean.Core → $DST"
+
+# --- editor ------------------------------------------------------------------
+BIN="$HOME/.local/bin"
+APPS="$HOME/.local/share/applications"
+mkdir -p "$BIN" "$APPS"
+cp "$ROOT/build/desktocean-editor" "$BIN/.desktocean-editor.new"
+mv -f "$BIN/.desktocean-editor.new" "$BIN/desktocean-editor"
+cp "$ROOT/native/editor/desktocean-editor.desktop" "$APPS/desktocean-editor.desktop"
+command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$APPS" || true
+echo "Installed desktocean-editor → $BIN"
 
 # --- make plasmashell find it ------------------------------------------------
 if [ ! -f "$ENV_FILE" ]; then

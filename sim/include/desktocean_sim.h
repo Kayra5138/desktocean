@@ -18,7 +18,15 @@ typedef struct DcFish {
     float amplitude;   // tail swing, fraction of h
     float tilt;        // degrees
     float depth;       // 0 front .. 1 back
+    uint32_t sprite;   // from DcFishSpec
 } DcFish;
+
+typedef struct DcFishSpec {
+    uint64_t id;       // stable per fish; kept fish keep position and personality
+    uint32_t sprite;   // host's sprite index, passed through to DcFish
+    float aspect;      // sprite height / width
+    float scale;       // size multiplier
+} DcFishSpec;
 
 typedef struct DcFood {
     float x, y;
@@ -32,7 +40,8 @@ void dc_sim_free(DcSim *sim);
 bool dc_sim_ok(const DcSim *sim);
 
 void dc_sim_resize(DcSim *sim, float width, float height);
-void dc_sim_set_fish_count(DcSim *sim, uint32_t count);
+// New fish drop in through the surface when animate_new is set
+void dc_sim_set_population(DcSim *sim, const DcFishSpec *specs, uint32_t count, bool animate_new);
 void dc_sim_feed(DcSim *sim, float x);                       // x < 0: random spot
 void dc_sim_clear_food(DcSim *sim);
 bool dc_sim_lure_active(DcSim *sim);                         // curious fish following the cursor

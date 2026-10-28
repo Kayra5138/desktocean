@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::f32::consts::TAU;
 
 use crate::rng::Rng;
@@ -22,6 +23,21 @@ const TURN_RATE: f32 = 6.0;
 const BACKUP_SPEED: f32 = 0.3;
 /// Neighbours within this distance (and similar depth) influence schooling.
 const SCHOOL_RADIUS: f32 = 320.0;
+/// Downward pull on a newly added fish dropping in through the surface, px/s².
+const ENTRY_GRAVITY: f32 = 260.0;
+
+/// One fish the host wants in the tank. The host owns the ids; a fish keeps
+/// its position and personality across updates as long as its id stays.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FishSpec {
+    pub id: u64,
+    /// Index into the host's sprite list; passed through untouched
+    pub sprite: u32,
+    /// Sprite height / width
+    pub aspect: f32,
+    /// Size multiplier on top of the depth-based size
+    pub scale: f32,
+}
 
 /// Fixed traits rolled when a fish is created.
 #[derive(Debug, Clone, Copy)]
@@ -64,6 +80,8 @@ enum Mode {
 
 #[derive(Debug, Clone)]
 pub struct Fish {
+    pub id: u64,
+    pub sprite: u32,
     pub x: f32,
     pub y: f32,
     pub vx: f32,
@@ -76,6 +94,10 @@ pub struct Fish {
     retarget: bool,
     /// 0 = front, 1 = back; drives size, speed, fog and z-order
     pub depth: f32,
+    /// Width before the spec's scale is applied
+    base_w: f32,
+    /// Still dropping in through the surface
+    pub entering: bool,
     pub w: f32,
     pub h: f32,
     pub max_speed: f32,
@@ -143,7 +165,7 @@ struct Neighbour {
 pub struct Sim {
     width: f32,
     height: f32,
-    fish_count: usize,
+    population: Vec<FishSpec>,
     fish: Vec<Fish>,
     food: Vec<Food>,
     time: f32,
@@ -157,7 +179,7 @@ impl Sim {
         Self {
             width: 0.0,
             height: 0.0,
-            fish_count: 7,
+            population: Vec::new(),
             fish: Vec::new(),
             food: Vec::new(),
             time: 0.0,
@@ -205,8 +227,8 @@ impl Sim {
         if !self.has_size() {
             return;
         }
-        if self.fish.len() != self.fish_count {
-            self.reset_fish();
+        if self.fish.len() != self.population.len() {
+            self.sync_population(false);
         } else {
             // Keep the school, just bring everyone back inside and re-plan.
             for i in 0..self.fish.len() {
@@ -218,11 +240,47 @@ impl Sim {
         }
     }
 
-    pub fn set_fish_count(&mut self, count: usize) {
-        self.fish_count = count;
+    /// Makes the tank hold exactly these fish. Fish whose id is already present
+    /// keep swimming where they are; new ones drop in through the surface when
+    /// `animate_new` is set (otherwise they just appear somewhere in the water).
+    pub fn set_population(&mut self, specs: &[FishSpec], animate_new: bool) {
+        self.population = specs.to_vec();
         if self.has_size() {
-            self.reset_fish();
+            self.sync_population(animate_new);
         }
+    }
+
+    fn sync_population(&mut self, animate_new: bool) {
+        let mut existing: HashMap<u64, Fish> = std::mem::take(&mut self.fish)
+            .into_iter()
+            .map(|f| (f.id, f))
+            .collect();
+        let specs = self.population.clone();
+        let mut list = Vec::with_capacity(specs.len());
+        for spec in &specs {
+            let fish = match existing.remove(&spec.id) {
+                Some(mut f) => {
+                    f.sprite = spec.sprite;
+                    Self::apply_size(&mut f, spec);
+                    self.clamp_to_water(&mut f);
+                    f
+                }
+                None => self.spawn(spec, animate_new),
+            };
+            list.push(fish);
+        }
+        // Someone should always be curious about the cursor.
+        if !list_has_follower(&list)
+            && let Some(first) = list.first_mut()
+        {
+            first.personality.curiosity = 0.8;
+        }
+        self.fish = list;
+    }
+
+    fn apply_size(f: &mut Fish, spec: &FishSpec) {
+        f.w = f.base_w * spec.scale.clamp(0.3, 3.0);
+        f.h = f.w * spec.aspect.clamp(0.15, 1.5);
     }
 
     /// Picks the next wander target, usually ahead so fish don't keep turning.
@@ -247,50 +305,56 @@ impl Sim {
     fn clamp_to_water(&self, f: &mut Fish) {
         let half = f.w * 0.5;
         f.x = f.x.clamp(half, (self.width - half).max(half));
-        let top = self.water_top() + f.h * 0.5;
+        // A fish dropping in may still be above the surface.
+        let top = if f.entering {
+            -f.h
+        } else {
+            self.water_top() + f.h * 0.5
+        };
         f.y = f.y.clamp(top, (self.sand_top() - f.h * 0.3).max(top));
     }
 
-    fn reset_fish(&mut self) {
-        let mut list = Vec::with_capacity(self.fish_count);
-        for _ in 0..self.fish_count {
-            let depth = self.rng.unit();
-            let w = self.rng.range(150.0, 230.0) * (1.0 - 0.45 * depth);
-            let dir = if self.rng.chance(0.5) { -1.0 } else { 1.0 };
-            let personality = Personality::random(&mut self.rng);
-            let mut f = Fish {
-                x: self.rng.range(0.0, self.width),
-                y: self.rng.range(self.water_top(), self.sand_top()),
-                vx: 0.0,
-                vy: 0.0,
-                tx: 0.0,
-                ty: 0.0,
-                cruise: 0.0,
-                mode: Mode::Wander,
-                retarget: false,
-                depth,
-                w,
-                h: w * 0.6,
-                max_speed: self.rng.range(60.0, 115.0) * (1.0 - 0.3 * depth) * personality.speed,
-                dir,
-                facing: dir,
-                turn_cooldown: 0.0,
-                turn_intent: 0.0,
-                phase: self.rng.range(0.0, TAU),
-                speed: 0.0,
-                personality,
-            };
-            self.clamp_to_water(&mut f);
-            self.pick_target(&mut f);
-            list.push(f);
+    fn spawn(&mut self, spec: &FishSpec, entering: bool) -> Fish {
+        let depth = self.rng.unit();
+        let base_w = self.rng.range(150.0, 230.0) * (1.0 - 0.45 * depth);
+        let dir = if self.rng.chance(0.5) { -1.0 } else { 1.0 };
+        let personality = Personality::random(&mut self.rng);
+        let mut f = Fish {
+            id: spec.id,
+            sprite: spec.sprite,
+            x: self.rng.range(0.0, self.width),
+            y: self.rng.range(self.water_top(), self.sand_top()),
+            vx: 0.0,
+            vy: 0.0,
+            tx: 0.0,
+            ty: 0.0,
+            cruise: 0.0,
+            mode: Mode::Wander,
+            retarget: false,
+            depth,
+            base_w,
+            entering,
+            w: 0.0,
+            h: 0.0,
+            max_speed: self.rng.range(60.0, 115.0) * (1.0 - 0.3 * depth) * personality.speed,
+            dir,
+            facing: dir,
+            turn_cooldown: 0.0,
+            turn_intent: 0.0,
+            phase: self.rng.range(0.0, TAU),
+            speed: 0.0,
+            personality,
+        };
+        Self::apply_size(&mut f, spec);
+        if entering {
+            // Start just above the surface and plop in.
+            f.x = self.rng.range(self.width * 0.15, self.width * 0.85);
+            f.y = self.water_top() - f.h * 0.6;
+            f.vy = 60.0;
         }
-        // Someone should always be curious about the cursor.
-        if !list_has_follower(&list)
-            && let Some(first) = list.first_mut()
-        {
-            first.personality.curiosity = 0.8;
-        }
-        self.fish = list;
+        self.clamp_to_water(&mut f);
+        self.pick_target(&mut f);
+        f
     }
 
     /// Drops a handful of food from the surface above `x`, or somewhere random.
@@ -394,6 +458,10 @@ impl Sim {
         lure: Option<(f32, f32)>,
         dt: f32,
     ) {
+        if f.entering {
+            self.step_entering(f, dt);
+            return;
+        }
         let p = f.personality;
         let (mx, my) = f.mouth();
 
@@ -561,6 +629,28 @@ impl Sim {
     }
 }
 
+impl Sim {
+    /// A new fish sinks in through the surface, slows down, then starts swimming.
+    fn step_entering(&mut self, f: &mut Fish, dt: f32) {
+        let settled_y = self.water_top() + f.h * 1.2;
+        if f.y < settled_y {
+            f.vy = (f.vy + ENTRY_GRAVITY * dt).min(f.max_speed * 2.5);
+        } else {
+            // Water brakes the fall.
+            f.vy *= 1.0 - (4.0 * dt).min(1.0);
+        }
+        f.vx *= 1.0 - (2.0 * dt).min(1.0);
+        f.y += f.vy * dt;
+        self.clamp_to_water(f);
+        f.speed = f.vx.hypot(f.vy);
+        f.phase = (f.phase + dt * 6.0) % (TAU * 64.0);
+        if f.y >= settled_y && f.vy < 25.0 {
+            f.entering = false;
+            self.pick_target(f);
+        }
+    }
+}
+
 fn list_has_follower(fish: &[Fish]) -> bool {
     fish.iter().any(|f| f.personality.follows_cursor())
 }
@@ -571,28 +661,122 @@ mod tests {
 
     const DT: f32 = 1.0 / 30.0;
 
-    fn sim() -> Sim {
-        let mut s = Sim::new(42);
-        s.resize(1920.0, 1080.0);
+    fn specs(n: u64) -> Vec<FishSpec> {
+        (1..=n)
+            .map(|id| FishSpec {
+                id,
+                sprite: (id % 4) as u32,
+                aspect: 0.6,
+                scale: 1.0,
+            })
+            .collect()
+    }
+
+    fn sim_with(seed: u64, n: u64, w: f32, h: f32) -> Sim {
+        let mut s = Sim::new(seed);
+        s.set_population(&specs(n), false);
+        s.resize(w, h);
         s
+    }
+
+    fn sim() -> Sim {
+        sim_with(42, 7, 1920.0, 1080.0)
     }
 
     #[test]
     fn spawns_requested_fish_once_sized() {
         let mut s = Sim::new(1);
+        s.set_population(&specs(7), false);
         assert!(s.fish().is_empty());
         s.resize(800.0, 600.0);
         assert_eq!(s.fish().len(), 7);
-        s.set_fish_count(12);
+        s.set_population(&specs(12), false);
         assert_eq!(s.fish().len(), 12);
+    }
+
+    #[test]
+    fn population_updates_keep_existing_fish() {
+        let mut s = sim();
+        for _ in 0..30 * 5 {
+            s.step(DT, None);
+        }
+        let before: Vec<(u64, f32, f32)> = s.fish().iter().map(|f| (f.id, f.x, f.y)).collect();
+
+        // Drop fish 2, add fish 100, keep the rest
+        let mut next: Vec<FishSpec> = specs(7).into_iter().filter(|f| f.id != 2).collect();
+        next.push(FishSpec {
+            id: 100,
+            sprite: 9,
+            aspect: 0.9,
+            scale: 1.5,
+        });
+        s.set_population(&next, true);
+
+        assert_eq!(s.fish().len(), 7);
+        assert!(s.fish().iter().all(|f| f.id != 2));
+        for (id, x, y) in before.into_iter().filter(|b| b.0 != 2) {
+            let f = s.fish().iter().find(|f| f.id == id).unwrap();
+            assert_eq!((f.x, f.y), (x, y), "fish {id} moved on update");
+        }
+        let new = s.fish().iter().find(|f| f.id == 100).unwrap();
+        assert_eq!(new.sprite, 9);
+        assert!((new.h / new.w - 0.9).abs() < 1e-4);
+    }
+
+    #[test]
+    fn new_fish_drop_in_through_the_surface() {
+        let mut s = sim();
+        let mut next = specs(7);
+        next.push(FishSpec {
+            id: 50,
+            sprite: 0,
+            aspect: 0.6,
+            scale: 1.0,
+        });
+        s.set_population(&next, true);
+        let f = s.fish().iter().find(|f| f.id == 50).unwrap();
+        assert!(
+            f.entering && f.y < 1080.0 * WATER_TOP,
+            "starts above the surface"
+        );
+        for _ in 0..30 * 6 {
+            s.step(DT, None);
+        }
+        let f = s.fish().iter().find(|f| f.id == 50).unwrap();
+        assert!(!f.entering, "settled into the water");
+        assert!(f.y > 1080.0 * WATER_TOP);
+    }
+
+    #[test]
+    fn sizes_follow_the_spec() {
+        let mut s = Sim::new(3);
+        s.set_population(
+            &[
+                FishSpec {
+                    id: 1,
+                    sprite: 0,
+                    aspect: 0.5,
+                    scale: 0.5,
+                },
+                FishSpec {
+                    id: 2,
+                    sprite: 0,
+                    aspect: 1.2,
+                    scale: 2.0,
+                },
+            ],
+            false,
+        );
+        s.resize(1920.0, 1080.0);
+        let (a, b) = (&s.fish()[0], &s.fish()[1]);
+        assert!((a.h / a.w - 0.5).abs() < 1e-4 && (b.h / b.w - 1.2).abs() < 1e-4);
+        assert!(a.w < 150.0 && b.w > 150.0);
     }
 
     #[test]
     fn always_someone_curious() {
         for seed in 1..200 {
-            let mut s = Sim::new(seed);
-            s.resize(800.0, 600.0);
-            s.set_fish_count(2);
+            let s = sim_with(seed, 2, 800.0, 600.0);
             assert!(list_has_follower(s.fish()), "seed {seed}");
         }
     }
@@ -665,8 +849,7 @@ mod tests {
         // reach, turning ~9 times a minute and still missing a third of the food.
         let (mut dropped, mut dissolved, mut flips, mut fish_minutes) = (0, 0, 0, 0.0);
         for seed in 1..6 {
-            let mut s = Sim::new(seed);
-            s.resize(2560.0, 1440.0);
+            let mut s = sim_with(seed, 7, 2560.0, 1440.0);
             let mut dirs: Vec<f32> = s.fish().iter().map(|f| f.dir).collect();
             for n in 0..30 * 120 {
                 if n % (30 * 6) == 0 {
@@ -725,8 +908,7 @@ mod tests {
 
     #[test]
     fn fish_never_stay_squashed() {
-        let mut s = sim();
-        s.set_fish_count(12);
+        let mut s = sim_with(42, 12, 1920.0, 1080.0);
         let mut squashed_for = [0.0f32; 12];
         let mut worst = 0.0f32;
         for n in 0..30 * 90 {

@@ -7,7 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Qml Quick ShaderTools)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Qml Quick QuickControls2 ShaderTools Widgets)
 find_package(Threads REQUIRED)
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -29,6 +29,12 @@ set_target_properties(desktocean_sim PROPERTIES
     IMPORTED_LOCATION ${SIM_LIB}
     INTERFACE_INCLUDE_DIRECTORIES ${SIM_DIR}/include
 )
+
+# --- Fish library on disk (shared by the plugin and the editor) ---------------
+add_library(desktocean_library STATIC src/fishlibrary.h src/fishlibrary.cpp)
+set_target_properties(desktocean_library PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
+target_include_directories(desktocean_library PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(desktocean_library PUBLIC Qt6::Gui)
 
 # --- QML plugin: import Desktocean.Core --------------------------------------
 qt_add_qml_module(desktocean_core
@@ -52,7 +58,25 @@ add_dependencies(desktocean_core desktocean_sim_cargo)
 target_include_directories(desktocean_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(desktocean_core PRIVATE
     Qt6::Gui Qt6::Qml Qt6::Quick
-    desktocean_sim Threads::Threads ${CMAKE_DL_LIBS} m
+    desktocean_sim desktocean_library Threads::Threads ${CMAKE_DL_LIBS} m
 )
 # Keep Rust's std symbols private so they can't clash with other plugins in plasmashell.
 target_link_options(desktocean_core PRIVATE "LINKER:--exclude-libs,ALL")
+
+# --- Drawing editor: desktocean-editor ----------------------------------------
+qt_add_executable(desktocean-editor editor/main.cpp)
+qt_add_qml_module(desktocean-editor
+    URI Desktocean.Editor
+    VERSION 1.0
+    QML_FILES
+        editor/qml/Main.qml
+        editor/qml/DrawPage.qml
+        editor/qml/LibraryPage.qml
+    SOURCES
+        editor/drawingcanvas.h editor/drawingcanvas.cpp
+        editor/librarymodel.h editor/librarymodel.cpp
+)
+target_include_directories(desktocean-editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/editor)
+target_link_libraries(desktocean-editor PRIVATE
+    Qt6::Widgets Qt6::Quick Qt6::QuickControls2 desktocean_library
+)

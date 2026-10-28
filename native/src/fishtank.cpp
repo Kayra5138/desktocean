@@ -1,8 +1,12 @@
 #include "fishtank.h"
+#include "fishlibrary.h"
 
 #include <QCursor>
+#include <QDir>
+#include <QFileInfo>
 #include <QImageReader>
 #include <QPainter>
+#include <QProcess>
 #include <QQmlFile>
 #include <QQuickWindow>
 #include <QRandomGenerator>
@@ -10,13 +14,14 @@
 #include <QSGMaterial>
 #include <QSGMaterialShader>
 #include <QSGTexture>
+#include <QStandardPaths>
 #include <QtLogging>
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <memory>
-#include <numeric>
 
 namespace {
 
@@ -27,10 +32,11 @@ constexpr int kVertsPerFish = (kSegments + 1) * (kRows + 1);
 constexpr int kIndicesPerFish = kSegments * kRows * 6;
 
 // Atlas layout
-constexpr QSize kCell(400, 240);
-constexpr int kPad = 8;        // transparent border so mipmaps don't bleed between cells
-constexpr int kAtlasColumns = 4;
+constexpr int kPad = 8;          // transparent border so mipmaps don't bleed between sprites
+constexpr int kAtlasWidth = 2048;
 constexpr int kFoodCell = 32;
+// How many copies of each starter fish go into a fresh library
+constexpr int kStarterCopies[] = {2, 2, 2, 1};
 constexpr float kFoodSize = 10.f;
 
 struct Vertex {
@@ -237,7 +243,13 @@ FishTank::FishTank(QQuickItem *parent)
     setFlag(ItemHasContents);
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &FishTank::tick);
-    dc_sim_set_fish_count(m_sim, m_fishCount);
+
+    // The editor writes a sprite and then the manifest; wait for both to land.
+    m_reloadDebounce.setSingleShot(true);
+    m_reloadDebounce.setInterval(250);
+    connect(&m_reloadDebounce, &QTimer::timeout, this, [this] { loadLibrary(true); });
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_reloadDebounce, qOverload<>(&QTimer::start));
+
     checkHealth();
 }
 
@@ -249,6 +261,11 @@ FishTank::~FishTank()
 QString FishTank::coreVersion() const
 {
     return QString::fromUtf8(dc_sim_version());
+}
+
+QString FishTank::libraryPath() const
+{
+    return FishLibrary::directory();
 }
 
 void FishTank::setRunning(bool running)
@@ -270,26 +287,14 @@ void FishTank::setFps(int fps)
     Q_EMIT fpsChanged();
 }
 
-void FishTank::setFishCount(int count)
+void FishTank::setStarterFish(const QList<QUrl> &urls)
 {
-    count = std::clamp(count, 0, 200);
-    if (count == m_fishCount)
+    if (urls == m_starterFish)
         return;
-    m_fishCount = count;
-    dc_sim_set_fish_count(m_sim, count);
-    pullState();
-    update();
-    Q_EMIT fishCountChanged();
-}
-
-void FishTank::setFishImages(const QList<QUrl> &images)
-{
-    if (images == m_fishImages)
-        return;
-    m_fishImages = images;
-    if (isComponentComplete())
-        rebuildAtlas();
-    Q_EMIT fishImagesChanged();
+    m_starterFish = urls;
+    if (isComponentComplete() && !FishLibrary::exists())
+        loadLibrary(false);
+    Q_EMIT starterFishChanged();
 }
 
 void FishTank::setFogColor(const QColor &color)
@@ -320,10 +325,24 @@ void FishTank::clearFood()
     update();
 }
 
+bool FishTank::openEditor()
+{
+    // plasmashell's PATH often lacks ~/.local/bin, where install.sh puts the editor
+    const QString name = QStringLiteral("desktocean-editor");
+    QString exe = QStandardPaths::findExecutable(name);
+    if (exe.isEmpty())
+        exe = QStandardPaths::findExecutable(name, {QDir::homePath() + QStringLiteral("/.local/bin")});
+    if (exe.isEmpty()) {
+        qWarning("Desktocean: %s is not installed", qPrintable(name));
+        return false;
+    }
+    return QProcess::startDetached(exe, {});
+}
+
 void FishTank::componentComplete()
 {
     QQuickItem::componentComplete();
-    rebuildAtlas();
+    loadLibrary(false);
     updateTimer();
 }
 
@@ -371,6 +390,7 @@ void FishTank::tick()
 
 void FishTank::pullState()
 {
+    const size_t oldFish = m_fish.size();
     const size_t oldFood = m_food.size();
     const bool oldLure = m_lureActive;
 
@@ -384,6 +404,8 @@ void FishTank::pullState()
 
     m_lureActive = dc_sim_lure_active(m_sim);
 
+    if (m_fish.size() != oldFish)
+        Q_EMIT fishCountChanged();
     if (m_food.size() != oldFood)
         Q_EMIT foodCountChanged();
     if (m_lureActive != oldLure)
@@ -402,44 +424,114 @@ void FishTank::checkHealth()
     Q_EMIT healthyChanged();
 }
 
-void FishTank::rebuildAtlas()
+void FishTank::seedLibrary()
 {
-    QList<QImage> sprites;
-    for (const QUrl &url : std::as_const(m_fishImages)) {
+    for (int i = 0; i < m_starterFish.size(); ++i) {
+        const QUrl &url = m_starterFish[i];
         QImageReader reader(QQmlFile::urlToLocalFileOrQrc(url));
-        reader.setScaledSize(kCell);
-        QImage img = reader.read();
+        reader.setScaledSize(QSize(400, 240));
+        const QImage img = reader.read();
         if (img.isNull()) {
-            qWarning("Desktocean: cannot load fish image %s: %s", qPrintable(url.toString()),
+            qWarning("Desktocean: cannot load starter fish %s: %s", qPrintable(url.toString()),
                      qPrintable(reader.errorString()));
             continue;
         }
+        // "fish-orange.svg" -> "Orange"
+        QString name = QFileInfo(url.path()).baseName().section(QLatin1Char('-'), -1);
+        if (!name.isEmpty())
+            name[0] = name[0].toUpper();
+        const int copies = kStarterCopies[i % std::size(kStarterCopies)];
+        QString error;
+        if (!FishLibrary::add(img, name, 1.0, copies, &error))
+            qWarning("Desktocean: cannot seed fish library: %s", qPrintable(error));
+    }
+}
+
+void FishTank::watchLibrary()
+{
+    const QString dir = FishLibrary::directory();
+    QDir().mkpath(dir);
+    if (!m_watcher.directories().contains(dir))
+        m_watcher.addPath(dir);
+}
+
+void FishTank::loadLibrary(bool animateNew)
+{
+    if (!FishLibrary::exists() && !m_starterFish.isEmpty())
+        seedLibrary();
+    watchLibrary();
+
+    QString error;
+    const QList<FishEntry> entries = FishLibrary::load(&error);
+    if (!error.isEmpty())
+        qWarning("Desktocean: cannot read fish library: %s", qPrintable(error));
+
+    // Keep the atlas manageable when the collection grows
+    const int maxSide = entries.size() > 32 ? 256 : 400;
+
+    QList<QImage> sprites;
+    std::vector<DcFishSpec> specs;
+    for (const FishEntry &e : entries) {
+        if (e.count <= 0)
+            continue;
+        QImage img(e.path());
+        if (img.isNull()) {
+            qWarning("Desktocean: cannot load %s", qPrintable(e.path()));
+            continue;
+        }
+        if (std::max(img.width(), img.height()) > maxSide)
+            img = img.scaled(maxSide, maxSide, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        const auto sprite = uint32_t(sprites.size());
+        const float aspect = float(img.height()) / float(img.width());
         sprites << img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        for (int k = 0; k < e.count; ++k)
+            specs.push_back({quint64(qHash(e.id, size_t(k))), sprite, aspect, float(e.scale)});
     }
 
-    const int cellW = kCell.width() + 2 * kPad;
-    const int cellH = kCell.height() + 2 * kPad;
-    const int rows = (int(sprites.size()) + kAtlasColumns - 1) / kAtlasColumns;
-    const int atlasW = kAtlasColumns * cellW;
-    const int atlasH = rows * cellH + kFoodCell + 2 * kPad;
+    rebuildAtlas(sprites);
+    dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
+    m_libraryLoaded = true;
+    pullState();
+    checkHealth();
+    update();
+}
 
-    QImage atlas(atlasW, atlasH, QImage::Format_ARGB32_Premultiplied);
+void FishTank::rebuildAtlas(const QList<QImage> &sprites)
+{
+    // Shelf packing: left to right, new shelf when the row is full
+    std::vector<QRect> placed;
+    int x = kPad, y = kPad, shelf = 0;
+    auto place = [&](QSize size) {
+        if (x + size.width() + kPad > kAtlasWidth) {
+            x = kPad;
+            y += shelf + 2 * kPad;
+            shelf = 0;
+        }
+        placed.emplace_back(QPoint(x, y), size);
+        x += size.width() + 2 * kPad;
+        shelf = std::max(shelf, size.height());
+    };
+    for (const QImage &img : sprites)
+        place(img.size());
+    place(QSize(kFoodCell, kFoodCell));
+    const int atlasH = y + shelf + kPad;
+
+    QImage atlas(kAtlasWidth, atlasH, QImage::Format_ARGB32_Premultiplied);
     atlas.fill(Qt::transparent);
     QPainter painter(&atlas);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
 
-    m_fishUv.clear();
+    auto normalised = [&](const QRect &r) {
+        return QRectF(double(r.x()) / kAtlasWidth, double(r.y()) / atlasH, double(r.width()) / kAtlasWidth,
+                      double(r.height()) / atlasH);
+    };
+    m_spriteUv.clear();
     for (int i = 0; i < sprites.size(); ++i) {
-        const int x = (i % kAtlasColumns) * cellW + kPad;
-        const int y = (i / kAtlasColumns) * cellH + kPad;
-        painter.drawImage(x, y, sprites[i]);
-        m_fishUv.push_back(QRectF(double(x) / atlasW, double(y) / atlasH, double(kCell.width()) / atlasW,
-                                  double(kCell.height()) / atlasH));
+        painter.drawImage(placed[i].topLeft(), sprites[i]);
+        m_spriteUv.push_back(normalised(placed[i]));
     }
-    const int foodY = rows * cellH + kPad;
-    painter.drawImage(kPad, foodY, makeFoodSprite());
-    m_foodUv = QRectF(double(kPad) / atlasW, double(foodY) / atlasH, double(kFoodCell) / atlasW,
-                      double(kFoodCell) / atlasH);
+    painter.drawImage(placed.back().topLeft(), makeFoodSprite());
+    m_foodUv = normalised(placed.back());
     painter.end();
 
     m_atlas = atlas;
@@ -468,8 +560,15 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         node->markDirty(QSGNode::DirtyMaterial);
     }
 
-    const bool canDrawFish = node->material.texture && !m_fishUv.empty();
-    const int nFish = canDrawFish ? int(m_fish.size()) : 0;
+    // Fish whose sprite is not in the atlas (yet) are skipped
+    std::vector<int> order;
+    if (node->material.texture) {
+        for (int i = 0; i < int(m_fish.size()); ++i) {
+            if (m_fish[i].sprite < m_spriteUv.size())
+                order.push_back(i);
+        }
+    }
+    const int nFish = int(order.size());
     const int nFood = node->material.texture ? int(m_food.size()) : 0;
     const int vertexCount = nFish * kVertsPerFish + nFood * 4;
     const int indexCount = nFish * kIndicesPerFish + nFood * 6;
@@ -483,11 +582,9 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     quint32 base = 0;
 
     // Back to front: one draw call, blending order comes from vertex order
-    std::vector<int> order(nFish);
-    std::iota(order.begin(), order.end(), 0);
     std::sort(order.begin(), order.end(), [&](int a, int b) { return m_fish[a].depth > m_fish[b].depth; });
     for (int i : order) {
-        writeFish(m_fish[i], m_fishUv[i % m_fishUv.size()], v, idx, base);
+        writeFish(m_fish[i], m_spriteUv[m_fish[i].sprite], v, idx, base);
         v += kVertsPerFish;
         idx += kIndicesPerFish;
         base += kVertsPerFish;

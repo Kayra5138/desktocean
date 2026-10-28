@@ -8,7 +8,7 @@ use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
-use crate::sim::Sim;
+use crate::sim::{FishSpec, Sim};
 
 pub struct DcSim {
     sim: Sim,
@@ -27,6 +27,16 @@ pub struct DcFish {
     pub amplitude: f32,
     pub tilt: f32,
     pub depth: f32,
+    pub sprite: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcFishSpec {
+    pub id: u64,
+    pub sprite: u32,
+    pub aspect: f32,
+    pub scale: f32,
 }
 
 #[repr(C)]
@@ -99,11 +109,34 @@ pub unsafe extern "C" fn dc_sim_resize(handle: *mut DcSim, width: f32, height: f
     with_sim(handle, (), |s| s.resize(width, height));
 }
 
+/// Replaces the set of fish; see `Sim::set_population`.
 /// # Safety
-/// `handle` must be null or a live pointer from `dc_sim_new`.
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `specs` null
+/// or valid for `count` reads.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_set_fish_count(handle: *mut DcSim, count: u32) {
-    with_sim(handle, (), |s| s.set_fish_count(count.min(200) as usize));
+pub unsafe extern "C" fn dc_sim_set_population(
+    handle: *mut DcSim,
+    specs: *const DcFishSpec,
+    count: u32,
+    animate_new: bool,
+) {
+    with_sim(handle, (), |s| {
+        let specs: Vec<FishSpec> = if specs.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(specs, count.min(1000) as usize) }
+                .iter()
+                .map(|d| FishSpec {
+                    id: d.id,
+                    sprite: d.sprite,
+                    aspect: d.aspect,
+                    scale: d.scale,
+                })
+                .collect()
+        };
+        s.set_population(&specs, animate_new)
+    });
 }
 
 /// `x < 0` drops the food somewhere random.
@@ -162,6 +195,7 @@ pub unsafe extern "C" fn dc_sim_fish(handle: *mut DcSim, out: *mut DcFish, cap: 
                     amplitude: f.amplitude(),
                     tilt: f.tilt(),
                     depth: f.depth,
+                    sprite: f.sprite,
                 };
             }
         }
@@ -201,6 +235,15 @@ mod tests {
         // SAFETY: h is live until dc_sim_free; buffers are sized from the returned count.
         unsafe {
             assert!(dc_sim_ok(h));
+            let specs: Vec<DcFishSpec> = (0..7)
+                .map(|i| DcFishSpec {
+                    id: i,
+                    sprite: i as u32,
+                    aspect: 0.6,
+                    scale: 1.0,
+                })
+                .collect();
+            dc_sim_set_population(h, specs.as_ptr(), 7, false);
             dc_sim_resize(h, 1280.0, 720.0);
             dc_sim_feed(h, 640.0);
             dc_sim_step(h, 0.033, -1.0, -1.0);
@@ -209,6 +252,7 @@ mod tests {
             let mut buf = vec![DcFish::default(); n as usize];
             assert_eq!(dc_sim_fish(h, buf.as_mut_ptr(), n), 7);
             assert!(buf.iter().all(|f| f.w > 0.0));
+            assert!(buf.iter().enumerate().all(|(i, f)| f.sprite == i as u32));
             assert_eq!(dc_sim_food(h, ptr::null_mut(), 0), 8);
             dc_sim_free(h);
         }

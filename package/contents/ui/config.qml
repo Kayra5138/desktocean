@@ -6,7 +6,6 @@ Kirigami.FormLayout {
     id: page
 
     property alias cfg_Fps: fps.value
-    property alias cfg_FishCount: fishCount.value
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
     property alias cfg_ShowDebug: showDebug.checked
 
@@ -15,13 +14,6 @@ Kirigami.FormLayout {
         Kirigami.FormData.label: "Frame rate (FPS):"
         from: 5
         to: 60
-    }
-
-    QQC2.SpinBox {
-        id: fishCount
-        Kirigami.FormData.label: "Number of fish:"
-        from: 1
-        to: 40
     }
 
     QQC2.CheckBox {

@@ -25,12 +25,16 @@ Window {
         TapHandler { onTapped: eventPoint => aquarium.feed(eventPoint.position.x) }
     }
 
-    // Automated snapshot then quit: add `-- --snapshot`
+    // Automated snapshot then quit: add `-- --snapshot`. Optional `--snapshot-delay <ms>`
+    // (default 2500) and `--no-feed`.
     Timer {
-        interval: 2500
-        running: Qt.application.arguments.indexOf("--snapshot") >= 0
+        readonly property var args: Qt.application.arguments
+        readonly property int delayIndex: args.indexOf("--snapshot-delay")
+        interval: delayIndex >= 0 ? Number(args[delayIndex + 1]) : 2500
+        running: args.indexOf("--snapshot") >= 0
         onTriggered: {
-            aquarium.feed();
+            if (args.indexOf("--no-feed") < 0)
+                aquarium.feed();
             snapshotLater.start();
         }
     }

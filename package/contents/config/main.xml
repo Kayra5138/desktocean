@@ -8,9 +8,6 @@
     <entry name="Fps" type="Int">
       <default>30</default>
     </entry>
-    <entry name="FishCount" type="Int">
-      <default>7</default>
-    </entry>
     <entry name="PauseOnMaximized" type="Bool">
       <default>true</default>
     </entry>

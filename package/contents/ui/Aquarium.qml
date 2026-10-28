@@ -10,7 +10,7 @@ Item {
 
     property alias running: tank.running
     property alias fps: tank.fps
-    property alias fishCount: tank.fishCount
+    readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
     property string pauseReason: ""
     readonly property alias foodCount: tank.foodCount
@@ -32,6 +32,10 @@ Item {
         tank.clearFood();
     }
 
+    function openEditor() {
+        return tank.openEditor();
+    }
+
     ShaderEffect {
         id: water
         anchors.fill: parent
@@ -45,7 +49,8 @@ Item {
         id: tank
         anchors.fill: parent
         fogColor: "#0b3048"
-        fishImages: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
+        // Seeds an empty fish library on first run; after that the library is the source of truth
+        starterFish: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
     }
 
@@ -67,7 +72,7 @@ Item {
 
         function refreshSnapshot() {
             const p = tank.pointer;
-            snapshot = "Desktocean · Phase 1\n"
+            snapshot = "Desktocean · Phase 2\n"
                 + "Core: rust " + tank.coreVersion + (tank.healthy ? " (ok)" : " (STOPPED)") + "\n"
                 + "FPS: " + measuredFps + " (target " + tank.fps + ")\n"
                 + "State: " + (tank.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"

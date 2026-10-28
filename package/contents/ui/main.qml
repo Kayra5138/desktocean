@@ -20,7 +20,6 @@ WallpaperItem {
         id: aquarium
         anchors.fill: parent
         fps: root.configuration.Fps
-        fishCount: root.configuration.FishCount
         showDebug: root.configuration.ShowDebug
         running: !root.userPaused && !root.covered
         pauseReason: root.userPaused ? "by user" : (root.covered ? "window covers screen" : "")
@@ -30,6 +29,11 @@ WallpaperItem {
     // consumes them. Aquarium reads the cursor through Desktocean.Core instead.
 
     contextualActions: [
+        PlasmaCore.Action {
+            text: "Draw a fish…"
+            icon.name: "draw-brush"
+            onTriggered: aquarium.openEditor()
+        },
         PlasmaCore.Action {
             text: "Feed fish"
             icon.name: "food"

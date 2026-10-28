@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Desktocean
+GenericName=Aquarium Fish Editor
+Comment=Draw fish for your desktop aquarium
+Exec=desktocean-editor
+Icon=draw-brush
+Terminal=false
+Categories=Graphics;Qt;KDE;
+Keywords=fish;aquarium;wallpaper;draw;
+StartupNotify=true
