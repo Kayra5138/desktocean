@@ -1,9 +1,10 @@
 import QtQuick
+import Desktocean.Core
 
 // The whole aquarium scene. Plain Qt Quick (no Plasma imports) so it also runs
 // in dev/preview.qml. Nothing animates on its own: a single Timer advances the
-// simulation and the scene graph only redraws when that tick changes something,
-// which caps redraws at `fps` and drops them to zero while `running` is false.
+// Rust simulation and the scene graph only redraws when that tick changes
+// something, which caps redraws at `fps` and drops them to zero while paused.
 Item {
     id: aquarium
 
@@ -12,193 +13,107 @@ Item {
     property int fishCount: 7
     property bool showDebug: true
     property string pauseReason: ""
-    // Cursor position in item coordinates, or (-1, -1) when unknown
-    property point pointer: Qt.point(-1, -1)
 
-    readonly property var fishImages: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
-    readonly property real sandTopRatio: 0.86
-    readonly property real waterTop: height * 0.05
-    readonly property real sandTop: height * sandTopRatio
-    readonly property color fogColor: "#0b3048"
+    // Cursor in item coordinates, or (-1, -1) when it is not over the aquarium
+    property point pointer: Qt.point(-1, -1)
     readonly property bool pointerValid: pointer.x >= 0 && pointer.y >= 0
 
+    readonly property var fishImages: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
+    // Must match SAND_TOP in sim/src/sim.rs
+    readonly property real sandTopRatio: 0.86
+    readonly property color fogColor: "#0b3048"
+    readonly property int maxFood: 24
+
     property real time: 0
-    property var fishState: []
-    property var foodState: []
-    property int maxFood: 24
-    property bool _foodVisible: false
+    property int foodCount: 0
 
-    function rand(a, b) {
-        return a + Math.random() * (b - a);
-    }
-
-    function clamp(v, lo, hi) {
-        return Math.max(lo, Math.min(hi, v));
-    }
-
-    function pickTarget(f) {
-        f.tx = rand(f.w * 0.6, width - f.w * 0.6);
-        f.ty = rand(waterTop + f.h, sandTop - f.h * 0.7);
-        f.cruise = rand(0.45, 1.0) * f.maxSpeed;
-    }
-
-    function resetFish() {
-        const list = [];
-        for (let i = 0; i < fishCount; i++) {
-            const depth = Math.random();
-            const w = rand(150, 230) * (1 - 0.45 * depth);
-            const f = {
-                x: rand(w, width - w),
-                y: rand(waterTop + w, sandTop - w),
-                vx: 0, vy: 0,
-                depth: depth,
-                w: w, h: w * 0.6,
-                maxSpeed: rand(60, 115) * (1 - 0.3 * depth),
-                facing: Math.random() < 0.5 ? -1 : 1,
-                phase: rand(0, 6.28),
-                speed: 0,
-                curious: i === 0
-            };
-            pickTarget(f);
-            list.push(f);
-        }
-        fishState = list;
-        applyState();
-    }
-
-    // Drops food from the surface above `atX`, or somewhere random if not given
+    // Drops food from the surface above `atX`, or somewhere random if omitted
     function feed(atX) {
-        const food = foodState.slice();
-        const cx = atX >= 0 ? atX : rand(width * 0.15, width * 0.85);
-        for (let i = 0; i < 8 && food.length < maxFood; i++)
-            food.push({ x: cx + rand(-90, 90), y: waterTop + rand(-10, 30), seed: rand(0, 6.28), age: 0, landed: false, eaten: false });
-        foodState = food;
+        sim.feed(atX === undefined ? -1 : atX);
         applyState();
+    }
+
+    // Drops food above the cursor when it is known, otherwise somewhere random
+    function feedAtCursor() {
+        const p = cursorInScene();
+        feed(p.x >= 0 ? p.x : -1);
+    }
+
+    function cursorInScene() {
+        const g = Cursor.position();
+        const p = aquarium.mapFromGlobal(g.x, g.y);
+        const inside = p.x >= 0 && p.y >= 0 && p.x < width && p.y < height;
+        return inside ? p : Qt.point(-1, -1);
     }
 
     function step(dt) {
         time += dt;
-
-        for (const p of foodState) {
-            if (!p.landed) {
-                p.y += 38 * dt;
-                p.x += Math.sin(time * 2.2 + p.seed) * 10 * dt;
-                if (p.y >= sandTop + 4) {
-                    p.y = sandTop + 4;
-                    p.landed = true;
-                }
-            } else {
-                p.age += dt;
-            }
-        }
-        for (const f of fishState) {
-            const mx = f.x + f.facing * f.w * 0.42;   // mouth
-            const my = f.y + f.h * 0.06;
-            let tx = f.tx, ty = f.ty, speed = f.cruise, useMouth = false;
-
-            let food = null, best = 1e9;
-            for (const p of foodState) {
-                const d = Math.hypot(p.x - mx, p.y - my);
-                if (d < best) { best = d; food = p; }
-            }
-
-            if (food) {
-                tx = food.x; ty = food.y; speed = f.maxSpeed * 1.6; useMouth = true;
-            } else if (f.curious && pointerValid && pointer.y > waterTop && pointer.y < sandTop) {
-                tx = pointer.x - f.facing * 40; ty = pointer.y; speed = f.maxSpeed * 0.8; useMouth = true;
-            }
-
-            const ox = useMouth ? mx : f.x, oy = useMouth ? my : f.y;
-            const dx = tx - ox, dy = ty - oy;
-            const dist = Math.max(Math.hypot(dx, dy), 0.001);
-
-            if (!useMouth && dist < 30)
-                pickTarget(f);
-            if (food && dist < Math.max(14, f.w * 0.12))
-                food.eaten = true;
-
-            const arrive = Math.min(1, dist / 90);
-            let desX = dx / dist * speed * arrive;
-            let desY = dy / dist * speed * arrive;
-
-            for (const g of fishState) {
-                if (g === f || Math.abs(g.depth - f.depth) > 0.35)
-                    continue;
-                const sx = f.x - g.x, sy = (f.y - g.y) * 1.6;
-                const d = Math.hypot(sx, sy);
-                const minD = (f.w + g.w) * 0.38;
-                if (d > 0.001 && d < minD) {
-                    desX += sx / d * (minD - d) * 1.5;
-                    desY += sy / d * (minD - d) * 1.5;
-                }
-            }
-
-            const k = Math.min(1, 1.6 * dt);
-            f.vx += (desX - f.vx) * k;
-            f.vy += (desY - f.vy) * k;
-            f.vy = clamp(f.vy, -0.55 * f.maxSpeed, 0.55 * f.maxSpeed);
-
-            f.x = clamp(f.x + f.vx * dt, f.w * 0.5, width - f.w * 0.5);
-            f.y = clamp(f.y + f.vy * dt, waterTop + f.h * 0.5, sandTop - f.h * 0.3);
-
-            if (Math.abs(f.vx) > 10)
-                f.facing += ((f.vx > 0 ? 1 : -1) - f.facing) * Math.min(1, 3.5 * dt);
-
-            f.speed = Math.hypot(f.vx, f.vy);
-            f.phase += dt * (3.0 + f.speed * 0.07);
-        }
-
-        const alive = foodState.filter(p => !p.eaten && p.age < 10);
-        if (alive.length !== foodState.length)
-            foodState = alive;
-
+        pointer = cursorInScene();
+        sim.step(dt, pointer);
         applyState();
     }
 
     function applyState() {
+        const fish = sim.fish();
+        const S = sim.fishStride;
         for (let i = 0; i < fishRepeater.count; i++) {
             const item = fishRepeater.itemAt(i);
-            const f = fishState[i];
-            if (!item || !f)
+            const b = i * S;
+            if (!item || b + S > fish.length)
                 continue;
-            item.x = f.x - f.w / 2;
-            item.y = f.y - f.h / 2;
-            item.facing = f.facing;
-            item.phase = f.phase;
-            item.amplitude = 0.05 + 0.07 * Math.min(1, f.speed / f.maxSpeed);
-            const tilt = Math.atan2(f.vy, Math.abs(f.vx) + 20) * 180 / Math.PI * 0.7;
-            item.tilt = clamp(tilt, -28, 28) * (f.facing < 0 ? -1 : 1);
+            const w = fish[b + 2], h = fish[b + 3], depth = fish[b + 8];
+            if (item.width !== w) {
+                // Size and depth are fixed per fish; only touch them when they change
+                item.width = w;
+                item.height = h;
+                item.fog = depth * 0.55;
+                item.z = 10 + (1 - depth) * 10;
+            }
+            item.x = fish[b] - w / 2;
+            item.y = fish[b + 1] - h / 2;
+            item.facing = fish[b + 4];
+            item.phase = fish[b + 5];
+            item.amplitude = fish[b + 6];
+            item.tilt = fish[b + 7];
         }
-        if (foodState.length === 0 && !_foodVisible)
+
+        const food = sim.food();
+        const F = sim.foodStride;
+        const n = Math.min(food.length / F, maxFood);
+        if (n === 0 && foodCount === 0)
             return;
-        _foodVisible = foodState.length > 0;
         for (let i = 0; i < foodRepeater.count; i++) {
             const item = foodRepeater.itemAt(i);
-            const p = foodState[i];
-            item.visible = !!p;
-            if (p) {
-                item.x = p.x - item.width / 2;
-                item.y = p.y - item.height / 2;
-                item.opacity = p.landed ? Math.max(0, 1 - p.age / 10) : 1;
+            item.visible = i < n;
+            if (i < n) {
+                item.x = food[i * F] - item.width / 2;
+                item.y = food[i * F + 1] - item.height / 2;
+                item.opacity = food[i * F + 2];
             }
         }
+        foodCount = n;
     }
 
-    function ensureFish() {
-        if (width > 0 && height > 0 && fishState.length !== fishCount)
-            resetFish();
+    function syncSize() {
+        sim.resize(width, height);
+        applyState();
     }
 
-    onWidthChanged: ensureFish()
-    onHeightChanged: ensureFish()
-    onFishCountChanged: resetFish()
-    Component.onCompleted: ensureFish()
+    onWidthChanged: syncSize()
+    onHeightChanged: syncSize()
+    Component.onCompleted: syncSize()
+
+    Simulation {
+        id: sim
+        fishCount: aquarium.fishCount
+        onFishCountChanged: Qt.callLater(aquarium.applyState)
+    }
 
     Timer {
         id: tick
         interval: Math.round(1000 / Math.max(1, aquarium.fps))
         repeat: true
-        running: aquarium.running && aquarium.width > 0
+        running: aquarium.running && aquarium.width > 0 && sim.healthy
         property double last: 0
         onRunningChanged: last = 0
         onTriggered: {
@@ -235,21 +150,16 @@ Item {
 
     Repeater {
         id: fishRepeater
-        model: aquarium.fishState.length
+        model: sim.fishCount
         Fish {
             required property int index
-            readonly property var data_: aquarium.fishState[index]
             imageSource: Qt.resolvedUrl("../images/" + aquarium.fishImages[index % aquarium.fishImages.length])
-            width: data_ ? data_.w : 0
-            height: data_ ? data_.h : 0
-            fog: data_ ? data_.depth * 0.55 : 0
             fogColor: aquarium.fogColor
-            z: data_ ? 10 + (1 - data_.depth) * 10 : 10
         }
         onItemAdded: Qt.callLater(aquarium.applyState)
     }
 
-    // Spike diagnostics, top-right so desktop icons (top-left) stay readable
+    // Diagnostics, top-right so desktop icons (top-left) stay readable
     Rectangle {
         id: debugBox
         visible: aquarium.showDebug
@@ -264,6 +174,18 @@ Item {
 
         property int frames: 0
         property int measuredFps: 0
+        property string snapshot: ""
+
+        function refreshSnapshot() {
+            const g = Cursor.position();
+            snapshot = "Desktocean · Phase 0b\n"
+                + "Core: rust " + sim.coreVersion + (sim.healthy ? " (ok)" : " (STOPPED)") + "\n"
+                + "FPS: " + measuredFps + " (target " + aquarium.fps + ")\n"
+                + "State: " + (aquarium.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
+                + "Fish: " + sim.fishCount + "  Food: " + aquarium.foodCount + "\n"
+                + "Cursor: global " + Math.round(g.x) + "," + Math.round(g.y)
+                + " / scene " + (aquarium.pointerValid ? Math.round(aquarium.pointer.x) + "," + Math.round(aquarium.pointer.y) : "none");
+        }
 
         Text {
             id: debugText
@@ -272,15 +194,6 @@ Item {
             font.family: "monospace"
             font.pixelSize: 13
             text: debugBox.snapshot
-        }
-
-        property string snapshot: ""
-        function refreshSnapshot() {
-            snapshot = "Desktocean · Phase 0\n"
-                + "FPS: " + debugBox.measuredFps + " (target " + aquarium.fps + ")\n"
-                + "State: " + (aquarium.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
-                + "Fish: " + aquarium.fishState.length + "  Food: " + aquarium.foodState.length + "\n"
-                + "Cursor: " + (aquarium.pointerValid ? Math.round(aquarium.pointer.x) + "," + Math.round(aquarium.pointer.y) : "none");
         }
 
         Connections {
@@ -293,6 +206,7 @@ Item {
             interval: 1000
             repeat: true
             running: aquarium.showDebug
+            triggeredOnStart: true
             onTriggered: {
                 debugBox.measuredFps = debugBox.frames;
                 debugBox.frames = 0;

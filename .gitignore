@@ -4,3 +4,7 @@
 
 # Local dev output
 /dev/preview.png
+
+# Native build output (scripts/install.sh, cmake, cargo)
+/build/
+/sim/target/

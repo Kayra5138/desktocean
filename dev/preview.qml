@@ -2,7 +2,7 @@ import QtQuick
 import "../package/contents/ui"
 
 // Runs the aquarium in a normal window, without plasmashell:
-//   /usr/lib/qt6/bin/qml dev/preview.qml
+//   /usr/lib/qt6/bin/qml -I build/qml dev/preview.qml
 // Click = feed, Space = pause, S = save a screenshot to dev/preview.png
 Window {
     id: win
@@ -15,7 +15,6 @@ Window {
         id: aquarium
         anchors.fill: parent
         focus: true
-        pointer: hover.hovered ? hover.point.position : Qt.point(-1, -1)
 
         Keys.onSpacePressed: running = !running
         Keys.onPressed: event => {
@@ -23,11 +22,10 @@ Window {
                 aquarium.grabToImage(r => r.saveToFile(Qt.resolvedUrl("preview.png").toString().replace("file://", "")));
         }
 
-        HoverHandler { id: hover }
         TapHandler { onTapped: eventPoint => aquarium.feed(eventPoint.position.x) }
     }
 
-    // Automated snapshot then quit: qml dev/preview.qml -- --snapshot
+    // Automated snapshot then quit: add `-- --snapshot`
     Timer {
         interval: 2500
         running: Qt.application.arguments.indexOf("--snapshot") >= 0

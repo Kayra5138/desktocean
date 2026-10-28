@@ -1,0 +1,44 @@
+// C interface of the Rust simulation core (sim/src/ffi.rs). Keep in sync.
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct DcSim DcSim;
+
+typedef struct DcFish {
+    float x, y;        // centre, scene pixels
+    float w, h;
+    float facing;      // -1 left .. 1 right
+    float phase;       // tail-wave phase, radians
+    float amplitude;   // tail swing, fraction of h
+    float tilt;        // degrees
+    float depth;       // 0 front .. 1 back
+} DcFish;
+
+typedef struct DcFood {
+    float x, y;
+    float opacity;
+} DcFood;
+
+const char *dc_sim_version(void);
+
+DcSim *dc_sim_new(uint64_t seed);
+void dc_sim_free(DcSim *sim);
+bool dc_sim_ok(const DcSim *sim);
+
+void dc_sim_resize(DcSim *sim, float width, float height);
+void dc_sim_set_fish_count(DcSim *sim, uint32_t count);
+void dc_sim_feed(DcSim *sim, float x);                       // x < 0: random spot
+void dc_sim_step(DcSim *sim, float dt, float pointer_x, float pointer_y); // < 0: no pointer
+
+uint32_t dc_sim_fish(DcSim *sim, DcFish *out, uint32_t cap); // returns total count
+uint32_t dc_sim_food(DcSim *sim, DcFood *out, uint32_t cap);
+
+#ifdef __cplusplus
+}
+#endif

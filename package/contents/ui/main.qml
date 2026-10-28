@@ -27,14 +27,13 @@ WallpaperItem {
     }
 
     // Pointer events never reach the wallpaper: the folder view sits on top and
-    // consumes them, and hover does not propagate to the window's root item either.
-    // Cursor position will come from native code (Phase 0b).
+    // consumes them. Aquarium reads the cursor through Desktocean.Core instead.
 
     contextualActions: [
         PlasmaCore.Action {
             text: "Feed fish"
             icon.name: "food"
-            onTriggered: aquarium.feed()
+            onTriggered: aquarium.feedAtCursor()
         },
         PlasmaCore.Action {
             text: root.userPaused ? "Resume aquarium" : "Pause aquarium"
