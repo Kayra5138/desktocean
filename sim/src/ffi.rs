@@ -56,6 +56,8 @@ pub struct DcBirth {
     pub parent_b: u64,
     pub x: f32,
     pub y: f32,
+    /// Babies in this litter
+    pub count: u32,
 }
 
 #[repr(C)]
@@ -295,6 +297,7 @@ pub unsafe extern "C" fn dc_sim_take_births(
                 parent_b: b.parent_b,
                 x: b.x,
                 y: b.y,
+                count: b.count,
             };
             n += 1;
         }

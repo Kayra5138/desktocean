@@ -521,11 +521,14 @@ Kirigami.Page {
                         Layout.fillWidth: true
                         textRole: "text"
                         valueRole: "value"
-                        currentIndex: 1
+                        currentIndex: 2
+                        // Smaller fish breed more and school more readily
                         model: [
-                            { text: "Small", value: 0.7 },
+                            { text: "Tiny", value: 0.4 },
+                            { text: "Small", value: 0.6 },
                             { text: "Medium", value: 1.0 },
-                            { text: "Large", value: 1.4 }
+                            { text: "Large", value: 1.4 },
+                            { text: "Huge", value: 1.9 }
                         ]
                     }
                 }

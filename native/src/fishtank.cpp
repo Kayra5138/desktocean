@@ -373,7 +373,8 @@ void FishTank::recordBaby(const DcBirth &birth)
                                : QStringLiteral("Baby of %1 & %2").arg(a->name, b->name);
     meta.style = a->style;
     meta.scale = (a->scale + b->scale) / 2;
-    meta.count = 1;
+    // Small fish have litters: siblings share one drawing, as copies
+    meta.count = std::clamp(int(birth.count), 1, std::max(1, m_maxFish - fishCount()));
     meta.bornAt = QDateTime::currentMSecsSinceEpoch();
     meta.parents = {a->id, b->id};
     QString error;

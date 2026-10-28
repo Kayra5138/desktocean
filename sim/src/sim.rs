@@ -303,6 +303,21 @@ pub struct Fish {
     dash_left: f32,
     /// Mouth on the drawing, fractions of width and height (head facing right)
     mouth: (f32, f32),
+    /// Size multiplier from the spec (1 = medium)
+    scale: f32,
+}
+
+impl Fish {
+    /// 0 for medium and bigger fish, rising to 1 for tiny ones (scale 0.4):
+    /// small fish breed more and school more readily
+    pub fn smallness(&self) -> f32 {
+        ((1.0 - self.scale) / 0.6).clamp(0.0, 1.0)
+    }
+
+    /// Sociability plus the pull small fish feel toward a school
+    fn school_appetite(&self) -> f32 {
+        (self.personality.sociability + 0.6 * self.smallness()).min(1.0)
+    }
 }
 
 impl Fish {
@@ -369,6 +384,8 @@ pub struct Birth {
     pub parent_b: u64,
     pub x: f32,
     pub y: f32,
+    /// How many babies: small fish have litters
+    pub count: u32,
 }
 
 /// A ring spreading on the surface where a big bubble popped.
@@ -683,6 +700,7 @@ impl Sim {
                     f.sprite = spec.sprite;
                     f.adult = spec.adult;
                     f.mouth = spec.mouth;
+                    f.scale = spec.scale;
                     Self::apply_size(&mut f, spec);
                     self.clamp_to_water(&mut f);
                     f
@@ -868,6 +886,7 @@ impl Sim {
             dash_timer: self.rng.range(8.0, 25.0),
             dash_left: 0.0,
             mouth: spec.mouth,
+            scale: spec.scale,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -1499,18 +1518,30 @@ impl Sim {
         {
             return;
         }
-        if !self.rng.chance(BIRTH_CHANCE_PER_SEC * life_dt) {
+        // Small fish breed more often, rest less in between and have litters
+        let small = (a.smallness() + b.smallness()) * 0.5;
+        if !self
+            .rng
+            .chance(BIRTH_CHANCE_PER_SEC * (1.0 + 3.0 * small) * life_dt)
+        {
             return;
         }
+        let count = if small > 0.5 {
+            2 + self.rng.chance(small - 0.4) as u32
+        } else {
+            1
+        };
         let birth = Birth {
             parent_a: a.id,
             parent_b: b.id,
             x: (a.x + b.x) * 0.5,
             y: (a.y + b.y) * 0.5,
+            count,
         };
         self.births.push(birth);
         for k in [i, j] {
-            self.fish[k].birth_cooldown = BIRTH_COOLDOWN * self.rng.range(1.0, 2.0);
+            self.fish[k].birth_cooldown =
+                BIRTH_COOLDOWN * self.rng.range(1.0, 2.0) * (1.0 - 0.6 * small);
         }
     }
 
@@ -1553,9 +1584,13 @@ impl Sim {
             f.school.is_none()
                 && !f.entering
                 && f.personality.character != Character::Shy
-                && f.personality.sociability > 0.35
+                && f.school_appetite() > 0.35
         };
-        let cap = (self.fish.len() as f32 * SCHOOL_SHARE) as usize;
+        // Small fish make up more of the schooling share
+        let small =
+            self.fish.iter().map(|f| f.smallness()).sum::<f32>() / self.fish.len().max(1) as f32;
+        let cap = (self.fish.len() as f32 * (SCHOOL_SHARE + 0.25 * small)) as usize;
+        let max_size = |leader: &Fish| SCHOOL_MAX + if leader.smallness() > 0.4 { 2 } else { 0 };
         let schooling = |fish: &[Fish]| fish.iter().filter(|f| f.school.is_some()).count();
 
         // Lone fish join a nearby school of their kind that has room
@@ -1564,18 +1599,20 @@ impl Sim {
                 return;
             }
             let f = &self.fish[i];
-            if !willing(f) || !self.rng.chance(0.15 * f.personality.sociability) {
+            if !willing(f) || !self.rng.chance(0.15 * f.school_appetite()) {
                 continue;
             }
             let (fx, fy, kind, id) = (f.x, f.y, f.sprite, f.id);
             let target = self.schools.iter().position(|sc| {
                 sc.kind == kind
-                    && sc.members.len() + 1 < SCHOOL_MAX
                     && self
                         .fish
                         .iter()
                         .find(|g| g.id == sc.leader)
-                        .is_some_and(|l| (l.x - fx).hypot(l.y - fy) < SCHOOL_RADIUS * 0.7)
+                        .is_some_and(|l| {
+                            sc.members.len() + 1 < max_size(l)
+                                && (l.x - fx).hypot(l.y - fy) < SCHOOL_RADIUS * 0.7
+                        })
             });
             if let Some(k) = target {
                 self.schools[k].members.push(id);
@@ -1592,10 +1629,11 @@ impl Sim {
             }
             let i = (start + step) % self.fish.len();
             let f = &self.fish[i];
-            if !willing(f) || !self.rng.chance(0.12 * f.personality.sociability) {
+            if !willing(f) || !self.rng.chance(0.12 * f.school_appetite()) {
                 continue;
             }
             let (fx, fy, kind, leader) = (f.x, f.y, f.sprite, f.id);
+            let biggest = max_size(f);
             let mut nearby: Vec<(bool, f32, u64)> = self
                 .fish
                 .iter()
@@ -1615,7 +1653,7 @@ impl Sim {
                 nearby.truncate(same_kind);
             }
             let room = cap.saturating_sub(schooling(&self.fish) + 1);
-            let size = ((self.rng.range(2.0, SCHOOL_MAX as f32 + 0.99)) as usize)
+            let size = ((self.rng.range(2.0, biggest as f32 + 0.99)) as usize)
                 .min(room)
                 .min(nearby.len());
             if size == 0 {
@@ -2224,6 +2262,10 @@ mod tests {
 
     /// Two adults next to each other, best friends, fed and rested.
     fn happy_couple(adult: bool) -> Sim {
+        happy_couple_sized(adult, 1.0)
+    }
+
+    fn happy_couple_sized(adult: bool, scale: f32) -> Sim {
         let mut s = Sim::new(21);
         s.set_population(
             &[
@@ -2231,7 +2273,7 @@ mod tests {
                     id: 1,
                     sprite: 0,
                     aspect: 0.6,
-                    scale: 1.0,
+                    scale,
                     adult,
                     mouth: DEFAULT_MOUTH,
                 },
@@ -2239,7 +2281,7 @@ mod tests {
                     id: 2,
                     sprite: 0,
                     aspect: 0.6,
-                    scale: 1.0,
+                    scale,
                     adult,
                     mouth: DEFAULT_MOUTH,
                 },
@@ -2291,6 +2333,77 @@ mod tests {
                 "a second baby before the parents rested"
             );
         }
+    }
+
+    #[test]
+    fn small_fish_breed_more_and_have_litters() {
+        let babies = |scale: f32| {
+            let (mut events, mut babies) = (0, 0);
+            for seed in 0..4 {
+                let mut s = happy_couple_sized(true, scale);
+                s.rng = Rng::new(100 + seed);
+                s.set_life_speed(30.0);
+                for _ in 0..30 * 600 {
+                    keep_together(&mut s);
+                    s.step(DT, None);
+                    for b in s.take_births() {
+                        events += 1;
+                        babies += b.count;
+                    }
+                }
+            }
+            (events, babies)
+        };
+        let (big_events, big_babies) = babies(1.4);
+        let (small_events, small_babies) = babies(0.4);
+        assert!(big_babies == big_events, "big fish have one baby at a time");
+        assert!(small_babies > small_events, "tiny fish should have litters");
+        assert!(
+            small_babies >= big_babies * 3,
+            "tiny fish: {small_babies} babies, big fish: {big_babies}"
+        );
+    }
+
+    #[test]
+    fn small_fish_school_more() {
+        let schooled = |scale: f32| {
+            let mut share = 0.0;
+            for seed in 1..4 {
+                let mut s = Sim::new(seed);
+                let specs: Vec<FishSpec> = (0..12u64)
+                    .map(|k| FishSpec {
+                        id: seed * 1000 + k,
+                        sprite: (k % 2) as u32,
+                        aspect: 0.6,
+                        scale,
+                        adult: true,
+                        mouth: DEFAULT_MOUTH,
+                    })
+                    .collect();
+                s.set_population(&specs, false);
+                s.resize(2560.0, 1440.0);
+                // Same middling sociability for everyone: only size differs
+                s.fish.iter_mut().for_each(|f| {
+                    f.personality.sociability = 0.4;
+                    if f.personality.character == Character::Shy {
+                        f.personality.character = Character::Explorer;
+                    }
+                    f.hunger = 0.0;
+                });
+                for _ in 0..30 * 240 {
+                    s.step(DT, None);
+                    share += s.fish().iter().filter(|f| f.school.is_some()).count() as f32;
+                }
+            }
+            share / (3.0 * 30.0 * 240.0 * 12.0)
+        };
+        let (small, big) = (schooled(0.4), schooled(1.4));
+        assert!(
+            small > big * 1.3,
+            "small fish schooled {:.0}% of the time, big {:.0}%",
+            small * 100.0,
+            big * 100.0
+        );
     }
 
     #[test]

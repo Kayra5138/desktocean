@@ -56,6 +56,7 @@ typedef struct DcFishSpec {
 typedef struct DcBirth {
     uint64_t parent_a, parent_b;
     float x, y;
+    uint32_t count;    // babies in this litter (small fish have several)
 } DcBirth;
 
 typedef struct DcBubble {
