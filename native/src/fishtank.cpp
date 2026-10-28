@@ -1,6 +1,7 @@
 #include "fishtank.h"
 #include "fishlibrary.h"
 #include "spritenode.h"
+#include "tankhub.h"
 
 #include <QCursor>
 #include <QDir>
@@ -103,10 +104,12 @@ FishTank::FishTank(QQuickItem *parent)
     m_saveTimer.start();
 
     checkHealth();
+    TankHub::registerTank(this);
 }
 
 FishTank::~FishTank()
 {
+    TankHub::unregisterTank(this);
     saveState();
     dc_sim_free(m_sim);
 }
@@ -147,21 +150,34 @@ void FishTank::updateDaylight()
     Q_EMIT daylightChanged();
 }
 
-QString FishTank::stats() const
+qreal FishTank::averageHunger() const
 {
+    if (m_fish.empty())
+        return 0;
     double hunger = 0;
     for (const DcFish &f : m_fish)
         hunger += f.hunger;
+    return hunger / m_fish.size();
+}
+
+QPair<int, int> FishTank::relationCounts() const
+{
     int friends = 0, rivals = 0;
     const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
     std::vector<DcRelation> rel(n);
-    dc_sim_relations(m_sim, rel.data(), n);
+    rel.resize(std::min(n, dc_sim_relations(m_sim, rel.data(), n)));
     for (const DcRelation &r : rel) {
         friends += r.affinity > DC_FRIEND;
         rivals += r.affinity < DC_RIVAL;
     }
+    return {friends, rivals};
+}
+
+QString FishTank::stats() const
+{
+    const auto [friends, rivals] = relationCounts();
     return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4")
-        .arg(m_fish.empty() ? 0 : qRound(hunger / m_fish.size() * 100))
+        .arg(qRound(averageHunger() * 100))
         .arg(qRound(m_daylight * 100))
         .arg(friends)
         .arg(rivals);
@@ -234,6 +250,15 @@ void FishTank::setRunning(bool running)
     Q_EMIT runningChanged();
 }
 
+void FishTank::setPaused(bool paused)
+{
+    if (paused == m_paused)
+        return;
+    m_paused = paused;
+    updateTimer();
+    Q_EMIT pausedChanged();
+}
+
 void FishTank::setFps(int fps)
 {
     fps = std::clamp(fps, 1, 120);
@@ -292,7 +317,12 @@ void FishTank::clearFood()
     update();
 }
 
-bool FishTank::openEditor()
+bool FishTank::openEditor(const QString &page)
+{
+    return launchEditor(page);
+}
+
+bool FishTank::launchEditor(const QString &page)
 {
     // plasmashell's PATH often lacks ~/.local/bin, where install.sh puts the editor
     const QString name = QStringLiteral("desktocean-editor");
@@ -303,7 +333,10 @@ bool FishTank::openEditor()
         qWarning("Desktocean: %s is not installed", qPrintable(name));
         return false;
     }
-    return QProcess::startDetached(exe, {});
+    QStringList args;
+    if (!page.isEmpty())
+        args << QStringLiteral("--page") << page;
+    return QProcess::startDetached(exe, args);
 }
 
 void FishTank::componentComplete()
@@ -327,7 +360,7 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
 
 void FishTank::updateTimer()
 {
-    const bool shouldRun = m_running && m_healthy && isComponentComplete() && width() > 0 && height() > 0;
+    const bool shouldRun = m_running && !m_paused && m_healthy && isComponentComplete() && width() > 0 && height() > 0;
     if (shouldRun && !m_timer.isActive()) {
         m_timer.start(1000 / m_fps);
         m_clock.start();

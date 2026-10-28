@@ -31,6 +31,16 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // `desktocean-editor --page fish|layout` opens straight on that page
+    Component.onCompleted: {
+        const args = Qt.application.arguments;
+        const i = args.indexOf("--page");
+        if (i >= 0 && args[i + 1] === "fish")
+            pageStack.push(libraryPage);
+        else if (i >= 0 && args[i + 1] === "layout")
+            pageStack.push(layoutPage);
+    }
+
     Component {
         id: libraryPage
         LibraryPage {

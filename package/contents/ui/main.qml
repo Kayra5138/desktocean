@@ -8,7 +8,6 @@ WallpaperItem {
     id: root
     anchors.fill: parent
 
-    property bool userPaused: false
     readonly property bool covered: root.configuration.PauseOnMaximized && windows.coveredExists
 
     WindowWatcher {
@@ -23,8 +22,8 @@ WallpaperItem {
         showDebug: root.configuration.ShowDebug
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
-        running: !root.userPaused && !root.covered
-        pauseReason: root.userPaused ? "by user" : (root.covered ? "window covers screen" : "")
+        running: !root.covered
+        pauseReason: root.covered ? "window covers screen" : ""
     }
 
     // Pointer events never reach the wallpaper: the folder view sits on top and
@@ -48,9 +47,9 @@ WallpaperItem {
             onTriggered: aquarium.clearFood()
         },
         PlasmaCore.Action {
-            text: root.userPaused ? "Resume aquarium" : "Pause aquarium"
-            icon.name: root.userPaused ? "media-playback-start" : "media-playback-pause"
-            onTriggered: root.userPaused = !root.userPaused
+            text: aquarium.paused ? "Resume aquarium" : "Pause aquarium"
+            icon.name: aquarium.paused ? "media-playback-start" : "media-playback-pause"
+            onTriggered: aquarium.paused = !aquarium.paused
         }
     ]
 }

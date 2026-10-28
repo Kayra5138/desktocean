@@ -3,6 +3,7 @@
 #   - Desktocean.Core QML plugin (Rust core + C++) → ~/.local/lib/qt6/qml
 #   - desktocean-editor (drawing app)              → ~/.local/bin + app menu entry
 #   - wallpaper package                            → ~/.local/share/plasma/wallpapers
+#   - control widget                               → ~/.local/share/plasma/plasmoids
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 QML_DIR="$HOME/.local/lib/qt6/qml"
@@ -53,6 +54,15 @@ esac
 "$ROOT/scripts/build-shaders.sh"
 python3 "$ROOT/scripts/make-test-fish.py"
 python3 "$ROOT/scripts/make-starter-decor.py"
+# --- control widget ----------------------------------------------------------
+if kpackagetool6 -t Plasma/Applet -s desktocean.control >/dev/null 2>&1; then
+    kpackagetool6 -t Plasma/Applet -u "$ROOT/applet" >/dev/null
+    echo "Upgraded the Desktocean widget"
+else
+    kpackagetool6 -t Plasma/Applet -i "$ROOT/applet" >/dev/null
+    echo "Installed the Desktocean widget: add it from the panel's or desktop's \"Add Widgets…\""
+fi
+
 if kpackagetool6 -t Plasma/Wallpaper -s desktocean.aquarium >/dev/null 2>&1; then
     kpackagetool6 -t Plasma/Wallpaper -u "$ROOT/package"
     echo "Upgraded. Plasma caches QML and plugins: run scripts/reload-plasma.sh to see changes."

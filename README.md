@@ -31,6 +31,8 @@ decorations and drop them into the tank.
   Arrange them on the editor's **Tank layout** page (drag, resize, in front of or behind the fish,
   flip, copy). Starter seaweed, rocks and a coral are included
 - **Themes** for water and sand: Tropical, Lagoon, Deep sea, Kelp forest, Volcanic
+- **Desktocean widget** for the panel or desktop: feed, pause, open the editor, and see how
+  hungry the fish are and how many friendships they made
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
 - Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
 - Curious fish follow the cursor while it moves, and lose interest when it stops
@@ -102,6 +104,7 @@ with the aquarium paused against one with it running.
 | `native/src/fishmesh.*`, `spritenode.*` | Swim styles, mesh bending and batched sprite rendering, shared by tank and editor preview |
 | `shaders/` | Water shader source, compiled to `.qsb` into the package |
 | `scripts/` | Install, build, reload and measure helpers |
+| `applet/` | The Desktocean control widget (Plasma applet) |
 | `dev/preview.qml` | Standalone preview window |
 
 ## Roadmap

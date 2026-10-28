@@ -9,6 +9,7 @@ Item {
     id: aquarium
 
     property alias running: tank.running
+    property alias paused: tank.paused
     property alias fps: tank.fps
     readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
@@ -97,7 +98,7 @@ Item {
             snapshot = "Desktocean · Phase 4\n"
                 + "Core: rust " + tank.coreVersion + (tank.healthy ? " (ok)" : " (STOPPED)") + "\n"
                 + "FPS: " + measuredFps + " (target " + tank.fps + ")\n"
-                + "State: " + (tank.running ? "running" : "paused" + (aquarium.pauseReason ? " (" + aquarium.pauseReason + ")" : "")) + "\n"
+                + "State: " + (tank.running && !tank.paused ? "running" : "paused (" + (tank.paused ? "by user" : aquarium.pauseReason) + ")") + "\n"
                 + "Fish: " + tank.fishCount + "  Food: " + tank.foodCount + "\n"
                 + "Following cursor: " + (tank.lureActive ? "yes" : "no") + "\n"
                 + tank.stats() + "\n"

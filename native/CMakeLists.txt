@@ -58,6 +58,7 @@ qt_add_qml_module(desktocean_core
     OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml/Desktocean/Core
     SOURCES
         src/fishtank.h src/fishtank.cpp
+        src/tankhub.h src/tankhub.cpp
 )
 
 

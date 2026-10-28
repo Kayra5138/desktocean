@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Desktocean"
+            }
+        ],
+        "Category": "Fun and Games",
+        "Description": "Feed the fish, pause the aquarium and open the fish editor",
+        "Icon": "applications-games",
+        "Id": "desktocean.control",
+        "License": "GPL-3.0-or-later",
+        "Name": "Desktocean",
+        "Version": "0.1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

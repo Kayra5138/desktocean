@@ -32,6 +32,9 @@ class FishTank : public QQuickItem
     QML_ELEMENT
 
     Q_PROPERTY(bool running READ running WRITE setRunning NOTIFY runningChanged)
+    // Paused by the user (context menu or widget); the tank only ticks when
+    // running and not paused
+    Q_PROPERTY(bool paused READ paused WRITE setPaused NOTIFY pausedChanged)
     Q_PROPERTY(int fps READ fps WRITE setFps NOTIFY fpsChanged)
     // Sprites (head facing right) copied into an empty library on first run
     Q_PROPERTY(QList<QUrl> starterFish READ starterFish WRITE setStarterFish NOTIFY starterFishChanged)
@@ -63,6 +66,8 @@ public:
 
     bool running() const { return m_running; }
     void setRunning(bool running);
+    bool paused() const { return m_paused; }
+    void setPaused(bool paused);
     int fps() const { return m_fps; }
     void setFps(int fps);
     QList<QUrl> starterFish() const { return m_starterFish; }
@@ -91,13 +96,18 @@ public:
     // Drops food above the cursor if it is over the tank, else somewhere random
     Q_INVOKABLE void feedAtCursor();
     Q_INVOKABLE void clearFood();
-    // Starts the drawing editor; false if it is not installed
-    Q_INVOKABLE bool openEditor();
+    // Starts the editor (page: "" drawing, "fish", "layout"); false if it is not installed
+    Q_INVOKABLE bool openEditor(const QString &page = {});
+    static bool launchEditor(const QString &page = {});
     // One line for the diagnostics overlay: hunger, friends, rivals
     Q_INVOKABLE QString stats() const;
+    qreal averageHunger() const;
+    // (friendships, rivalries)
+    QPair<int, int> relationCounts() const;
 
 Q_SIGNALS:
     void runningChanged();
+    void pausedChanged();
     void fpsChanged();
     void starterFishChanged();
     void starterDecorChanged();
@@ -143,6 +153,7 @@ private:
     QHash<quint64, QString> m_specOwner;
 
     bool m_running = true;
+    bool m_paused = false;
     int m_fps = 30;
     QList<QUrl> m_starterFish;
     QList<QUrl> m_starterDecor;
