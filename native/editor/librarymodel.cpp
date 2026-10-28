@@ -38,7 +38,21 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
     case IdRole:
         return e.id;
     case NameRole:
+        return e.displayName;
+    case CustomNameRole:
         return e.name;
+    case FishNamesRole: {
+        QStringList own;
+        for (int k = 0; k < e.count; ++k)
+            own << e.names.value(k);
+        return own;
+    }
+    case DefaultFishNamesRole: {
+        QStringList defaults;
+        for (int k = 0; k < e.count; ++k)
+            defaults << e.defaultFishName(k);
+        return defaults;
+    }
     case ImageRole:
         return QUrl::fromLocalFile(e.path());
     case CopiesRole:
@@ -81,7 +95,8 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
             {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"},
             {FriendsRole, "friends"}, {RivalsRole, "rivals"}, {KindRole, "kind"},
             {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"},
-            {CharactersRole, "characters"}, {MouthRole, "mouth"}};
+            {CharactersRole, "characters"}, {MouthRole, "mouth"},
+            {CustomNameRole, "customName"}, {FishNamesRole, "fishNames"}, {DefaultFishNamesRole, "defaultFishNames"}};
 }
 
 QVariantMap LibraryModel::get(int row) const
@@ -177,6 +192,17 @@ bool LibraryModel::rename(const QString &id, const QString &name)
     return modify(id, [name](FishEntry &e) { e.name = name.trimmed(); });
 }
 
+bool LibraryModel::setFishNames(const QString &id, const QStringList &names)
+{
+    QString error;
+    if (!FishLibrary::setFishNames(id, names, &error)) {
+        setError(error);
+        return false;
+    }
+    reload();
+    return true;
+}
+
 bool LibraryModel::flip(const QString &id)
 {
     QString error;
@@ -200,7 +226,7 @@ void LibraryModel::loadRelations()
 
     QHash<QString, QString> names;
     for (const FishEntry &e : std::as_const(m_entries))
-        names.insert(e.id, e.name);
+        names.insert(e.id, e.displayName);
     auto collect = [&](const QString &key, QHash<QString, QStringList> &out) {
         for (const QJsonValue &pair : root.value(key).toArray()) {
             const QString a = pair.toArray().at(0).toString(), b = pair.toArray().at(1).toString();

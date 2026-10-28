@@ -35,7 +35,7 @@ QVariant LayoutModel::data(const QModelIndex &index, int role) const
     case EntryIdRole:
         return e.id;
     case NameRole:
-        return e.name;
+        return e.displayName;
     case ImageRole:
         return QUrl::fromLocalFile(e.path());
     case AspectRole:

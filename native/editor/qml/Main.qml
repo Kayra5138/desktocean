@@ -127,7 +127,7 @@ Kirigami.ApplicationWindow {
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
     // Optional: --swim <style id>, --wiggle-tail, --add-as <name> (saves the drawing to the library),
     // --kind <fish|plant|decor>, --select-all, --edit-first (opens the first library fish for
-    // editing), --library, --layout.
+    // editing), --names-first (opens its names dialog), --library, --layout.
     Timer {
         readonly property var args: Qt.application.arguments
         function arg(name, offset) {
@@ -161,6 +161,8 @@ Kirigami.ApplicationWindow {
                 drawPage.canvas.selectAll();
             if (args.indexOf("--edit-first") >= 0)
                 window.pageStack.push(libraryPage).editFirstForTest();
+            if (args.indexOf("--names-first") >= 0)
+                window.pageStack.push(libraryPage).namesFirstForTest();
             if (args.indexOf("--library") >= 0)
                 window.pageStack.push(libraryPage);
             if (args.indexOf("--layout") >= 0)

@@ -24,6 +24,8 @@ Window {
         }
         // `--vsync` ticks once per screen refresh
         matchRefresh: Qt.application.arguments.indexOf("--vsync") >= 0
+        // Name of the fish under the cursor
+        showNames: true
         // `--fps 20` tries another frame rate
         fps: {
             const i = Qt.application.arguments.indexOf("--fps");

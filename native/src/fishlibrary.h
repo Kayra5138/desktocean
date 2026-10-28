@@ -35,7 +35,12 @@ struct FishEntry {
 
     QString id;
     Kind kind = Kind::Fish;
-    QString name;
+    QString name;                          // given by the user; empty = automatic
+    // What to call it: the given name, or "Fish 3", or "Baby of A & B" (which
+    // follows the parents' names). Worked out by load(), never stored.
+    QString displayName;
+    int number = 0;                        // for automatic names, per kind; 1, 2, ...
+    QStringList names;                     // fish: names of single copies; empty = automatic
     QString file;                          // sprite file name inside directory()
     QString wiggle;                        // wiggle mask file name, or empty
     QString style = QStringLiteral("classic");  // FishMesh swim style id
@@ -51,6 +56,10 @@ struct FishEntry {
 
     QString path() const;
     QString wigglePath() const;            // empty when there is no mask
+    // Name of copy k: its own name, or the species name with a number when
+    // there are several
+    QString fishName(int k) const;
+    QString defaultFishName(int k) const;
 };
 
 // What the editor hands over: the drawing and, optionally, its wiggle mask
@@ -101,6 +110,8 @@ bool update(const FishEntry &meta, QString *error = nullptr);
 bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *error = nullptr);
 // Mirrors an existing fish (and its wiggle mask) so the head points the other way
 bool flip(const QString &id, QString *error = nullptr);
+// Names single copies of a fish; an empty name means automatic
+bool setFishNames(const QString &id, const QStringList &names, QString *error = nullptr);
 
 // Best guess for an unmarked mouth: the front tip of the drawing, at the
 // height of its nose. Fractions of the image (head facing right).

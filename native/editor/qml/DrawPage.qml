@@ -58,26 +58,29 @@ Kirigami.Page {
     }
 
     function addToAquarium() {
-        const name = nameField.text.trim() || (isFish ? "Fish" : kind === "plant" ? "Plant" : "Decoration");
+        // No name: the library numbers it ("Fish 3")
+        const name = nameField.text.trim();
         const error = canvas.saveToLibrary(meta(name));
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
         }
+        const called = name ? "“" + name + "”" : "Your new " + kindLabel.toLowerCase();
         showMessage(Kirigami.MessageType.Positive, isFish
-            ? "“" + name + "” is swimming in your aquarium now."
-            : "“" + name + "” is in the tank. Open Tank layout to move it.");
+            ? called + " is swimming in your aquarium now."
+            : called + " is in the tank. Open Tank layout to move it.");
         resetForm();
     }
 
     function saveChanges() {
-        const name = nameField.text.trim() || editingName;
+        // Cleared: back to an automatic name
+        const name = nameField.text.trim();
         const error = canvas.saveOver(editingId, meta(name));
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
         }
-        showMessage(Kirigami.MessageType.Positive, "“" + name + "” has been updated in your aquarium.");
+        showMessage(Kirigami.MessageType.Positive, "“" + (name || editingName) + "” has been updated in your aquarium.");
         resetForm();
     }
 
@@ -99,7 +102,7 @@ Kirigami.Page {
         swaySlider.value = fish.sway !== undefined ? fish.sway : 1;
         editingId = fish.fishId;
         editingName = fish.name;
-        nameField.text = fish.name;
+        nameField.text = fish.customName;
         styleBox.currentIndex = Math.max(0, styleBox.indexOfValue(fish.swimStyle));
         // Closest size preset
         let best = 0;
@@ -508,7 +511,8 @@ Kirigami.Page {
                 QQC2.TextField {
                     id: nameField
                     Layout.fillWidth: true
-                    placeholderText: "Name (optional)"
+                    // Blank keeps the automatic name ("Fish 3", or "Baby of …" after the parents)
+                    placeholderText: page.editing && !text ? page.editingName + " (automatic)" : "Name (optional)"
                     onAccepted: if (!canvas.empty) page.editing ? page.saveChanges() : page.addToAquarium()
                 }
                 RowLayout {

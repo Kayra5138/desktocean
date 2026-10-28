@@ -23,6 +23,11 @@ Kirigami.ScrollablePage {
             page.editFish(fish);
     }
 
+    // Used by Main.qml's --names-first development flag
+    function namesFirstForTest() {
+        namesDialog.edit(library.get(0));
+    }
+
     actions: [
         Kirigami.Action {
             text: "Draw a new fish"
@@ -59,6 +64,7 @@ Kirigami.ScrollablePage {
             required property string rivals
             required property string family
             required property string characters
+            required property string kind
 
             width: grid.cellWidth
             height: grid.cellHeight
@@ -78,6 +84,13 @@ Kirigami.ScrollablePage {
                     text: "Edit"
                     icon.name: "document-edit"
                     onTriggered: page.editFish(library.get(cell.index))
+                },
+                Kirigami.Action {
+                    text: "Names…"
+                    icon.name: "edit-rename"
+                    visible: cell.kind === "fish"
+                    displayHint: Kirigami.DisplayHint.AlwaysHide
+                    onTriggered: namesDialog.edit(library.get(cell.index))
                 },
                 Kirigami.Action {
                     text: "Flip"
@@ -175,6 +188,70 @@ Kirigami.ScrollablePage {
                 text: "Draw a fish"
                 icon.name: "draw-brush"
                 onTriggered: page.drawNew()
+            }
+        }
+    }
+
+    // The species' name and a name for every fish swimming; blank = automatic
+    Kirigami.Dialog {
+        id: namesDialog
+        property string fishId
+        property var defaults: []
+        title: "Names"
+        padding: Kirigami.Units.largeSpacing
+        preferredWidth: Kirigami.Units.gridUnit * 22
+        standardButtons: Kirigami.Dialog.Save | Kirigami.Dialog.Cancel
+
+        function edit(fish) {
+            fishId = fish.fishId;
+            speciesField.text = fish.customName;
+            speciesField.placeholderText = fish.customName ? "" : fish.name + " (automatic)";
+            defaults = fish.defaultFishNames;
+            copyNames.model = 0;
+            copyNames.model = fish.copies;
+            for (let k = 0; k < fish.copies; ++k)
+                copyNames.itemAt(k).text = fish.fishNames[k] || "";
+            open();
+            speciesField.forceActiveFocus();
+        }
+
+        onAccepted: {
+            const names = [];
+            for (let k = 0; k < copyNames.count; ++k)
+                names.push(copyNames.itemAt(k).text);
+            library.rename(fishId, speciesField.text);
+            library.setFishNames(fishId, names);
+        }
+
+        ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
+            QQC2.Label { text: "Species" ; font.bold: true }
+            QQC2.TextField {
+                id: speciesField
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                text: copyNames.count === 1 ? "The fish" : "Each fish"
+                font.bold: true
+                visible: copyNames.count > 0
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                visible: copyNames.count > 1
+                text: "Leave a name blank to number it after its species."
+                wrapMode: Text.WordWrap
+                font: Kirigami.Theme.smallFont
+                opacity: 0.8
+            }
+            Repeater {
+                id: copyNames
+                model: 0
+                QQC2.TextField {
+                    required property int index
+                    Layout.fillWidth: true
+                    placeholderText: namesDialog.defaults[index] ?? ""
+                }
             }
         }
     }

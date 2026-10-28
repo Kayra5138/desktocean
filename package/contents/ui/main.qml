@@ -23,6 +23,7 @@ WallpaperItem {
         fps: root.configuration.Fps
         matchRefresh: root.configuration.MatchRefresh
         showDebug: root.configuration.ShowDebug
+        showNames: root.configuration.ShowNames
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu

@@ -73,6 +73,10 @@ class FishTank : public QQuickItem
     Q_PROPERTY(bool lureActive READ lureActive NOTIFY lureActiveChanged)
     // Cursor in item coordinates, or (-1, -1) when it is not over the tank
     Q_PROPERTY(QPointF pointer READ pointer NOTIFY timeChanged)
+    // Name the fish under the cursor (hoveredName, above the fish at hoveredPoint)
+    Q_PROPERTY(bool showNames READ showNames WRITE setShowNames NOTIFY showNamesChanged)
+    Q_PROPERTY(QString hoveredName READ hoveredName NOTIFY hoverChanged)
+    Q_PROPERTY(QPointF hoveredPoint READ hoveredPoint NOTIFY hoverChanged)
     Q_PROPERTY(bool healthy READ healthy NOTIFY healthyChanged)
     Q_PROPERTY(QString coreVersion READ coreVersion CONSTANT)
     Q_PROPERTY(QString libraryPath READ libraryPath CONSTANT)
@@ -119,6 +123,10 @@ public:
     int foodCount() const { return int(m_food.size()); }
     bool lureActive() const { return m_lureActive; }
     QPointF pointer() const { return m_pointer; }
+    bool showNames() const { return m_showNames; }
+    void setShowNames(bool show);
+    QString hoveredName() const { return m_hoveredName; }
+    QPointF hoveredPoint() const { return m_hoveredPoint; }
     bool healthy() const { return m_healthy; }
     QString coreVersion() const;
     QString libraryPath() const;
@@ -161,6 +169,8 @@ Q_SIGNALS:
     void timeChanged();
     void foodCountChanged();
     void lureActiveChanged();
+    void showNamesChanged();
+    void hoverChanged();
     void healthyChanged();
 
 protected:
@@ -171,6 +181,7 @@ protected:
 
 private:
     void tick();
+    void updateHover();
     void onFrameSwapped();
     void pullState();
     void updateTimer();
@@ -207,6 +218,10 @@ private:
     bool m_stateLoaded = false;
     // Which library fish each simulated fish is a copy of (spec id -> entry id)
     QHash<quint64, QString> m_specOwner;
+    QHash<quint64, QString> m_specName;   // name of every copy, for the hover label
+    bool m_showNames = false;
+    QString m_hoveredName;
+    QPointF m_hoveredPoint;
 
     bool m_running = true;
     bool m_paused = false;

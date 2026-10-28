@@ -19,6 +19,8 @@ Item {
     property alias babies: tank.babies
     property alias maxFish: tank.maxFish
     property alias lifeSpeed: tank.lifeSpeed
+    // Name of the fish under the cursor
+    property alias showNames: tank.showNames
     // Theme id, see native/src/themes.cpp
     property alias theme: tank.theme
     // The editor asked for another theme
@@ -86,6 +88,35 @@ Item {
             .map(name => Qt.resolvedUrl("../images/" + name))
         starterDecor: ["decor-seaweed-tall.svg", "decor-seaweed-bushy.svg", "decor-rock.svg", "decor-coral.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
+    }
+
+    // The hovered fish's name, just above it; follows the fish as it swims
+    Rectangle {
+        id: nameTag
+        readonly property bool shown: tank.hoveredName !== ""
+        // Keeps the last name while fading out
+        property string name: ""
+        visible: opacity > 0
+        opacity: shown ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+        onShownChanged: if (shown) name = tank.hoveredName
+        Connections {
+            target: tank
+            function onHoverChanged() { if (tank.hoveredName !== "") nameTag.name = tank.hoveredName; }
+        }
+        x: Math.round(Math.max(4, Math.min(aquarium.width - width - 4, tank.hoveredPoint.x - width / 2)))
+        y: Math.round(Math.max(4, tank.hoveredPoint.y - height - 6))
+        width: nameText.implicitWidth + 16
+        height: nameText.implicitHeight + 8
+        radius: height / 2
+        color: "#a0000000"
+        Text {
+            id: nameText
+            anchors.centerIn: parent
+            color: "white"
+            font.pixelSize: 14
+            text: nameTag.name
+        }
     }
 
     // Diagnostics, top-right so desktop icons (top-left) stay readable

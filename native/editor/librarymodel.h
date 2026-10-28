@@ -24,7 +24,8 @@ class LibraryModel : public QAbstractListModel
 public:
     enum Role {
         IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole,
-        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole, MouthRole
+        FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole, MouthRole,
+        CustomNameRole, FishNamesRole, DefaultFishNamesRole
     };
 
     explicit LibraryModel(QObject *parent = nullptr);
@@ -46,6 +47,8 @@ public:
     Q_INVOKABLE bool setScale(const QString &id, double scale);
     Q_INVOKABLE bool rename(const QString &id, const QString &name);
     Q_INVOKABLE bool flip(const QString &id);
+    // Names single copies of a fish; empty strings mean automatic names
+    Q_INVOKABLE bool setFishNames(const QString &id, const QStringList &names);
 
 Q_SIGNALS:
     void countChanged();

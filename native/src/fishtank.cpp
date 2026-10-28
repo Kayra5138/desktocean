@@ -369,8 +369,7 @@ void FishTank::recordBaby(const DcBirth &birth)
     drawing.mouth = QPointF(mouth.x() * shape.width(), mouth.y() * shape.height());
 
     FishEntry meta;
-    meta.name = a->id == b->id ? QStringLiteral("Baby %1").arg(a->name)
-                               : QStringLiteral("Baby of %1 & %2").arg(a->name, b->name);
+    // No name of its own: it is called after its parents, whatever they are called
     meta.style = a->style;
     meta.scale = (a->scale + b->scale) / 2;
     // Small fish have litters: siblings share one drawing, as copies
@@ -736,6 +735,39 @@ void FishTank::updateTimer()
         m_cpuTimer.stop();
 }
 
+void FishTank::setShowNames(bool show)
+{
+    if (show == m_showNames)
+        return;
+    m_showNames = show;
+    Q_EMIT showNamesChanged();
+    updateHover();
+}
+
+void FishTank::updateHover()
+{
+    QString name;
+    QPointF point;
+    if (m_showNames && m_pointer.x() >= 0) {
+        // The front-most fish whose body is under the cursor
+        const DcFish *hit = nullptr;
+        for (const DcFish &f : m_fish) {
+            const qreal dx = (m_pointer.x() - f.x) / (f.w * 0.5), dy = (m_pointer.y() - f.y) / (f.h * 0.5);
+            if (dx * dx + dy * dy <= 1.0 && (!hit || f.depth < hit->depth))
+                hit = &f;
+        }
+        if (hit) {
+            name = m_specName.value(hit->id);
+            point = QPointF(hit->x, hit->y - hit->h * 0.5);
+        }
+    }
+    if (name == m_hoveredName && (name.isEmpty() || point == m_hoveredPoint))
+        return;
+    m_hoveredName = name;
+    m_hoveredPoint = point;
+    Q_EMIT hoverChanged();
+}
+
 QPointF FishTank::cursorInItem() const
 {
     const QPointF p = mapFromGlobal(QCursor::pos());
@@ -759,6 +791,7 @@ void FishTank::tick()
     handleBirths();
     const qint64 stepped = t.nsecsElapsed();
     pullState();
+    updateHover();
     if (m_profile.enabled) {
         m_profile.stepNs += stepped;
         m_profile.pullNs += t.nsecsElapsed() - stepped;
@@ -920,6 +953,7 @@ void FishTank::loadLibrary(bool animateNew)
     std::vector<FishEntry> specEntry;
     std::vector<DecorItem> decor;
     QHash<quint64, QString> owners;
+    QHash<quint64, QString> names;
     for (const FishEntry &e : entries) {
         const bool isFish = e.kind == FishEntry::Kind::Fish;
         if (isFish ? e.count <= 0 : e.placements.isEmpty())
@@ -958,6 +992,7 @@ void FishTank::loadLibrary(bool animateNew)
                              float(mouth.y())});
             specEntry.push_back(e);
             owners.insert(id, e.id);
+            names.insert(id, e.fishName(k));
         }
     }
 
@@ -970,6 +1005,7 @@ void FishTank::loadLibrary(bool animateNew)
     m_specs = std::move(specs);
     m_specEntry = std::move(specEntry);
     m_specOwner = owners;
+    m_specName = names;
     // Newborns appear between their parents rather than dropping in from above
     for (auto it = m_newborns.begin(); it != m_newborns.end();) {
         if (owners.key(it.key()) != 0) {

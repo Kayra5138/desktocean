@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -13,6 +14,7 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <functional>
 
 namespace {
 
@@ -44,6 +46,52 @@ void setError(QString *error, const QString &message)
 const QString kBusy = QStringLiteral("The fish library is busy, try again");
 
 // Plain file names only: never follow a path out of the library directory
+// Automatic names: "Fish 3", and "Baby of A & B" for babies, following
+// whatever the parents are called now
+void resolveNames(QList<FishEntry> &entries)
+{
+    // Older libraries stored the defaults as names; those become automatic
+    QHash<QString, int> index;
+    QHash<int, int> lastNumber;
+    for (int i = 0; i < entries.size(); ++i) {
+        FishEntry &e = entries[i];
+        index.insert(e.id, i);
+        const QString kindDefault = e.kind == FishEntry::Kind::Fish    ? QStringLiteral("Fish")
+                                    : e.kind == FishEntry::Kind::Plant ? QStringLiteral("Plant")
+                                                                       : QStringLiteral("Decoration");
+        if (e.name == kindDefault || (e.bornAt > 0 && e.name.startsWith(QLatin1String("Baby "))))
+            e.name.clear();
+        lastNumber[int(e.kind)] = std::max(lastNumber[int(e.kind)], e.number);
+    }
+    for (FishEntry &e : entries) {
+        if (e.number <= 0)
+            e.number = ++lastNumber[int(e.kind)];
+    }
+    // Babies' names depend on their parents', which may be babies too
+    std::function<QString(int, int)> nameOf = [&](int i, int depth) -> QString {
+        const FishEntry &e = entries[i];
+        if (!e.name.isEmpty())
+            return e.name;
+        if (e.bornAt > 0 && depth < 3) {
+            QStringList parents;
+            for (const QString &p : e.parents) {
+                const int j = index.value(p, -1);
+                if (j >= 0 && j != i && !parents.contains(nameOf(j, depth + 1)))
+                    parents << nameOf(j, depth + 1);
+            }
+            if (!parents.isEmpty())
+                return QStringLiteral("Baby of %1").arg(parents.join(QStringLiteral(" & ")));
+        }
+        const QString base = e.bornAt > 0                            ? QStringLiteral("Baby")
+                             : e.kind == FishEntry::Kind::Fish  ? QStringLiteral("Fish")
+                             : e.kind == FishEntry::Kind::Plant ? QStringLiteral("Plant")
+                                                                : QStringLiteral("Decoration");
+        return QStringLiteral("%1 %2").arg(base).arg(e.number);
+    };
+    for (int i = 0; i < entries.size(); ++i)
+        entries[i].displayName = nameOf(i, 0);
+}
+
 bool safeName(const QString &name)
 {
     return !name.contains(QLatin1Char('/')) && name != QLatin1String("..") && name != QLatin1String(".");
@@ -61,7 +109,10 @@ bool save(const QList<FishEntry> &entries, QString *error)
             {QStringLiteral("style"), e.style},
             {QStringLiteral("scale"), e.scale},
             {QStringLiteral("count"), e.count},
+            {QStringLiteral("number"), e.number},
         };
+        if (std::any_of(e.names.begin(), e.names.end(), [](const QString &n) { return !n.isEmpty(); }))
+            o.insert(QStringLiteral("names"), QJsonArray::fromStringList(e.names));
         if (!e.wiggle.isEmpty())
             o.insert(QStringLiteral("wiggle"), e.wiggle);
         if (e.mouth.x() >= 0)
@@ -111,8 +162,7 @@ bool writePng(const QString &path, const QImage &image, QString *error)
 
 void applyMeta(FishEntry &e, const FishEntry &meta, int minCount)
 {
-    if (!meta.name.trimmed().isEmpty())
-        e.name = meta.name.trimmed();
+    e.name = meta.name.trimmed();
     e.style = meta.style.isEmpty() ? QStringLiteral("classic") : meta.style;
     e.scale = std::clamp(meta.scale, 0.3, 3.0);
     e.count = std::clamp(meta.count, minCount, 50);
@@ -178,6 +228,17 @@ QString FishEntry::path() const
 QString FishEntry::wigglePath() const
 {
     return wiggle.isEmpty() ? QString() : QDir(FishLibrary::directory()).filePath(wiggle);
+}
+
+QString FishEntry::defaultFishName(int k) const
+{
+    return count > 1 ? QStringLiteral("%1 #%2").arg(displayName).arg(k + 1) : displayName;
+}
+
+QString FishEntry::fishName(int k) const
+{
+    const QString own = names.value(k);
+    return own.isEmpty() ? defaultFishName(k) : own;
 }
 
 namespace FishLibrary {
@@ -288,7 +349,10 @@ QList<FishEntry> load(QString *error)
         const QJsonObject o = v.toObject();
         FishEntry e;
         e.id = o.value(QStringLiteral("id")).toString();
-        e.name = o.value(QStringLiteral("name")).toString();
+        e.name = o.value(QStringLiteral("name")).toString().trimmed();
+        e.number = o.value(QStringLiteral("number")).toInt();
+        for (const QJsonValue &nv : o.value(QStringLiteral("names")).toArray())
+            e.names << nv.toString().trimmed();
         e.file = o.value(QStringLiteral("file")).toString();
         e.wiggle = o.value(QStringLiteral("wiggle")).toString();
         e.style = o.value(QStringLiteral("style")).toString(QStringLiteral("classic"));
@@ -316,6 +380,7 @@ QList<FishEntry> load(QString *error)
             continue;
         entries << e;
     }
+    resolveNames(entries);
     return entries;
 }
 
@@ -334,7 +399,6 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
 
     FishEntry e;
     e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    e.name = QStringLiteral("Fish");
     applyMeta(e, meta, 1);
     // Birth details are set once, here; edits never change them
     e.bornAt = meta.bornAt;
@@ -352,12 +416,41 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
         removeFiles(e);
         return std::nullopt;
     }
+    // Next free number for its automatic name
+    for (const FishEntry &other : std::as_const(entries)) {
+        if (other.kind == e.kind)
+            e.number = std::max(e.number, other.number);
+    }
+    ++e.number;
     entries << e;
     if (!save(entries, error)) {
         removeFiles(e);
         return std::nullopt;
     }
-    return e;
+    resolveNames(entries);
+    return entries.last();
+}
+
+bool setFishNames(const QString &id, const QStringList &names, QString *error)
+{
+    WriteLock lock;
+    if (!lock.locked()) {
+        setError(error, kBusy);
+        return false;
+    }
+    QList<FishEntry> entries = load(error);
+    for (FishEntry &e : entries) {
+        if (e.id == id) {
+            e.names.clear();
+            for (const QString &n : names)
+                e.names << n.trimmed().left(60);
+            while (!e.names.isEmpty() && e.names.last().isEmpty())
+                e.names.removeLast();
+            return save(entries, error);
+        }
+    }
+    setError(error, QStringLiteral("No such fish"));
+    return false;
 }
 
 bool remove(const QString &id, QString *error)

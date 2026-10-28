@@ -14,6 +14,7 @@ Kirigami.FormLayout {
     property alias cfg_MaxFish: maxFish.value
     property alias cfg_ReactToNotifications: reactToNotifications.checked
     property alias cfg_ReactToCpu: reactToCpu.checked
+    property alias cfg_ShowNames: showNames.checked
     property alias cfg_ShowDebug: showDebug.checked
 
     QQC2.SpinBox {
@@ -68,6 +69,12 @@ Kirigami.FormLayout {
         enabled: babies.checked
         from: 2
         to: 100
+    }
+
+    QQC2.CheckBox {
+        id: showNames
+        Kirigami.FormData.label: "Names:"
+        text: "Show a fish's name when the cursor is over it"
     }
 
     QQC2.CheckBox {
