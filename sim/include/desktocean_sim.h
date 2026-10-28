@@ -38,6 +38,12 @@ typedef struct DcFishSpec {
     float scale;       // size multiplier
 } DcFishSpec;
 
+typedef struct DcBubble {
+    float x, y;
+    float radius;
+    float alpha;
+} DcBubble;
+
 typedef struct DcFood {
     float x, y;
     float opacity;
@@ -56,6 +62,8 @@ void dc_sim_feed(DcSim *sim, float x);                       // x < 0: random sp
 void dc_sim_clear_food(DcSim *sim);
 bool dc_sim_lure_active(DcSim *sim);                         // curious fish following the cursor
 void dc_sim_set_daylight(DcSim *sim, float daylight);        // 0 night .. 1 day
+bool dc_sim_announce(DcSim *sim);                            // a fish swims up and blows bubbles
+uint32_t dc_sim_bubbles(DcSim *sim, DcBubble *out, uint32_t cap);
 uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
 void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);
 void dc_sim_step(DcSim *sim, float dt, float pointer_x, float pointer_y); // < 0: no pointer

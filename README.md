@@ -33,6 +33,9 @@ decorations and drop them into the tank.
 - **Themes** for water and sand: Tropical, Lagoon, Deep sea, Kelp forest, Volcanic
 - **Desktocean widget** for the panel or desktop: feed, pause, open the editor, and see how
   hungry the fish are and how many friendships they made
+- **Your computer in the water**: when a notification arrives a fish swims up and blows bubbles
+  (not in Do Not Disturb); when the CPU is busy the current picks up, plants sway harder and more
+  bubbles rise. Fish also let out a few bubbles now and then. Both can be turned off
 - Water, light rays, caustics, sand and bubbles in a single fragment shader
 - Right-click the desktop → **Feed fish** (drops food above the cursor) / **Pause aquarium**
 - Curious fish follow the cursor while it moves, and lose interest when it stops
@@ -114,7 +117,7 @@ with the aquarium paused against one with it running.
 3. ~~**Phase 2** — drawing editor and PNG import~~
 4. ~~**Phase 3** — behaviour: hunger, friendships and rivalries, day/night, newcomers~~
 5. ~~**Phase 4** — swaying plants, rocks, coral, themes~~
-6. **Phase 5** — settings, day/night cycle, system integrations, companion widget
+6. ~~**Phase 5** — companion widget, scenery templates, system integrations~~
 
 Inspired by [Drawquarium](https://store.steampowered.com/app/4045480/Drawquarium/).
 

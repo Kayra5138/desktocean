@@ -14,6 +14,7 @@ Item {
     readonly property alias fishCount: tank.fishCount
     property bool showDebug: true
     property alias followTimeOfDay: tank.followTimeOfDay
+    property alias reactToCpu: tank.reactToCpu
     // Theme id, see native/src/themes.cpp
     property alias theme: tank.theme
     readonly property var themeColors: tank.themeColors
@@ -38,6 +39,11 @@ Item {
         tank.clearFood();
     }
 
+    // A fish swims up and blows bubbles
+    function announce() {
+        tank.announce();
+    }
+
     function openEditor() {
         return tank.openEditor();
     }
@@ -45,7 +51,8 @@ Item {
     ShaderEffect {
         id: water
         anchors.fill: parent
-        property real time: tank.time
+        property real time: tank.flow
+        property real agitation: tank.agitation
         property real sandTop: aquarium.sandTopRatio
         property size resolution: Qt.size(width, height)
         property real daylight: tank.daylight
@@ -94,6 +101,7 @@ Item {
                 + "Fish: " + tank.fishCount + "  Food: " + tank.foodCount + "\n"
                 + "Following cursor: " + (tank.lureActive ? "yes" : "no") + "\n"
                 + tank.stats() + "\n"
+                + "CPU stir: " + Math.round(tank.agitation * 100) + "%\n"
                 + "Cursor: " + (p.x >= 0 ? Math.round(p.x) + "," + Math.round(p.y) : "none");
         }
 

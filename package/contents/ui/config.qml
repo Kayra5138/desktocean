@@ -9,6 +9,8 @@ Kirigami.FormLayout {
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
     property string cfg_Theme
     property alias cfg_FollowTimeOfDay: followTimeOfDay.checked
+    property alias cfg_ReactToNotifications: reactToNotifications.checked
+    property alias cfg_ReactToCpu: reactToCpu.checked
     property alias cfg_ShowDebug: showDebug.checked
 
     QQC2.SpinBox {
@@ -43,6 +45,17 @@ Kirigami.FormLayout {
         id: followTimeOfDay
         Kirigami.FormData.label: "Day and night:"
         text: "Follow the clock (fish rest at night)"
+    }
+
+    QQC2.CheckBox {
+        id: reactToNotifications
+        Kirigami.FormData.label: "Your computer:"
+        text: "A fish blows bubbles when a notification arrives"
+    }
+
+    QQC2.CheckBox {
+        id: reactToCpu
+        text: "Water gets restless when the computer is busy"
     }
 
     QQC2.CheckBox {

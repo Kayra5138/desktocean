@@ -1,4 +1,5 @@
 import QtQuick
+import org.kde.notificationmanager as NotificationManager
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 
@@ -22,12 +23,27 @@ WallpaperItem {
         showDebug: root.configuration.ShowDebug
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
+        reactToCpu: root.configuration.ReactToCpu
         running: !root.covered
         pauseReason: root.covered ? "window covers screen" : ""
     }
 
     // Pointer events never reach the wallpaper: the folder view sits on top and
     // consumes them. Aquarium reads the cursor through Desktocean.Core instead.
+
+    // A fish surfaces to blow bubbles whenever a notification arrives (the
+    // notification server lives in plasmashell, so this needs no D-Bus snooping)
+    NotificationManager.Notifications {
+        id: notifications
+        showNotifications: root.configuration.ReactToNotifications
+        showJobs: false
+        showExpired: false
+        showDismissed: false
+        onRowsInserted: {
+            if (!inhibited && aquarium.running && !aquarium.paused)
+                aquarium.announce();
+        }
+    }
 
     contextualActions: [
         PlasmaCore.Action {

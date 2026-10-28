@@ -40,6 +40,15 @@ pub struct DcFishSpec {
     pub scale: f32,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcBubble {
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    pub alpha: f32,
+}
+
 /// Affinity between fish `a` and `b` (ids from DcFishSpec), -1..1.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -171,6 +180,38 @@ pub unsafe extern "C" fn dc_sim_clear_food(handle: *mut DcSim) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dc_sim_lure_active(handle: *mut DcSim) -> bool {
     with_sim(handle, false, |s| s.lure_active())
+}
+
+/// Sends a fish up to blow bubbles; false if no fish is free.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_announce(handle: *mut DcSim) -> bool {
+    with_sim(handle, false, |s| s.announce())
+}
+
+/// Same contract as `dc_sim_fish`, for bubbles.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_bubbles(handle: *mut DcSim, out: *mut DcBubble, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let water = s.water_level();
+        let bubbles = s.bubbles();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, b) in dst.iter_mut().zip(bubbles) {
+                *d = DcBubble {
+                    x: b.x,
+                    y: b.y,
+                    radius: b.radius,
+                    alpha: b.alpha(water),
+                };
+            }
+        }
+        bubbles.len() as u32
+    })
 }
 
 /// 0 = night, 1 = day.

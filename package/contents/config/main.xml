@@ -17,6 +17,12 @@
     <entry name="FollowTimeOfDay" type="Bool">
       <default>true</default>
     </entry>
+    <entry name="ReactToNotifications" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="ReactToCpu" type="Bool">
+      <default>true</default>
+    </entry>
     <entry name="ShowDebug" type="Bool">
       <default>true</default>
     </entry>

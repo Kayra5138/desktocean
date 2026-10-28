@@ -65,6 +65,21 @@ double smoothstep(double a, double b, double x)
     return t * t * (3 - 2 * t);
 }
 
+QImage makeBubbleSprite()
+{
+    QImage img(kFoodCell, kFoodCell, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(QColor(220, 245, 255, 230), 2.5));
+    p.setBrush(QColor(200, 240, 255, 50));
+    p.drawEllipse(QRectF(2, 2, kFoodCell - 4, kFoodCell - 4));
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 220));
+    p.drawEllipse(QRectF(8, 7, 7, 6));
+    return img;
+}
+
 QImage makeFoodSprite()
 {
     QImage img(kFoodCell, kFoodCell, QImage::Format_ARGB32_Premultiplied);
@@ -98,6 +113,10 @@ FishTank::FishTank(QQuickItem *parent)
     connect(&m_saveTimer, &QTimer::timeout, this, &FishTank::saveState);
     m_saveTimer.start();
 
+    // Two seconds between /proc/stat reads is plenty for a mood of the water
+    m_cpuTimer.setInterval(2000);
+    connect(&m_cpuTimer, &QTimer::timeout, this, &FishTank::sampleCpu);
+
     checkHealth();
     TankHub::registerTank(this);
 }
@@ -125,6 +144,51 @@ void FishTank::setHourOverride(qreal hour)
     m_hourOverride = hour;
     updateDaylight();
     Q_EMIT hourOverrideChanged();
+}
+
+void FishTank::setReactToCpu(bool react)
+{
+    if (react == m_reactToCpu)
+        return;
+    m_reactToCpu = react;
+    updateTimer();
+    Q_EMIT reactToCpuChanged();
+    Q_EMIT agitationChanged();
+}
+
+void FishTank::sampleCpu()
+{
+    // First line of /proc/stat: cpu user nice system idle iowait irq softirq steal ...
+    QFile stat(QStringLiteral("/proc/stat"));
+    if (!stat.open(QIODevice::ReadOnly))
+        return;
+    const QList<QByteArray> fields = stat.readLine().simplified().split(' ');
+    if (fields.size() < 5 || fields[0] != "cpu")
+        return;
+    quint64 total = 0, idle = 0;
+    for (int i = 1; i < fields.size(); ++i) {
+        const quint64 v = fields[i].toULongLong();
+        total += v;
+        if (i == 4 || i == 5)   // idle, iowait
+            idle += v;
+    }
+    const quint64 busy = total - idle;
+    if (m_cpuTotal > 0 && total > m_cpuTotal) {
+        const double load = double(busy - m_cpuBusy) / double(total - m_cpuTotal);
+        // Ease toward the new value so a short spike doesn't slosh the tank
+        const qreal smoothed = m_cpuLoad + (std::clamp(load, 0.0, 1.0) - m_cpuLoad) * 0.35;
+        if (std::abs(smoothed - m_cpuLoad) > 0.005) {
+            m_cpuLoad = smoothed;
+            Q_EMIT agitationChanged();
+        }
+    }
+    m_cpuBusy = busy;
+    m_cpuTotal = total;
+}
+
+void FishTank::announce()
+{
+    dc_sim_announce(m_sim);
 }
 
 void FishTank::updateDaylight()
@@ -171,11 +235,12 @@ QPair<int, int> FishTank::relationCounts() const
 QString FishTank::stats() const
 {
     const auto [friends, rivals] = relationCounts();
-    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4")
+    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4  Bubbles: %5")
         .arg(qRound(averageHunger() * 100))
         .arg(qRound(m_daylight * 100))
         .arg(friends)
-        .arg(rivals);
+        .arg(rivals)
+        .arg(m_bubbles.size());
 }
 
 void FishTank::loadState()
@@ -377,6 +442,11 @@ void FishTank::updateTimer()
     } else if (!shouldRun && m_timer.isActive()) {
         m_timer.stop();
     }
+    // Only watch the CPU while someone can see the water move
+    if (shouldRun && m_reactToCpu && !m_cpuTimer.isActive())
+        m_cpuTimer.start();
+    else if ((!shouldRun || !m_reactToCpu) && m_cpuTimer.isActive())
+        m_cpuTimer.stop();
 }
 
 QPointF FishTank::cursorInItem() const
@@ -394,6 +464,7 @@ void FishTank::tick()
     const qreal dt = std::clamp(m_clock.nsecsElapsed() / 1e9, 0.0, 0.1);
     m_clock.start();
     m_time += dt;
+    m_flow += dt * (1 + 2 * agitation());
     m_pointer = cursorInItem();
     dc_sim_step(m_sim, float(dt), float(m_pointer.x()), float(m_pointer.y()));
     pullState();
@@ -417,6 +488,10 @@ void FishTank::pullState()
     m_food.resize(std::min(n, dc_sim_food(m_sim, m_food.data(), n)));
 
     m_lureActive = dc_sim_lure_active(m_sim);
+
+    n = dc_sim_bubbles(m_sim, nullptr, 0);
+    m_bubbles.resize(n);
+    m_bubbles.resize(std::min(n, dc_sim_bubbles(m_sim, m_bubbles.data(), n)));
 
     if (m_fish.size() != oldFish)
         Q_EMIT fishCountChanged();
@@ -594,6 +669,7 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
     for (const QImage &img : images)
         place(img.size());
     place(QSize(kFoodCell, kFoodCell));
+    place(QSize(kFoodCell, kFoodCell));
     const int atlasH = y + shelf + kPad;
 
     QImage atlas(kAtlasWidth, atlasH, QImage::Format_ARGB32_Premultiplied);
@@ -609,8 +685,12 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
         painter.drawImage(placed[i].topLeft(), images[i]);
         m_sprites[i].uv = normalised(placed[i]);
     }
-    painter.drawImage(placed.back().topLeft(), makeFoodSprite());
-    m_foodUv = normalised(placed.back());
+    const QRect foodRect = placed[placed.size() - 2];
+    const QRect bubbleRect = placed.back();
+    painter.drawImage(foodRect.topLeft(), makeFoodSprite());
+    painter.drawImage(bubbleRect.topLeft(), makeBubbleSprite());
+    m_foodUv = normalised(foodRect);
+    m_bubbleUv = normalised(bubbleRect);
     painter.end();
 
     m_atlas = atlas;
@@ -641,6 +721,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     const int nFish = int(order.size());
     const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
+    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size()) : 0;
     const int nDecor = node->hasAtlas() ? int(std::count_if(m_decor.begin(), m_decor.end(), [&](const DecorItem &d) {
                                                return d.sprite < m_sprites.size();
                                            }))
@@ -648,8 +729,8 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     quint32 *idx = nullptr;
     FishMesh::Vertex *v = node->reserve(
-        nFish * FishMesh::kVertsPerFish + nFood * 4 + nDecor * FishMesh::kVertsPerDecor,
-        nFish * FishMesh::kIndicesPerFish + nFood * 6 + nDecor * FishMesh::kIndicesPerDecor, &idx);
+        nFish * FishMesh::kVertsPerFish + (nFood + nBubbles) * 4 + nDecor * FishMesh::kVertsPerDecor,
+        nFish * FishMesh::kIndicesPerFish + (nFood + nBubbles) * 6 + nDecor * FishMesh::kIndicesPerDecor, &idx);
     quint32 base = 0;
 
     // Draw order: decorations behind the fish, fish back to front, food,
@@ -663,9 +744,11 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             const float aspect = m_sprites[d.sprite].aspect;
             const float scale = float(d.placement.scale);
             const float h = std::min(float(height()) * kDecorHeight, float(width()) * kDecorMaxWidth * aspect) * scale;
+            // A busy computer stirs the current
+            const float sway = d.sway * float(1 + 1.5 * agitation());
             const FishMesh::DecorPose pose{float(d.placement.x * width()), float(d.placement.y * height()), h / aspect, h,
-                                           d.sway, d.phase, d.placement.flip, front ? 0.f : 0.15f};
-            FishMesh::writeDecor(pose, m_sprites[d.sprite].uv, float(m_time), v, idx, base);
+                                           sway, d.phase, d.placement.flip, front ? 0.f : 0.15f};
+            FishMesh::writeDecor(pose, m_sprites[d.sprite].uv, float(m_flow), v, idx, base);
             v += FishMesh::kVertsPerDecor;
             idx += FishMesh::kIndicesPerDecor;
             base += FishMesh::kVertsPerDecor;
@@ -688,6 +771,14 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     for (int i = 0; i < nFood; ++i) {
         const DcFood &p = m_food[i];
         FishMesh::writeQuad(QRectF(p.x - half, p.y - half, kFoodSize, kFoodSize), m_foodUv, p.opacity, v, idx, base);
+        v += 4;
+        idx += 6;
+        base += 4;
+    }
+    for (int i = 0; i < nBubbles; ++i) {
+        const DcBubble &b = m_bubbles[i];
+        FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv, b.alpha, v,
+                            idx, base);
         v += 4;
         idx += 6;
         base += 4;

@@ -17,6 +17,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 deepColor;     // theme: water near the bottom
     vec4 sandLight;     // theme: sand at its edge
     vec4 sandDark;      // theme: sand at the bottom of the screen
+    float agitation;    // 0 calm .. 1 busy computer: more bubbles, choppier surface
 };
 
 float hash(float n) { return fract(sin(n) * 43758.5453); }
@@ -63,7 +64,7 @@ void main() {
     col += vec3(0.6, 0.9, 1.0) * c * 0.10 * pow(1.0 - uv.y, 4.0) * (0.25 + 0.75 * daylight);
 
     // Surface line
-    float surf = 0.012 + 0.004 * sin(uv.x * 40.0 + time * 1.3);
+    float surf = 0.012 + 0.004 * (1.0 + 2.0 * agitation) * sin(uv.x * 40.0 + time * 1.3);
     col += vec3(0.7, 0.95, 1.0) * smoothstep(surf, 0.0, uv.y) * mix(0.35, 0.12, night);
 
     // Sand with a wavy edge
@@ -83,9 +84,12 @@ void main() {
         col = mix(col, sand, soft);
     }
 
-    // Bubble columns
-    for (int i = 0; i < 6; i++) {
+    // Bubble columns; extra ones appear as the water gets agitated
+    float columns = 6.0 + 6.0 * agitation;
+    for (int i = 0; i < 12; i++) {
         float fi = float(i);
+        if (fi >= columns)
+            break;
         float bx = 0.08 + 0.84 * hash(fi * 7.13);
         float speed = 0.05 + 0.04 * hash(fi * 3.7);
         for (int j = 0; j < 4; j++) {

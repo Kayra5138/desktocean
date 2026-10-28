@@ -51,6 +51,12 @@ class FishTank : public QQuickItem
     Q_PROPERTY(qreal hourOverride READ hourOverride WRITE setHourOverride NOTIFY hourOverrideChanged)
     // 0 = night, 1 = day; drives the water shader and dims the fish
     Q_PROPERTY(qreal daylight READ daylight NOTIFY daylightChanged)
+    // Busy computer, restless water: CPU load stirs the current and bubbles
+    Q_PROPERTY(bool reactToCpu READ reactToCpu WRITE setReactToCpu NOTIFY reactToCpuChanged)
+    // Smoothed CPU load 0..1 (0 when reactToCpu is off); drives the water's agitation
+    Q_PROPERTY(qreal agitation READ agitation NOTIFY agitationChanged)
+    // Water clock: like `time`, but runs faster when the water is agitated
+    Q_PROPERTY(qreal flow READ flow NOTIFY timeChanged)
 
     Q_PROPERTY(int fishCount READ fishCount NOTIFY fishCountChanged)
     // Seconds of simulated time; drives the water shader
@@ -88,6 +94,10 @@ public:
     qreal hourOverride() const { return m_hourOverride; }
     void setHourOverride(qreal hour);
     qreal daylight() const { return m_daylight; }
+    bool reactToCpu() const { return m_reactToCpu; }
+    void setReactToCpu(bool react);
+    qreal agitation() const { return m_reactToCpu ? m_cpuLoad : 0; }
+    qreal flow() const { return m_flow; }
 
     int fishCount() const { return int(m_fish.size()); }
     qreal time() const { return m_time; }
@@ -103,6 +113,8 @@ public:
     // Drops food above the cursor if it is over the tank, else somewhere random
     Q_INVOKABLE void feedAtCursor();
     Q_INVOKABLE void clearFood();
+    // Something happened (a notification): a fish swims up and blows bubbles
+    Q_INVOKABLE void announce();
     // Starts the editor (page: "" drawing, "fish", "layout"); false if it is not installed
     Q_INVOKABLE bool openEditor(const QString &page = {});
     static bool launchEditor(const QString &page = {});
@@ -123,6 +135,8 @@ Q_SIGNALS:
     void followTimeOfDayChanged();
     void hourOverrideChanged();
     void daylightChanged();
+    void reactToCpuChanged();
+    void agitationChanged();
     void fishCountChanged();
     void timeChanged();
     void foodCountChanged();
@@ -144,6 +158,7 @@ private:
     void watchLibrary();
     void rebuildAtlas(const QList<QImage> &images);
     void updateDaylight();
+    void sampleCpu();
     void loadState();
     void saveState() const;
     QPointF cursorInItem() const;
@@ -155,6 +170,9 @@ private:
     QFileSystemWatcher m_watcher;
     QTimer m_reloadDebounce;
     QTimer m_saveTimer;
+    QTimer m_cpuTimer;
+    quint64 m_cpuBusy = 0;
+    quint64 m_cpuTotal = 0;
     bool m_libraryLoaded = false;
     bool m_stateLoaded = false;
     // Which library fish each simulated fish is a copy of (spec id -> entry id)
@@ -170,6 +188,9 @@ private:
     bool m_followTimeOfDay = true;
     qreal m_hourOverride = -1;
     qreal m_daylight = 1;
+    bool m_reactToCpu = true;
+    qreal m_cpuLoad = 0;
+    qreal m_flow = 0;
 
     qreal m_time = 0;
     bool m_lureActive = false;
@@ -179,6 +200,7 @@ private:
     // Latest simulation state, copied on the GUI thread, read during sync
     std::vector<DcFish> m_fish;
     std::vector<DcFood> m_food;
+    std::vector<DcBubble> m_bubbles;
 
     // One per library fish drawing, indexed by DcFish::sprite
     struct SpriteInfo {
@@ -201,5 +223,6 @@ private:
     // Sprite atlas: every fish drawing plus the food pellet
     QImage m_atlas;
     QRectF m_foodUv;
+    QRectF m_bubbleUv;
     bool m_atlasDirty = false;
 };

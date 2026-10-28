@@ -27,12 +27,21 @@ Window {
         }
 
         Keys.onSpacePressed: running = !running
+        // Enter simulates a notification
+        Keys.onReturnPressed: announce()
         Keys.onPressed: event => {
             if (event.key === Qt.Key_S)
                 aquarium.grabToImage(r => r.saveToFile(Qt.resolvedUrl("preview.png").toString().replace("file://", "")));
         }
 
         TapHandler { onTapped: eventPoint => aquarium.feed(eventPoint.position.x) }
+    }
+
+    // `--announce` simulates a notification a second after start
+    Timer {
+        interval: 1000
+        running: Qt.application.arguments.indexOf("--announce") >= 0
+        onTriggered: aquarium.announce()
     }
 
     // Automated snapshot then quit: add `-- --snapshot`. Optional `--snapshot-delay <ms>`

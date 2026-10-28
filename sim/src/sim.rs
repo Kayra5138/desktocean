@@ -42,6 +42,10 @@ const SNATCH_PENALTY: f32 = 0.08;
 const CHASE_SECS: f32 = 2.5;
 /// How long the others stay curious about a fish that just arrived.
 const NEWCOMER_SECS: f32 = 8.0;
+/// A fish sent to the surface gives up after this long.
+const SURFACE_SECS: f32 = 15.0;
+/// Bubbles rise this fast, px/s.
+const BUBBLE_RISE: f32 = 70.0;
 
 /// One fish the host wants in the tank. The host owns the ids; a fish keeps
 /// its position and personality across updates as long as its id stays.
@@ -95,6 +99,8 @@ enum Mode {
     Idle { left: f32 },
     /// Chasing a rival away
     Chase { target: u64, left: f32 },
+    /// Swimming up to blow bubbles at the surface (a notification arrived)
+    Surface { left: f32 },
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +140,8 @@ pub struct Fish {
     pub hunger: f32,
     /// Seconds until this fish may start another rival chase
     chase_cooldown: f32,
+    /// Seconds until it lets out a few bubbles on its own
+    bubble_timer: f32,
 }
 
 impl Fish {
@@ -150,6 +158,24 @@ impl Fish {
     pub fn tilt(&self) -> f32 {
         let deg = self.vy.atan2(self.vx.abs() + 20.0).to_degrees() * 0.7;
         deg.clamp(-28.0, 28.0) * self.dir
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Bubble {
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    seed: f32,
+    age: f32,
+}
+
+impl Bubble {
+    /// Fades in when born and out just below the surface.
+    pub fn alpha(&self, water_top: f32) -> f32 {
+        let fade_in = (self.age / 0.25).clamp(0.0, 1.0);
+        let fade_out = ((self.y - water_top) / 40.0).clamp(0.0, 1.0);
+        fade_in * fade_out * 0.85
     }
 }
 
@@ -194,6 +220,7 @@ pub struct Sim {
     population: Vec<FishSpec>,
     fish: Vec<Fish>,
     food: Vec<Food>,
+    bubbles: Vec<Bubble>,
     time: f32,
     rng: Rng,
     pointer_anchor: Option<(f32, f32)>,
@@ -217,6 +244,7 @@ impl Sim {
             population: Vec::new(),
             fish: Vec::new(),
             food: Vec::new(),
+            bubbles: Vec::new(),
             time: 0.0,
             rng: Rng::new(seed),
             pointer_anchor: None,
@@ -270,6 +298,63 @@ impl Sim {
 
     pub fn clear_food(&mut self) {
         self.food.clear();
+    }
+
+    pub fn bubbles(&self) -> &[Bubble] {
+        &self.bubbles
+    }
+
+    pub fn water_level(&self) -> f32 {
+        self.water_top()
+    }
+
+    /// Something happened (a notification): a curious fish that is not too deep
+    /// swims up and blows bubbles at the surface. Returns false if nobody is free.
+    pub fn announce(&mut self) -> bool {
+        let height = self.height.max(1.0);
+        let score = |f: &Fish| f.personality.curiosity * 0.5 + (1.0 - f.y / height);
+        let pick = self
+            .fish
+            .iter_mut()
+            .filter(|f| !f.entering && !matches!(f.mode, Mode::Surface { .. }))
+            .max_by(|a, b| score(a).total_cmp(&score(b)));
+        match pick {
+            Some(f) => {
+                f.mode = Mode::Surface { left: SURFACE_SECS };
+                f.retarget = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn blow_bubbles(&mut self, x: f32, y: f32, count: usize, size: (f32, f32)) {
+        for _ in 0..count {
+            let bubble = Bubble {
+                x: x + self.rng.range(-6.0, 6.0),
+                y: y + self.rng.range(-4.0, 4.0),
+                radius: self.rng.range(size.0, size.1),
+                seed: self.rng.range(0.0, TAU),
+                // Staggered: a short stream rather than a clump
+                age: -self.rng.range(0.0, 0.6),
+            };
+            self.bubbles.push(bubble);
+        }
+    }
+
+    fn update_bubbles(&mut self, dt: f32) {
+        let wt = self.water_top();
+        for b in &mut self.bubbles {
+            b.age += dt;
+            if b.age < 0.0 {
+                continue;
+            }
+            // Bigger bubbles rise faster and wobble less
+            b.y -= BUBBLE_RISE * (0.7 + b.radius * 0.06) * dt;
+            b.x += (b.age * 3.0 + b.seed).sin() * 14.0 / (1.0 + b.radius * 0.1) * dt;
+            b.radius *= 1.0 + 0.04 * dt;
+        }
+        self.bubbles.retain(|b| b.y > wt - 4.0);
     }
 
     fn water_top(&self) -> f32 {
@@ -429,6 +514,7 @@ impl Sim {
             personality,
             hunger: self.rng.range(0.3, 0.6),
             chase_cooldown: self.rng.range(20.0, 60.0),
+            bubble_timer: self.rng.range(20.0, 120.0),
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -509,6 +595,7 @@ impl Sim {
         self.time += dt;
         self.update_pointer(dt, pointer);
         self.update_food(dt);
+        self.update_bubbles(dt);
 
         let (wt, st) = (self.water_top(), self.sand_top());
         // Nobody plays with the cursor at night
@@ -599,6 +686,14 @@ impl Sim {
         let p = f.personality;
         let (mx, my) = f.mouth();
         let activity = self.activity();
+
+        // Now and then a few bubbles slip out (fewer at night)
+        f.bubble_timer -= dt * (0.3 + 0.7 * self.daylight);
+        if f.bubble_timer <= 0.0 {
+            f.bubble_timer = self.rng.range(40.0, 140.0);
+            let n = 1 + (self.rng.unit() * 3.0) as usize;
+            self.blow_bubbles(mx, my, n, (2.0, 4.5));
+        }
         f.hunger = (f.hunger + dt * HUNGER_RATE * (0.6 + 0.8 * p.appetite)).min(1.0);
         f.chase_cooldown = (f.chase_cooldown - dt).max(0.0);
 
@@ -653,7 +748,18 @@ impl Sim {
             .flatten()
             .and_then(|(id, _)| others.iter().find(|g| g.id == *id));
 
-        let chase = if let Some(j) = nearest_food {
+        let surface = match f.mode {
+            Mode::Surface { left } => Some(left),
+            _ => None,
+        };
+        let chase = if surface.is_some() {
+            Some((
+                f.x + f.dir * 30.0,
+                // A little below the surface, so the bubbles have a way to rise
+                self.water_top() + f.h * 2.0,
+                f.max_speed * 1.8,
+            ))
+        } else if let Some(j) = nearest_food {
             let eager = 1.0 + 0.5 * p.appetite + 0.4 * f.hunger;
             Some((
                 self.food[j].x,
@@ -700,6 +806,17 @@ impl Sim {
                     Mode::Wander
                 };
             }
+            if let Some(left) = surface {
+                // At the top: a burst of bubbles, then a short rest up there
+                if dist < 30.0 + f.h * 0.3 {
+                    self.blow_bubbles(mx, my, 7, (4.0, 8.0));
+                    f.mode = Mode::Idle { left: 2.5 };
+                } else if left - dt <= 0.0 {
+                    f.mode = Mode::Wander;
+                } else {
+                    f.mode = Mode::Surface { left: left - dt };
+                }
+            }
             let arrive = (dist / 120.0).min(1.0);
             des_x = dx / dist * speed * arrive;
             des_y = dy / dist * speed * arrive;
@@ -721,7 +838,7 @@ impl Sim {
                         f.mode = Mode::Idle { left };
                     }
                 }
-                Mode::Wander | Mode::Chase { .. } => {
+                Mode::Wander | Mode::Chase { .. } | Mode::Surface { .. } => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
@@ -838,7 +955,9 @@ impl Sim {
         let k = (1.6 * dt).min(1.0);
         f.vx += (des_x - f.vx) * k;
         f.vy += (des_y - f.vy) * k;
-        f.vy = f.vy.clamp(-0.55 * f.max_speed, 0.55 * f.max_speed);
+        // Mostly horizontal swimmers, except when heading up to the surface
+        let climb = if surface.is_some() { 1.5 } else { 0.55 };
+        f.vy = f.vy.clamp(-climb * f.max_speed, climb * f.max_speed);
 
         f.x += f.vx * dt;
         f.y += f.vy * dt;
@@ -1233,18 +1352,21 @@ mod tests {
 
     #[test]
     fn fish_rest_low_and_slow_at_night() {
+        // Averaged over several seeds so it measures behaviour, not luck
         let stats = |daylight: f32| {
-            let mut s = sim_with(9, 12, 1920.0, 1080.0);
-            s.set_daylight(daylight);
-            s.fish.iter_mut().for_each(|f| f.hunger = 0.0);
             let (mut y, mut speed, mut n) = (0.0, 0.0, 0.0);
-            for k in 0..30 * 180 {
-                s.step(DT, None);
-                if k > 30 * 60 {
-                    for f in s.fish() {
-                        y += f.y;
-                        speed += f.speed;
-                        n += 1.0;
+            for seed in 1..6 {
+                let mut s = sim_with(seed, 12, 1920.0, 1080.0);
+                s.set_daylight(daylight);
+                s.fish.iter_mut().for_each(|f| f.hunger = 0.0);
+                for k in 0..30 * 180 {
+                    s.step(DT, None);
+                    if k > 30 * 60 {
+                        for f in s.fish() {
+                            y += f.y;
+                            speed += f.speed;
+                            n += 1.0;
+                        }
                     }
                 }
             }
@@ -1308,6 +1430,63 @@ mod tests {
         assert_eq!(t.relations.get(2, 1), 0.7);
         t.set_population(&specs(3), false);
         assert_eq!(t.relations.get(3, 4), 0.0, "fish 4 left the tank");
+    }
+
+    #[test]
+    fn announce_sends_a_fish_up_to_blow_bubbles() {
+        let mut s = sim();
+        s.fish.iter_mut().for_each(|f| {
+            f.y = 900.0;
+            f.hunger = 0.0;
+            f.bubble_timer = 1000.0;
+        });
+        assert!(s.announce());
+        let mut burst = false;
+        for _ in 0..30 * 15 {
+            s.step(DT, None);
+            if s.bubbles().len() >= 5 {
+                burst = true;
+                break;
+            }
+        }
+        assert!(burst, "no bubble burst at the surface");
+        let top = s
+            .bubbles()
+            .iter()
+            .map(|b| b.y)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            top < 1080.0 * 0.3,
+            "bubbles should come from near the surface, highest at y {top}"
+        );
+    }
+
+    #[test]
+    fn bubbles_rise_and_pop_at_the_surface() {
+        let mut s = sim();
+        s.fish.iter_mut().for_each(|f| f.bubble_timer = 1000.0);
+        s.blow_bubbles(500.0, 800.0, 5, (3.0, 6.0));
+        let start: f32 = s.bubbles().iter().map(|b| b.y).sum();
+        for _ in 0..30 {
+            s.step(DT, None);
+        }
+        let later: f32 = s.bubbles().iter().map(|b| b.y).sum();
+        assert!(later < start, "bubbles should rise");
+        for _ in 0..30 * 20 {
+            s.step(DT, None);
+        }
+        assert!(s.bubbles().is_empty(), "bubbles should pop at the surface");
+    }
+
+    #[test]
+    fn fish_blow_bubbles_now_and_then() {
+        let mut s = sim();
+        let mut seen = 0;
+        for _ in 0..30 * 240 {
+            s.step(DT, None);
+            seen = seen.max(s.bubbles().len());
+        }
+        assert!(seen > 0, "no fish blew a bubble in four minutes");
     }
 
     #[test]
