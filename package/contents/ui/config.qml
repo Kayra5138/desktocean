@@ -9,6 +9,8 @@ Kirigami.FormLayout {
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
     property string cfg_Theme
     property alias cfg_FollowTimeOfDay: followTimeOfDay.checked
+    property alias cfg_Babies: babies.checked
+    property alias cfg_MaxFish: maxFish.value
     property alias cfg_ReactToNotifications: reactToNotifications.checked
     property alias cfg_ReactToCpu: reactToCpu.checked
     property alias cfg_ShowDebug: showDebug.checked
@@ -45,6 +47,20 @@ Kirigami.FormLayout {
         id: followTimeOfDay
         Kirigami.FormData.label: "Day and night:"
         text: "Follow the clock (fish rest at night)"
+    }
+
+    QQC2.CheckBox {
+        id: babies
+        Kirigami.FormData.label: "Babies:"
+        text: "Close friends have babies now and then"
+    }
+
+    QQC2.SpinBox {
+        id: maxFish
+        Kirigami.FormData.label: "No more babies above:"
+        enabled: babies.checked
+        from: 2
+        to: 100
     }
 
     QQC2.CheckBox {

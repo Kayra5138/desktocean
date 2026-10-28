@@ -15,6 +15,9 @@ Item {
     property bool showDebug: true
     property alias followTimeOfDay: tank.followTimeOfDay
     property alias reactToCpu: tank.reactToCpu
+    property alias babies: tank.babies
+    property alias maxFish: tank.maxFish
+    property alias lifeSpeed: tank.lifeSpeed
     // Theme id, see native/src/themes.cpp
     property alias theme: tank.theme
     readonly property var themeColors: tank.themeColors
@@ -42,6 +45,11 @@ Item {
     // A fish swims up and blows bubbles
     function announce() {
         tank.announce();
+    }
+
+    // Development aid: everyone becomes best friends
+    function befriendAll() {
+        tank.befriendAll();
     }
 
     function openEditor() {

@@ -36,6 +36,15 @@ void TankHub::unregisterTank(FishTank *tank)
     tanks().removeAll(nullptr);
 }
 
+bool TankHub::isPrimary(const FishTank *tank)
+{
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (t)
+            return t == tank;
+    }
+    return false;
+}
+
 FishTank *TankHub::first() const
 {
     for (const QPointer<FishTank> &t : std::as_const(tanks())) {

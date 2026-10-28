@@ -51,6 +51,12 @@ const BUBBLE_RISE: f32 = 70.0;
 const RIPPLE_BUBBLE: f32 = 8.0;
 /// How long a ripple spreads before it is gone.
 pub const RIPPLE_SECS: f32 = 1.4;
+/// Close friends this fond of each other may have a baby...
+const PARENT_AFFINITY: f32 = 0.8;
+/// ...about this often per second while together, fed and rested.
+const BIRTH_CHANCE_PER_SEC: f32 = 1.0 / 900.0;
+/// Seconds a parent rests before another baby (randomised up to twice this).
+const BIRTH_COOLDOWN: f32 = 1800.0;
 
 /// One fish the host wants in the tank. The host owns the ids; a fish keeps
 /// its position and personality across updates as long as its id stays.
@@ -63,6 +69,8 @@ pub struct FishSpec {
     pub aspect: f32,
     /// Size multiplier on top of the depth-based size
     pub scale: f32,
+    /// Grown up; only adults have babies
+    pub adult: bool,
 }
 
 /// Fixed traits rolled when a fish is created.
@@ -147,6 +155,9 @@ pub struct Fish {
     chase_cooldown: f32,
     /// Seconds until it lets out a few bubbles on its own
     bubble_timer: f32,
+    pub adult: bool,
+    /// Seconds (of life time) until it may have another baby
+    birth_cooldown: f32,
 }
 
 impl Fish {
@@ -182,6 +193,15 @@ impl Bubble {
         let fade_out = ((self.y - water_top) / 40.0).clamp(0.0, 1.0);
         fade_in * fade_out * 0.85
     }
+}
+
+/// Two fish had a baby at (x, y); the host decides what it looks like.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Birth {
+    pub parent_a: u64,
+    pub parent_b: u64,
+    pub x: f32,
+    pub y: f32,
 }
 
 /// A ring spreading on the surface where a big bubble popped.
@@ -237,6 +257,9 @@ pub struct Sim {
     food: Vec<Food>,
     bubbles: Vec<Bubble>,
     ripples: Vec<Ripple>,
+    births: Vec<Birth>,
+    /// Speeds up growing-up clocks (cooldowns, birth chance); 0 = no babies
+    life_speed: f32,
     time: f32,
     rng: Rng,
     pointer_anchor: Option<(f32, f32)>,
@@ -262,6 +285,8 @@ impl Sim {
             food: Vec::new(),
             bubbles: Vec::new(),
             ripples: Vec::new(),
+            births: Vec::new(),
+            life_speed: 1.0,
             time: 0.0,
             rng: Rng::new(seed),
             pointer_anchor: None,
@@ -323,6 +348,37 @@ impl Sim {
 
     pub fn ripples(&self) -> &[Ripple] {
         &self.ripples
+    }
+
+    /// Babies born since the last call.
+    pub fn take_births(&mut self) -> Vec<Birth> {
+        std::mem::take(&mut self.births)
+    }
+
+    /// 1 = normal, higher for testing, 0 = no babies at all.
+    pub fn set_life_speed(&mut self, speed: f32) {
+        self.life_speed = if speed.is_finite() {
+            speed.max(0.0)
+        } else {
+            1.0
+        };
+    }
+
+    /// Puts a fish somewhere (a baby next to its parents) instead of letting it drop in.
+    pub fn place_fish(&mut self, id: u64, x: f32, y: f32) -> bool {
+        let Some(i) = self.fish.iter().position(|f| f.id == id) else {
+            return false;
+        };
+        let mut f = self.fish[i].clone();
+        f.x = x;
+        f.y = y;
+        f.vx = 0.0;
+        f.vy = 0.0;
+        f.entering = false;
+        self.clamp_to_water(&mut f);
+        self.pick_target(&mut f);
+        self.fish[i] = f;
+        true
     }
 
     pub fn water_level(&self) -> f32 {
@@ -450,6 +506,7 @@ impl Sim {
             let fish = match existing.remove(&spec.id) {
                 Some(mut f) => {
                     f.sprite = spec.sprite;
+                    f.adult = spec.adult;
                     Self::apply_size(&mut f, spec);
                     self.clamp_to_water(&mut f);
                     f
@@ -553,6 +610,8 @@ impl Sim {
             hunger: self.rng.range(0.3, 0.6),
             chase_cooldown: self.rng.range(20.0, 60.0),
             bubble_timer: self.rng.range(20.0, 120.0),
+            adult: spec.adult,
+            birth_cooldown: self.rng.range(0.3, 1.0) * BIRTH_COOLDOWN,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -677,6 +736,10 @@ impl Sim {
     }
 
     fn update_relations(&mut self, others: &[Neighbour], dt: f32) {
+        let life_dt = dt * self.life_speed;
+        for f in &mut self.fish {
+            f.birth_cooldown = (f.birth_cooldown - life_dt).max(0.0);
+        }
         // Time together builds friendship, more so between sociable fish
         for i in 0..self.fish.len() {
             for j in i + 1..self.fish.len() {
@@ -688,6 +751,7 @@ impl Sim {
                     let social = (a.personality.sociability + b.personality.sociability) * 0.5;
                     self.relations
                         .adjust(a.id, b.id, dt * BONDING_RATE * social);
+                    self.maybe_have_baby(i, j, life_dt);
                 }
             }
         }
@@ -1016,6 +1080,32 @@ impl Sim {
 }
 
 impl Sim {
+    /// Close, well-fed, rested adult friends now and then have a baby.
+    fn maybe_have_baby(&mut self, i: usize, j: usize, life_dt: f32) {
+        let (a, b) = (&self.fish[i], &self.fish[j]);
+        let ready = |f: &Fish| f.adult && f.hunger < 0.4 && f.birth_cooldown == 0.0;
+        if !ready(a)
+            || !ready(b)
+            || self.daylight < 0.3
+            || self.relations.get(a.id, b.id) < PARENT_AFFINITY
+        {
+            return;
+        }
+        if !self.rng.chance(BIRTH_CHANCE_PER_SEC * life_dt) {
+            return;
+        }
+        let birth = Birth {
+            parent_a: a.id,
+            parent_b: b.id,
+            x: (a.x + b.x) * 0.5,
+            y: (a.y + b.y) * 0.5,
+        };
+        self.births.push(birth);
+        for k in [i, j] {
+            self.fish[k].birth_cooldown = BIRTH_COOLDOWN * self.rng.range(1.0, 2.0);
+        }
+    }
+
     /// A new fish sinks in through the surface, slows down, then starts swimming.
     fn step_entering(&mut self, f: &mut Fish, dt: f32) {
         let settled_y = self.water_top() + f.h * 1.2;
@@ -1054,6 +1144,7 @@ mod tests {
                 sprite: (id % 4) as u32,
                 aspect: 0.6,
                 scale: 1.0,
+                adult: true,
             })
             .collect()
     }
@@ -1095,6 +1186,7 @@ mod tests {
             sprite: 9,
             aspect: 0.9,
             scale: 1.5,
+            adult: true,
         });
         s.set_population(&next, true);
 
@@ -1118,6 +1210,7 @@ mod tests {
             sprite: 0,
             aspect: 0.6,
             scale: 1.0,
+            adult: true,
         });
         s.set_population(&next, true);
         let f = s.fish().iter().find(|f| f.id == 50).unwrap();
@@ -1143,12 +1236,14 @@ mod tests {
                     sprite: 0,
                     aspect: 0.5,
                     scale: 0.5,
+                    adult: true,
                 },
                 FishSpec {
                     id: 2,
                     sprite: 0,
                     aspect: 1.2,
                     scale: 2.0,
+                    adult: true,
                 },
             ],
             false,
@@ -1436,6 +1531,7 @@ mod tests {
             sprite: 0,
             aspect: 0.6,
             scale: 1.0,
+            adult: true,
         });
         s.set_population(&next, true);
         let mean_distance = |s: &Sim| {
@@ -1541,6 +1637,106 @@ mod tests {
             seen = seen.max(s.bubbles().len());
         }
         assert!(seen > 0, "no fish blew a bubble in four minutes");
+    }
+
+    /// Two adults next to each other, best friends, fed and rested.
+    fn happy_couple(adult: bool) -> Sim {
+        let mut s = Sim::new(21);
+        s.set_population(
+            &[
+                FishSpec {
+                    id: 1,
+                    sprite: 0,
+                    aspect: 0.6,
+                    scale: 1.0,
+                    adult,
+                },
+                FishSpec {
+                    id: 2,
+                    sprite: 0,
+                    aspect: 0.6,
+                    scale: 1.0,
+                    adult,
+                },
+            ],
+            false,
+        );
+        s.resize(1920.0, 1080.0);
+        s.relations.adjust(1, 2, 0.95);
+        s.fish.iter_mut().for_each(|f| {
+            f.hunger = 0.0;
+            f.birth_cooldown = 0.0;
+            f.depth = 0.3;
+        });
+        s
+    }
+
+    fn keep_together(s: &mut Sim) {
+        let (x, y) = (s.fish[0].x, s.fish[0].y);
+        s.fish[1].x = x + 120.0;
+        s.fish[1].y = y;
+        s.fish.iter_mut().for_each(|f| f.hunger = 0.0);
+    }
+
+    #[test]
+    fn best_friends_have_a_baby() {
+        let mut s = happy_couple(true);
+        s.set_life_speed(30.0);
+        let mut first = None;
+        for _ in 0..30 * 300 {
+            keep_together(&mut s);
+            s.step(DT, None);
+            if let Some(b) = s.take_births().first() {
+                first = Some(*b);
+                break;
+            }
+        }
+        let b = first.expect("no baby in what amounts to two and a half hours together");
+        assert_eq!(
+            (b.parent_a.min(b.parent_b), b.parent_a.max(b.parent_b)),
+            (1, 2)
+        );
+
+        // Then the parents rest: at least BIRTH_COOLDOWN of life time (60 s here)
+        for _ in 0..30 * 55 {
+            keep_together(&mut s);
+            s.step(DT, None);
+            assert!(
+                s.take_births().is_empty(),
+                "a second baby before the parents rested"
+            );
+        }
+    }
+
+    #[test]
+    fn young_fish_and_no_life_speed_mean_no_babies() {
+        for (adult, speed) in [(false, 30.0), (true, 0.0)] {
+            let mut s = happy_couple(adult);
+            s.set_life_speed(speed);
+            for _ in 0..30 * 300 {
+                keep_together(&mut s);
+                s.step(DT, None);
+            }
+            assert!(s.take_births().is_empty(), "adult={adult} speed={speed}");
+        }
+    }
+
+    #[test]
+    fn place_fish_moves_a_newcomer_next_to_its_parents() {
+        let mut s = sim();
+        let mut next = specs(7);
+        next.push(FishSpec {
+            id: 77,
+            sprite: 0,
+            aspect: 0.6,
+            scale: 0.4,
+            adult: false,
+        });
+        s.set_population(&next, true);
+        assert!(s.place_fish(77, 900.0, 600.0));
+        let baby = s.fish().iter().find(|f| f.id == 77).unwrap();
+        assert!(!baby.entering && (baby.x - 900.0).abs() < 1.0 && (baby.y - 600.0).abs() < 1.0);
+        assert!(!s.place_fish(12345, 0.0, 0.0));
     }
 
     #[test]

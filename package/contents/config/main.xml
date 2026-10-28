@@ -17,6 +17,12 @@
     <entry name="FollowTimeOfDay" type="Bool">
       <default>true</default>
     </entry>
+    <entry name="Babies" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="MaxFish" type="Int">
+      <default>30</default>
+    </entry>
     <entry name="ReactToNotifications" type="Bool">
       <default>true</default>
     </entry>

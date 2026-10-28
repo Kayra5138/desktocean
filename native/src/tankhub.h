@@ -32,6 +32,9 @@ public:
 
     static void registerTank(FishTank *tank);
     static void unregisterTank(FishTank *tank);
+    // The first tank does the once-per-library jobs (recording babies), so a
+    // multi-monitor setup doesn't do them once per screen
+    static bool isPrimary(const FishTank *tank);
 
     bool available() const;
     bool paused() const;

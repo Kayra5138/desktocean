@@ -4,6 +4,7 @@
 #include <QList>
 #include <QRect>
 #include <QString>
+#include <QStringList>
 
 #include <optional>
 
@@ -41,6 +42,8 @@ struct FishEntry {
     int count = 1;                         // how many of this fish swim in the tank
     double sway = 1.0;                     // plants: how much they move in the current
     QList<Placement> placements;           // plants and decorations: where they stand
+    qint64 bornAt = 0;                     // babies: when they were born (ms since epoch); 0 = drawn
+    QStringList parents;                   // babies: ids of the two parents
 
     QString path() const;
     QString wigglePath() const;            // empty when there is no mask
@@ -82,6 +85,10 @@ bool update(const FishEntry &meta, QString *error = nullptr);
 bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *error = nullptr);
 // Mirrors an existing fish (and its wiggle mask) so the head points the other way
 bool flip(const QString &id, QString *error = nullptr);
+
+// How grown up a fish is: 1 for drawn fish; babies start at 0.4 and reach
+// 1 after a couple of hours
+double growth(const FishEntry &entry);
 
 // Bounding box of pixels with alpha above a small threshold, grown by `margin`
 // and clipped to the image; null when nothing is visible

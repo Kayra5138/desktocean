@@ -38,6 +38,17 @@ pub struct DcFishSpec {
     pub sprite: u32,
     pub aspect: f32,
     pub scale: f32,
+    /// Non-zero for grown-up fish
+    pub adult: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcBirth {
+    pub parent_a: u64,
+    pub parent_b: u64,
+    pub x: f32,
+    pub y: f32,
 }
 
 #[repr(C)]
@@ -161,6 +172,7 @@ pub unsafe extern "C" fn dc_sim_set_population(
                     sprite: d.sprite,
                     aspect: d.aspect,
                     scale: d.scale,
+                    adult: d.adult != 0,
                 })
                 .collect()
         };
@@ -245,6 +257,53 @@ pub unsafe extern "C" fn dc_sim_ripples(handle: *mut DcSim, out: *mut DcRipple, 
         }
         ripples.len() as u32
     })
+}
+
+/// Moves babies born since the last call into `out` (up to `cap`) and returns
+/// how many were copied; the rest are dropped.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_take_births(
+    handle: *mut DcSim,
+    out: *mut DcBirth,
+    cap: u32,
+) -> u32 {
+    with_sim(handle, 0, |s| {
+        let births = s.take_births();
+        if out.is_null() {
+            return 0;
+        }
+        // SAFETY: caller provides room for `cap` elements.
+        let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+        let mut n = 0;
+        for (d, b) in dst.iter_mut().zip(&births) {
+            *d = DcBirth {
+                parent_a: b.parent_a,
+                parent_b: b.parent_b,
+                x: b.x,
+                y: b.y,
+            };
+            n += 1;
+        }
+        n
+    })
+}
+
+/// Puts fish `id` at (x, y) right away; false if there is no such fish.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_place_fish(handle: *mut DcSim, id: u64, x: f32, y: f32) -> bool {
+    with_sim(handle, false, |s| s.place_fish(id, x, y))
+}
+
+/// 1 = normal, higher speeds up babies for testing, 0 = no babies.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_life_speed(handle: *mut DcSim, speed: f32) {
+    with_sim(handle, (), |s| s.set_life_speed(speed));
 }
 
 /// 0 = night, 1 = day.
@@ -379,6 +438,7 @@ mod tests {
                     sprite: i as u32,
                     aspect: 0.6,
                     scale: 1.0,
+                    adult: 1,
                 })
                 .collect();
             dc_sim_set_population(h, specs.as_ptr(), 7, false);

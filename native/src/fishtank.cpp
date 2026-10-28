@@ -21,6 +21,8 @@
 #include <QStandardPaths>
 #include <QtLogging>
 
+#include <QDateTime>
+
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -93,6 +95,64 @@ QImage makeRippleSprite()
     return img;
 }
 
+// Overall hue of a drawing (circular mean over its coloured pixels), or -1
+double dominantHue(const QImage &image)
+{
+    const QImage img = image.convertToFormat(QImage::Format_ARGB32);
+    double x = 0, y = 0;
+    for (int row = 0; row < img.height(); row += 2) {
+        const auto *px = reinterpret_cast<const QRgb *>(img.constScanLine(row));
+        for (int col = 0; col < img.width(); col += 2) {
+            if (qAlpha(px[col]) < 128)
+                continue;
+            const QColor c = QColor::fromRgb(px[col]);
+            if (c.hsvSaturationF() < 0.25 || c.valueF() < 0.2)
+                continue;   // outlines, white, grey
+            const double angle = c.hsvHueF() * 2 * M_PI;
+            x += std::cos(angle) * c.hsvSaturationF();
+            y += std::sin(angle) * c.hsvSaturationF();
+        }
+    }
+    if (std::hypot(x, y) < 1e-6)
+        return -1;
+    double hue = std::atan2(y, x) / (2 * M_PI);
+    return hue < 0 ? hue + 1 : hue;
+}
+
+// A baby looks like parent A, coloured partway toward parent B. The whole
+// drawing is turned around the colour wheel by one shared amount, so it stays
+// consistent (shifting each pixel toward B on its own would send nearly
+// opposite colours different ways round the wheel).
+QImage mixColours(const QImage &shape, const QImage &colourSource)
+{
+    QImage out = shape.convertToFormat(QImage::Format_ARGB32);
+    const double from = dominantHue(shape);
+    const double to = dominantHue(colourSource);
+    if (from < 0 || to < 0)
+        return out;
+    double delta = to - from;
+    if (delta > 0.5)
+        delta -= 1;
+    else if (delta < -0.5)
+        delta += 1;
+    const double turn = delta * 0.6;
+    for (int row = 0; row < out.height(); ++row) {
+        auto *px = reinterpret_cast<QRgb *>(out.scanLine(row));
+        for (int col = 0; col < out.width(); ++col) {
+            if (qAlpha(px[col]) == 0)
+                continue;
+            QColor c = QColor::fromRgba(px[col]);
+            if (c.hsvSaturationF() < 0.15)
+                continue;   // keep outlines and highlights as they are
+            double hue = c.hsvHueF() + turn;
+            hue -= std::floor(hue);
+            c.setHsvF(float(hue), c.hsvSaturationF(), c.valueF(), c.alphaF());
+            px[col] = c.rgba();
+        }
+    }
+    return out;
+}
+
 QImage makeFoodSprite()
 {
     QImage img(kFoodCell, kFoodCell, QImage::Format_ARGB32_Premultiplied);
@@ -125,6 +185,11 @@ FishTank::FishTank(QQuickItem *parent)
     m_saveTimer.setInterval(60 * 1000);
     connect(&m_saveTimer, &QTimer::timeout, this, &FishTank::saveState);
     m_saveTimer.start();
+
+    // Babies grow slowly; once a minute is smooth enough
+    m_growthTimer.setInterval(60 * 1000);
+    connect(&m_growthTimer, &QTimer::timeout, this, &FishTank::refreshGrowth);
+    m_growthTimer.start();
 
     // Two seconds between /proc/stat reads is plenty for a mood of the water
     m_cpuTimer.setInterval(2000);
@@ -197,6 +262,119 @@ void FishTank::sampleCpu()
     }
     m_cpuBusy = busy;
     m_cpuTotal = total;
+}
+
+void FishTank::setBabies(bool babies)
+{
+    if (babies == m_babies)
+        return;
+    m_babies = babies;
+    applyLifeSpeed();
+    Q_EMIT babiesChanged();
+}
+
+void FishTank::setMaxFish(int maxFish)
+{
+    maxFish = std::clamp(maxFish, 1, 200);
+    if (maxFish == m_maxFish)
+        return;
+    m_maxFish = maxFish;
+    Q_EMIT babiesChanged();
+}
+
+void FishTank::setLifeSpeed(qreal speed)
+{
+    if (qFuzzyCompare(speed, m_lifeSpeed))
+        return;
+    m_lifeSpeed = speed;
+    applyLifeSpeed();
+    Q_EMIT babiesChanged();
+}
+
+void FishTank::applyLifeSpeed()
+{
+    dc_sim_set_life_speed(m_sim, m_babies ? float(m_lifeSpeed) : 0.f);
+}
+
+void FishTank::handleBirths()
+{
+    DcBirth births[8];
+    const uint32_t n = dc_sim_take_births(m_sim, births, 8);
+    // Only one tank records babies, or every screen would add its own
+    if (!TankHub::isPrimary(this) || !m_babies)
+        return;
+    for (uint32_t i = 0; i < n; ++i)
+        recordBaby(births[i]);
+}
+
+void FishTank::recordBaby(const DcBirth &birth)
+{
+    if (fishCount() >= m_maxFish)
+        return;
+    const QString idA = m_specOwner.value(birth.parent_a), idB = m_specOwner.value(birth.parent_b);
+    const QList<FishEntry> entries = FishLibrary::load();
+    const auto find = [&](const QString &id) {
+        return std::find_if(entries.begin(), entries.end(), [&](const FishEntry &e) { return e.id == id; });
+    };
+    const auto a = find(idA), b = find(idB);
+    if (a == entries.end() || b == entries.end())
+        return;
+
+    const QImage shape(a->path());
+    const QImage colours(b->path());
+    if (shape.isNull())
+        return;
+    FishDrawing drawing;
+    drawing.sprite = mixColours(shape, colours);
+    if (!a->wiggle.isEmpty())
+        drawing.wiggle = QImage(a->wigglePath());
+
+    FishEntry meta;
+    meta.name = a->id == b->id ? QStringLiteral("Baby %1").arg(a->name)
+                               : QStringLiteral("Baby of %1 & %2").arg(a->name, b->name);
+    meta.style = a->style;
+    meta.scale = (a->scale + b->scale) / 2;
+    meta.count = 1;
+    meta.bornAt = QDateTime::currentMSecsSinceEpoch();
+    meta.parents = {a->id, b->id};
+    QString error;
+    const auto added = FishLibrary::add(drawing, meta, &error);
+    if (!added) {
+        qWarning("Desktocean: could not record a baby: %s", qPrintable(error));
+        return;
+    }
+    // Placed between the parents once the library reload brings it in
+    m_newborns.insert(added->id, QPointF(birth.x, birth.y));
+}
+
+void FishTank::refreshGrowth()
+{
+    bool changed = false;
+    for (size_t i = 0; i < m_specs.size(); ++i) {
+        const FishEntry &e = m_specEntry[i];
+        if (e.bornAt <= 0)
+            continue;
+        const double g = FishLibrary::growth(e);
+        const float scale = float(e.scale * g);
+        const uint32_t adult = g >= 1.0 ? 1 : 0;
+        if (std::abs(scale - m_specs[i].scale) > 0.002f || adult != m_specs[i].adult) {
+            m_specs[i].scale = scale;
+            m_specs[i].adult = adult;
+            changed = true;
+        }
+    }
+    if (changed)
+        dc_sim_set_population(m_sim, m_specs.data(), uint32_t(m_specs.size()), false);
+}
+
+void FishTank::befriendAll()
+{
+    std::vector<DcRelation> list;
+    for (size_t i = 0; i < m_specs.size(); ++i) {
+        for (size_t j = i + 1; j < m_specs.size(); ++j)
+            list.push_back({m_specs[i].id, m_specs[j].id, 0.95f});
+    }
+    dc_sim_set_relations(m_sim, list.data(), uint32_t(list.size()));
 }
 
 void FishTank::announce()
@@ -480,6 +658,7 @@ void FishTank::tick()
     m_flow += dt * (1 + 2 * agitation());
     m_pointer = cursorInItem();
     dc_sim_step(m_sim, float(dt), float(m_pointer.x()), float(m_pointer.y()));
+    handleBirths();
     pullState();
     checkHealth();
     update();
@@ -613,6 +792,7 @@ void FishTank::loadLibrary(bool animateNew)
     QList<QImage> images;
     std::vector<SpriteInfo> sprites;
     std::vector<DcFishSpec> specs;
+    std::vector<FishEntry> specEntry;
     std::vector<DecorItem> decor;
     QHash<quint64, QString> owners;
     for (const FishEntry &e : entries) {
@@ -643,9 +823,12 @@ void FishTank::loadLibrary(bool animateNew)
                 decor.push_back({sprite, sway, float(p.x * 17.0 + p.y * 5.0), p});
             continue;
         }
+        // Babies start small and grow up over a couple of hours
+        const double growth = FishLibrary::growth(e);
         for (int k = 0; k < e.count; ++k) {
             const auto id = quint64(qHash(e.id, size_t(k)));
-            specs.push_back({id, sprite, aspect, float(e.scale)});
+            specs.push_back({id, sprite, aspect, float(e.scale * growth), growth >= 1.0 ? 1u : 0u});
+            specEntry.push_back(e);
             owners.insert(id, e.id);
         }
     }
@@ -656,7 +839,18 @@ void FishTank::loadLibrary(bool animateNew)
     m_decor = std::move(decor);
     rebuildAtlas(images);
     dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
+    m_specs = std::move(specs);
+    m_specEntry = std::move(specEntry);
     m_specOwner = owners;
+    // Newborns appear between their parents rather than dropping in from above
+    for (auto it = m_newborns.begin(); it != m_newborns.end();) {
+        if (owners.key(it.key()) != 0) {
+            dc_sim_place_fish(m_sim, quint64(qHash(it.key(), size_t(0))), float(it->x()), float(it->y()));
+            it = m_newborns.erase(it);
+        } else {
+            ++it;
+        }
+    }
     m_libraryLoaded = true;
     if (!m_stateLoaded) {
         // After the population, so relations of fish that left are dropped

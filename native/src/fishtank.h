@@ -57,6 +57,11 @@ class FishTank : public QQuickItem
     Q_PROPERTY(qreal agitation READ agitation NOTIFY agitationChanged)
     // Water clock: like `time`, but runs faster when the water is agitated
     Q_PROPERTY(qreal flow READ flow NOTIFY timeChanged)
+    // Close friends have babies now and then, up to maxFish fish in the tank
+    Q_PROPERTY(bool babies READ babies WRITE setBabies NOTIFY babiesChanged)
+    Q_PROPERTY(int maxFish READ maxFish WRITE setMaxFish NOTIFY babiesChanged)
+    // Speeds up babies for testing (1 = normal)
+    Q_PROPERTY(qreal lifeSpeed READ lifeSpeed WRITE setLifeSpeed NOTIFY babiesChanged)
 
     Q_PROPERTY(int fishCount READ fishCount NOTIFY fishCountChanged)
     // Seconds of simulated time; drives the water shader
@@ -98,6 +103,12 @@ public:
     void setReactToCpu(bool react);
     qreal agitation() const { return m_reactToCpu ? m_cpuLoad : 0; }
     qreal flow() const { return m_flow; }
+    bool babies() const { return m_babies; }
+    void setBabies(bool babies);
+    int maxFish() const { return m_maxFish; }
+    void setMaxFish(int maxFish);
+    qreal lifeSpeed() const { return m_lifeSpeed; }
+    void setLifeSpeed(qreal speed);
 
     int fishCount() const { return int(m_fish.size()); }
     qreal time() const { return m_time; }
@@ -115,6 +126,8 @@ public:
     Q_INVOKABLE void clearFood();
     // Something happened (a notification): a fish swims up and blows bubbles
     Q_INVOKABLE void announce();
+    // Development aid (preview --matchmake): every pair becomes best friends
+    Q_INVOKABLE void befriendAll();
     // Starts the editor (page: "" drawing, "fish", "layout"); false if it is not installed
     Q_INVOKABLE bool openEditor(const QString &page = {});
     static bool launchEditor(const QString &page = {});
@@ -137,6 +150,7 @@ Q_SIGNALS:
     void daylightChanged();
     void reactToCpuChanged();
     void agitationChanged();
+    void babiesChanged();
     void fishCountChanged();
     void timeChanged();
     void foodCountChanged();
@@ -159,6 +173,10 @@ private:
     void rebuildAtlas(const QList<QImage> &images);
     void updateDaylight();
     void sampleCpu();
+    void applyLifeSpeed();
+    void handleBirths();
+    void recordBaby(const DcBirth &birth);
+    void refreshGrowth();
     void loadState();
     void saveState() const;
     QPointF cursorInItem() const;
@@ -171,6 +189,7 @@ private:
     QTimer m_reloadDebounce;
     QTimer m_saveTimer;
     QTimer m_cpuTimer;
+    QTimer m_growthTimer;
     quint64 m_cpuBusy = 0;
     quint64 m_cpuTotal = 0;
     bool m_libraryLoaded = false;
@@ -189,6 +208,14 @@ private:
     qreal m_hourOverride = -1;
     qreal m_daylight = 1;
     bool m_reactToCpu = true;
+    bool m_babies = true;
+    int m_maxFish = 30;
+    qreal m_lifeSpeed = 1;
+    // Library entries of babies just born -> where to put them once loaded
+    QHash<QString, QPointF> m_newborns;
+    // Current population, kept so babies can grow without reloading images
+    std::vector<DcFishSpec> m_specs;
+    std::vector<FishEntry> m_specEntry;   // the library entry of each spec
     qreal m_cpuLoad = 0;
     qreal m_flow = 0;
 

@@ -20,6 +20,11 @@ Window {
             const i = Qt.application.arguments.indexOf("--theme");
             return i >= 0 ? Qt.application.arguments[i + 1] : "tropical";
         }
+        // `--life-speed 300` makes babies happen within a minute or two
+        lifeSpeed: {
+            const i = Qt.application.arguments.indexOf("--life-speed");
+            return i >= 0 ? Number(Qt.application.arguments[i + 1]) : 1;
+        }
         // `--hour 23` previews the night
         hourOverride: {
             const i = Qt.application.arguments.indexOf("--hour");
@@ -35,6 +40,13 @@ Window {
         }
 
         TapHandler { onTapped: eventPoint => aquarium.feed(eventPoint.position.x) }
+    }
+
+    // `--matchmake` makes every pair best friends (with --life-speed: quick babies)
+    Timer {
+        interval: 600
+        running: Qt.application.arguments.indexOf("--matchmake") >= 0
+        onTriggered: aquarium.befriendAll()
     }
 
     // `--announce` simulates a notification a second after start

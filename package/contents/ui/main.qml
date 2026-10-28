@@ -24,6 +24,8 @@ WallpaperItem {
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu
+        babies: root.configuration.Babies
+        maxFish: root.configuration.MaxFish
         running: !root.covered
         pauseReason: root.covered ? "window covers screen" : ""
     }

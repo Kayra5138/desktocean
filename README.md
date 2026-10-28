@@ -27,6 +27,10 @@ decorations and drop them into the tank.
   each other's food makes rivals, who chase each other now and then. Shown on the editor's fish cards
 - **Day and night** follow the clock: at night the water darkens, plankton glows and fish rest near the bottom
 - **Newcomers**: curious fish come over to look at a fish that just arrived
+- **Babies**: close, well-fed friends now and then have a baby. It is born small between its
+  parents, shaped like one and coloured toward the other, and grows up over a couple of hours.
+  Babies are saved like any fish, so you can rename, redraw or remove them. A setting caps the
+  number of fish
 - **Plants and decorations**: draw them too; plants sway in the current, decorations stand still.
   Arrange them on the editor's **Tank layout** page (drag, resize, in front of or behind the fish,
   flip, copy). Starter seaweed, rocks and a coral are included

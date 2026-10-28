@@ -36,7 +36,14 @@ typedef struct DcFishSpec {
     uint32_t sprite;   // host's sprite index, passed through to DcFish
     float aspect;      // sprite height / width
     float scale;       // size multiplier
+    uint32_t adult;    // non-zero once grown up; only adults have babies
 } DcFishSpec;
+
+// Two fish had a baby at (x, y)
+typedef struct DcBirth {
+    uint64_t parent_a, parent_b;
+    float x, y;
+} DcBirth;
 
 typedef struct DcBubble {
     float x, y;
@@ -71,6 +78,9 @@ void dc_sim_set_daylight(DcSim *sim, float daylight);        // 0 night .. 1 day
 bool dc_sim_announce(DcSim *sim);                            // a fish swims up and blows bubbles
 uint32_t dc_sim_bubbles(DcSim *sim, DcBubble *out, uint32_t cap);
 uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
+uint32_t dc_sim_take_births(DcSim *sim, DcBirth *out, uint32_t cap);  // drains them
+bool dc_sim_place_fish(DcSim *sim, uint64_t id, float x, float y);
+void dc_sim_set_life_speed(DcSim *sim, float speed);                  // 0 = no babies
 uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
 void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);
 void dc_sim_step(DcSim *sim, float dt, float pointer_x, float pointer_y); // < 0: no pointer

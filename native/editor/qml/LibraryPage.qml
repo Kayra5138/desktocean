@@ -57,6 +57,7 @@ Kirigami.ScrollablePage {
             required property int index
             required property string friends
             required property string rivals
+            required property string family
 
             width: grid.cellWidth
             height: grid.cellHeight
@@ -111,6 +112,14 @@ Kirigami.ScrollablePage {
                     level: 4
                     text: card.name
                     elide: Text.ElideRight
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: cell.family !== ""
+                    text: "🐣 " + cell.family
+                    elide: Text.ElideRight
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.8
                 }
                 QQC2.Label {
                     Layout.fillWidth: true

@@ -64,6 +64,10 @@ bool save(const QList<FishEntry> &entries, QString *error)
         };
         if (!e.wiggle.isEmpty())
             o.insert(QStringLiteral("wiggle"), e.wiggle);
+        if (e.bornAt > 0) {
+            o.insert(QStringLiteral("bornAt"), QString::number(e.bornAt));
+            o.insert(QStringLiteral("parents"), QJsonArray::fromStringList(e.parents));
+        }
         if (e.kind != FishEntry::Kind::Fish) {
             o.insert(QStringLiteral("sway"), e.sway);
             QJsonArray places;
@@ -253,6 +257,9 @@ QList<FishEntry> load(QString *error)
         e.count = std::clamp(o.value(QStringLiteral("count")).toInt(1), 0, 50);
         e.kind = kindFromName(o.value(QStringLiteral("kind")).toString());
         e.sway = std::clamp(o.value(QStringLiteral("sway")).toDouble(1.0), 0.0, 3.0);
+        e.bornAt = o.value(QStringLiteral("bornAt")).toString().toLongLong();
+        for (const QJsonValue &pv : o.value(QStringLiteral("parents")).toArray())
+            e.parents << pv.toString();
         for (const QJsonValue &pv : o.value(QStringLiteral("placements")).toArray()) {
             const QJsonObject po = pv.toObject();
             Placement p;
@@ -286,6 +293,9 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
     e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     e.name = QStringLiteral("Fish");
     applyMeta(e, meta, 1);
+    // Birth details are set once, here; edits never change them
+    e.bornAt = meta.bornAt;
+    e.parents = meta.parents;
 
     // Files first, manifest second: readers never see an entry without its files
     if (!writeDrawing(e, sprite, wiggle, error))
@@ -397,6 +407,15 @@ bool flip(const QString &id, QString *error)
     }
     setError(error, QStringLiteral("No such fish"));
     return false;
+}
+
+double growth(const FishEntry &entry)
+{
+    if (entry.bornAt <= 0)
+        return 1.0;
+    constexpr double kGrowMs = 2 * 60 * 60 * 1000.0;
+    const double age = double(QDateTime::currentMSecsSinceEpoch() - entry.bornAt);
+    return std::clamp(0.4 + 0.6 * age / kGrowMs, 0.4, 1.0);
 }
 
 QRect contentBox(const QImage &image, int margin)
