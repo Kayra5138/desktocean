@@ -20,11 +20,16 @@ Kirigami.ApplicationWindow {
         id: libraryPage
         LibraryPage {
             onDrawNew: window.pageStack.pop()
+            onEditFish: (fishId, name, image, scale, copies) => {
+                window.pageStack.pop();
+                drawPage.startEditing(fishId, name, image, scale, copies);
+            }
         }
     }
 
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
-    // Optional: --add-as <name> saves the drawing to the library, --library opens "My aquarium".
+    // Optional: --add-as <name> saves the drawing to the library, --select-all, --edit-first
+    // (opens the first library fish for editing), --library opens "My aquarium".
     Timer {
         readonly property var args: Qt.application.arguments
         function arg(name, offset) {
@@ -44,6 +49,10 @@ Kirigami.ApplicationWindow {
                 const error = drawPage.canvas.saveToLibrary(arg("--add-as"), 1.0, 1);
                 console.log(error ? "add failed: " + error : "added " + arg("--add-as"));
             }
+            if (args.indexOf("--select-all") >= 0)
+                drawPage.canvas.selectAll();
+            if (args.indexOf("--edit-first") >= 0)
+                window.pageStack.push(libraryPage).editFirstForTest();
             if (args.indexOf("--library") >= 0)
                 window.pageStack.push(libraryPage);
             shot.start();

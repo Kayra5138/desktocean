@@ -11,6 +11,11 @@ Kirigami.Page {
     signal openLibrary()
     property alias canvas: canvas
 
+    // Set while a fish from the library is open for editing
+    property string editingId: ""
+    property string editingName: ""
+    readonly property bool editing: editingId !== ""
+
     title: "Draw a fish"
     padding: 0
 
@@ -37,14 +42,52 @@ Kirigami.Page {
 
     function addToAquarium() {
         const name = nameField.text.trim() || "Fish";
-        const error = canvas.saveToLibrary(name, sizeBox.currentValue, copiesBox.value);
+        const error = canvas.saveToLibrary(name, sizeBox.currentValue, Math.max(1, copiesBox.value));
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
         }
         showMessage(Kirigami.MessageType.Positive, "“" + name + "” is swimming in your aquarium now.");
+        resetForm();
+    }
+
+    function saveChanges() {
+        const name = nameField.text.trim() || editingName;
+        const error = canvas.saveOver(editingId, name, sizeBox.currentValue, copiesBox.value);
+        if (error) {
+            showMessage(Kirigami.MessageType.Error, error);
+            return;
+        }
+        showMessage(Kirigami.MessageType.Positive, "“" + name + "” has been updated in your aquarium.");
+        resetForm();
+    }
+
+    function startEditing(id, name, image, scale, copies) {
+        const error = canvas.loadImage(image);
+        if (error) {
+            showMessage(Kirigami.MessageType.Error, error);
+            return;
+        }
+        editingId = id;
+        editingName = name;
+        nameField.text = name;
+        // Closest size preset
+        let best = 0;
+        for (let i = 0; i < sizeBox.model.length; ++i) {
+            if (Math.abs(sizeBox.model[i].value - scale) < Math.abs(sizeBox.model[best].value - scale))
+                best = i;
+        }
+        sizeBox.currentIndex = best;
+        copiesBox.value = copies;
+        message.visible = false;
+    }
+
+    function resetForm() {
+        editingId = "";
+        editingName = "";
         canvas.clear();
         nameField.clear();
+        copiesBox.value = 1;
     }
 
     actions: [
@@ -61,7 +104,7 @@ Kirigami.Page {
             onTriggered: importDialog.open()
         },
         Kirigami.Action {
-            text: "Flip"
+            text: canvas.hasSelection ? "Flip selection" : "Flip"
             icon.name: "object-flip-horizontal"
             enabled: !canvas.empty
             onTriggered: canvas.flipHorizontal()
@@ -111,13 +154,21 @@ Kirigami.Page {
                 spacing: Kirigami.Units.smallSpacing
 
                 Kirigami.Heading { text: "Tool"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
+                    columns: 4
+                    columnSpacing: 0
+                    rowSpacing: 0
                     Repeater {
                         model: [
                             { tool: DrawingCanvas.Brush, text: "Brush", icon: "draw-brush" },
                             { tool: DrawingCanvas.Eraser, text: "Eraser", icon: "draw-eraser" },
-                            { tool: DrawingCanvas.Fill, text: "Fill", icon: "color-fill" }
+                            { tool: DrawingCanvas.Fill, text: "Fill", icon: "color-fill" },
+                            { tool: DrawingCanvas.Picker, text: "Pick", icon: "color-picker" },
+                            { tool: DrawingCanvas.Line, text: "Line", icon: "draw-line" },
+                            { tool: DrawingCanvas.Rectangle, text: "Box", icon: "draw-rectangle" },
+                            { tool: DrawingCanvas.Ellipse, text: "Ellipse", icon: "draw-ellipse" },
+                            { tool: DrawingCanvas.Select, text: "Select", icon: "select-rectangular" }
                         ]
                         QQC2.ToolButton {
                             required property var modelData
@@ -128,7 +179,45 @@ Kirigami.Page {
                             checkable: true
                             checked: canvas.tool === modelData.tool
                             onClicked: canvas.tool = modelData.tool
+                            QQC2.ToolTip.text: modelData.text
+                            QQC2.ToolTip.visible: hovered
+                            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                         }
+                    }
+                }
+                QQC2.CheckBox {
+                    visible: canvas.tool === DrawingCanvas.Rectangle || canvas.tool === DrawingCanvas.Ellipse
+                    text: "Filled shape"
+                    checked: canvas.shapeFilled
+                    onToggled: canvas.shapeFilled = checked
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: canvas.tool === DrawingCanvas.Select && !canvas.hasSelection
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    text: "Drag a box around part of the drawing to move it. Ctrl+A selects everything."
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: canvas.hasSelection
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        icon.name: "object-flip-horizontal"
+                        text: "Flip"
+                        onClicked: canvas.flipHorizontal()
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        icon.name: "edit-delete"
+                        text: "Delete"
+                        onClicked: canvas.deleteSelection()
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        icon.name: "dialog-ok-apply"
+                        text: "Done"
+                        onClicked: canvas.commitSelection()
                     }
                 }
 
@@ -140,7 +229,7 @@ Kirigami.Page {
                         from: 2
                         to: 80
                         value: canvas.brushSize
-                        enabled: canvas.tool !== DrawingCanvas.Fill
+                        enabled: [DrawingCanvas.Brush, DrawingCanvas.Eraser, DrawingCanvas.Line, DrawingCanvas.Rectangle, DrawingCanvas.Ellipse].includes(canvas.tool)
                         onMoved: canvas.brushSize = Math.round(value)
                     }
                     QQC2.Label { text: canvas.brushSize; Layout.minimumWidth: Kirigami.Units.gridUnit * 1.5 }
@@ -191,12 +280,18 @@ Kirigami.Page {
                 Item { Layout.fillHeight: true; Layout.minimumHeight: Kirigami.Units.largeSpacing }
                 Kirigami.Separator { Layout.fillWidth: true }
 
-                Kirigami.Heading { text: "Your fish"; level: 4; Layout.topMargin: Kirigami.Units.smallSpacing }
+                Kirigami.Heading {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    level: 4
+                    text: page.editing ? "Editing “" + page.editingName + "”" : "Your fish"
+                    elide: Text.ElideRight
+                }
                 QQC2.TextField {
                     id: nameField
                     Layout.fillWidth: true
                     placeholderText: "Name (optional)"
-                    onAccepted: if (!canvas.empty) page.addToAquarium()
+                    onAccepted: if (!canvas.empty) page.editing ? page.saveChanges() : page.addToAquarium()
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -220,19 +315,38 @@ Kirigami.Page {
                     QQC2.SpinBox {
                         id: copiesBox
                         Layout.fillWidth: true
-                        from: 1
+                        // 0 keeps an existing fish in the library without it swimming
+                        from: page.editing ? 0 : 1
                         to: 10
                         value: 1
                     }
                 }
                 QQC2.Button {
                     Layout.fillWidth: true
-                    Layout.bottomMargin: Kirigami.Units.largeSpacing
-                    text: "Add to aquarium"
-                    icon.name: "list-add"
+                    Layout.bottomMargin: page.editing ? 0 : Kirigami.Units.largeSpacing
+                    text: page.editing ? "Save changes" : "Add to aquarium"
+                    icon.name: page.editing ? "document-save" : "list-add"
                     highlighted: true
                     enabled: !canvas.empty
-                    onClicked: page.addToAquarium()
+                    onClicked: page.editing ? page.saveChanges() : page.addToAquarium()
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: Kirigami.Units.largeSpacing
+                    visible: page.editing
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: "Save as new"
+                        icon.name: "document-save-as"
+                        enabled: !canvas.empty
+                        onClicked: page.addToAquarium()
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: "Cancel"
+                        icon.name: "dialog-cancel"
+                        onClicked: page.resetForm()
+                    }
                 }
             }
         }
@@ -285,6 +399,22 @@ Kirigami.Page {
                 }
             }
         }
+    }
+
+    Shortcut {
+        sequences: [StandardKey.Delete, "Backspace"]
+        enabled: canvas.hasSelection
+        onActivated: canvas.deleteSelection()
+    }
+    Shortcut {
+        sequence: "Escape"
+        enabled: canvas.hasSelection
+        onActivated: canvas.commitSelection()
+    }
+    Shortcut {
+        sequence: StandardKey.SelectAll
+        enabled: !nameField.activeFocus
+        onActivated: canvas.selectAll()
     }
 
     FileDialog {

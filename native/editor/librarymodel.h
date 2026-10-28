@@ -32,10 +32,13 @@ public:
     QString lastError() const { return m_lastError; }
 
     Q_INVOKABLE void reload();
+    // Row as {fishId, name, image, copies, scale}, or empty
+    Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE bool remove(const QString &id);
     Q_INVOKABLE bool setCopies(const QString &id, int copies);
     Q_INVOKABLE bool setScale(const QString &id, double scale);
     Q_INVOKABLE bool rename(const QString &id, const QString &name);
+    Q_INVOKABLE bool flip(const QString &id);
 
 Q_SIGNALS:
     void countChanged();

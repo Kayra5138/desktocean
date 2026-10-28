@@ -37,6 +37,11 @@ std::optional<FishEntry> add(const QImage &sprite, const QString &name, double s
 bool remove(const QString &id, QString *error = nullptr);
 // Updates name/scale/count of the entry with entry.id
 bool update(const FishEntry &entry, QString *error = nullptr);
+// Replaces the drawing of an existing fish, keeping its id so it stays in the
+// tank where it is; name/scale/count are taken from `entry`.
+bool replaceSprite(const FishEntry &entry, const QImage &sprite, QString *error = nullptr);
+// Mirrors an existing fish's drawing (head the other way)
+bool flip(const QString &id, QString *error = nullptr);
 
 // Bounding box of pixels with alpha above a small threshold, plus `margin`
 QImage cropToContent(const QImage &image, int margin = 4);

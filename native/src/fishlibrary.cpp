@@ -1,5 +1,6 @@
 #include "fishlibrary.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -200,6 +201,64 @@ bool update(const FishEntry &entry, QString *error)
             e.count = std::clamp(entry.count, 0, 50);
             return save(entries, error);
         }
+    }
+    setError(error, QStringLiteral("No such fish"));
+    return false;
+}
+
+bool replaceSprite(const FishEntry &entry, const QImage &sprite, QString *error)
+{
+    const QImage cropped = cropToContent(sprite);
+    if (cropped.isNull()) {
+        setError(error, QStringLiteral("The drawing is empty"));
+        return false;
+    }
+    WriteLock lock;
+    if (!lock.locked()) {
+        setError(error, QStringLiteral("The fish library is busy, try again"));
+        return false;
+    }
+    QList<FishEntry> entries = load(error);
+    const auto it = std::find_if(entries.begin(), entries.end(), [&](const FishEntry &e) { return e.id == entry.id; });
+    if (it == entries.end()) {
+        setError(error, QStringLiteral("No such fish"));
+        return false;
+    }
+
+    // A new file name, so image caches and the tank notice the change
+    const QString oldPath = it->path();
+    FishEntry updated = *it;
+    updated.file = entry.id + QLatin1Char('-') + QString::number(QDateTime::currentMSecsSinceEpoch()) + QStringLiteral(".png");
+    updated.name = entry.name.trimmed().isEmpty() ? it->name : entry.name.trimmed();
+    updated.scale = std::clamp(entry.scale, 0.3, 3.0);
+    updated.count = std::clamp(entry.count, 0, 50);
+
+    QSaveFile png(updated.path());
+    if (!png.open(QIODevice::WriteOnly) || !cropped.save(&png, "PNG") || !png.commit()) {
+        setError(error, png.errorString());
+        return false;
+    }
+    *it = updated;
+    if (!save(entries, error)) {
+        QFile::remove(updated.path());
+        return false;
+    }
+    QFile::remove(oldPath);
+    return true;
+}
+
+bool flip(const QString &id, QString *error)
+{
+    const QList<FishEntry> entries = load(error);
+    for (const FishEntry &e : entries) {
+        if (e.id != id)
+            continue;
+        const QImage img(e.path());
+        if (img.isNull()) {
+            setError(error, QStringLiteral("Cannot read %1").arg(e.path()));
+            return false;
+        }
+        return replaceSprite(e, img.flipped(Qt::Horizontal), error);
     }
     setError(error, QStringLiteral("No such fish"));
     return false;

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -121,6 +122,8 @@ void DrawingCanvas::setTool(Tool tool)
 {
     if (tool == m_tool)
         return;
+    if (m_tool == Select)
+        commitSelection();
     m_tool = tool;
     update();
     Q_EMIT toolChanged();
@@ -144,6 +147,16 @@ void DrawingCanvas::setBrushSize(int size)
     Q_EMIT brushSizeChanged();
 }
 
+void DrawingCanvas::setShapeFilled(bool filled)
+{
+    if (filled == m_shapeFilled)
+        return;
+    m_shapeFilled = filled;
+    Q_EMIT shapeFilledChanged();
+}
+
+// --- History -----------------------------------------------------------------
+
 void DrawingCanvas::pushUndo()
 {
     m_undo.append(m_image);
@@ -157,6 +170,8 @@ void DrawingCanvas::undo()
 {
     if (m_undo.isEmpty())
         return;
+    // The snapshot on top predates lifting the selection, so just let it go
+    dropFloating();
     m_redo.append(m_image);
     m_image = m_undo.takeLast();
     Q_EMIT historyChanged();
@@ -167,14 +182,18 @@ void DrawingCanvas::redo()
 {
     if (m_redo.isEmpty())
         return;
+    commitSelection();
     m_undo.append(m_image);
     m_image = m_redo.takeLast();
     Q_EMIT historyChanged();
     contentModified();
 }
 
+// --- Whole-drawing operations ------------------------------------------------
+
 void DrawingCanvas::clear()
 {
+    dropFloating();
     if (m_empty)
         return;
     pushUndo();
@@ -184,6 +203,11 @@ void DrawingCanvas::clear()
 
 void DrawingCanvas::flipHorizontal()
 {
+    if (hasSelection()) {
+        m_floating = m_floating.flipped(Qt::Horizontal);
+        update();
+        return;
+    }
     pushUndo();
     m_image = m_image.flipped(Qt::Horizontal);
     contentModified();
@@ -198,6 +222,27 @@ bool DrawingCanvas::hasOpaqueBorder(const QUrl &url) const
     const QRgb corners[] = {img.pixel(0, 0), img.pixel(img.width() - 1, 0), img.pixel(0, img.height() - 1),
                             img.pixel(img.width() - 1, img.height() - 1)};
     return std::all_of(std::begin(corners), std::end(corners), [](QRgb c) { return qAlpha(c) > 200; });
+}
+
+void DrawingCanvas::replaceImage(const QImage &source, bool keepHistory)
+{
+    commitSelection();
+    if (keepHistory) {
+        pushUndo();
+    } else {
+        m_undo.clear();
+        m_redo.clear();
+        Q_EMIT historyChanged();
+    }
+    m_image.fill(Qt::transparent);
+    const QSize target = source.size().scaled(kCanvasSize * 0.9, Qt::KeepAspectRatio);
+    QPainter p(&m_image);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    p.drawImage(QRect(QPoint((kCanvasSize.width() - target.width()) / 2, (kCanvasSize.height() - target.height()) / 2),
+                      target),
+                source);
+    p.end();
+    contentModified();
 }
 
 QString DrawingCanvas::importImage(const QUrl &url, bool removeBackground)
@@ -222,22 +267,23 @@ QString DrawingCanvas::importImage(const QUrl &url, bool removeBackground)
     const QImage cropped = FishLibrary::cropToContent(img, 0);
     if (cropped.isNull())
         return QStringLiteral("The image is empty after removing the background");
+    replaceImage(cropped, true);
+    return {};
+}
 
-    pushUndo();
-    m_image.fill(Qt::transparent);
-    const QSize target = cropped.size().scaled(kCanvasSize * 0.9, Qt::KeepAspectRatio);
-    QPainter p(&m_image);
-    p.setRenderHint(QPainter::SmoothPixmapTransform);
-    p.drawImage(QRect(QPoint((kCanvasSize.width() - target.width()) / 2, (kCanvasSize.height() - target.height()) / 2),
-                      target),
-                cropped);
-    p.end();
-    contentModified();
+QString DrawingCanvas::loadImage(const QUrl &url)
+{
+    QImageReader reader(QQmlFile::urlToLocalFileOrQrc(url));
+    const QImage img = reader.read();
+    if (img.isNull())
+        return QStringLiteral("Could not open the fish: %1").arg(reader.errorString());
+    replaceImage(img.convertToFormat(QImage::Format_ARGB32), false);
     return {};
 }
 
 void DrawingCanvas::loadTemplate(int index)
 {
+    commitSelection();
     pushUndo();
     m_image.fill(Qt::transparent);
     QPainter p(&m_image);
@@ -251,37 +297,106 @@ void DrawingCanvas::loadTemplate(int index)
 
 QString DrawingCanvas::saveToLibrary(const QString &name, double scale, int count)
 {
+    commitSelection();
     QString error;
     if (!FishLibrary::add(m_image, name, scale, count, &error))
         return error.isEmpty() ? QStringLiteral("Could not save the fish") : error;
     return {};
 }
 
+QString DrawingCanvas::saveOver(const QString &id, const QString &name, double scale, int count)
+{
+    commitSelection();
+    FishEntry entry;
+    entry.id = id;
+    entry.name = name;
+    entry.scale = scale;
+    entry.count = count;
+    QString error;
+    if (!FishLibrary::replaceSprite(entry, m_image, &error))
+        return error.isEmpty() ? QStringLiteral("Could not save the fish") : error;
+    return {};
+}
+
 void DrawingCanvas::contentModified()
 {
-    m_empty = FishLibrary::cropToContent(m_image, 0).isNull();
+    m_empty = !hasSelection() && FishLibrary::cropToContent(m_image, 0).isNull();
     update();
     Q_EMIT contentChanged();
 }
 
-QPointF DrawingCanvas::toImage(QPointF itemPos) const
+// --- Selection ---------------------------------------------------------------
+
+void DrawingCanvas::liftSelection(const QRect &rect)
 {
-    if (m_view.isEmpty())
-        return {};
-    return (itemPos - m_view.topLeft()) * (kCanvasSize.width() / m_view.width());
+    const QRect r = rect.intersected(m_image.rect());
+    if (r.width() < 2 || r.height() < 2)
+        return;
+    pushUndo();
+    m_floating = m_image.copy(r);
+    m_floatRect = r;
+    QPainter p(&m_image);
+    p.setCompositionMode(QPainter::CompositionMode_Clear);
+    p.fillRect(r, Qt::transparent);
+    p.end();
+    Q_EMIT selectionChanged();
+    contentModified();
 }
 
-void DrawingCanvas::drawSegment(QPointF from, QPointF to)
+void DrawingCanvas::selectAll()
 {
+    commitSelection();
+    setTool(Select);
+    // Lift just the visible part, not the empty canvas around it
+    const QImage argb = m_image.convertToFormat(QImage::Format_ARGB32);
+    QRect box;
+    for (int y = 0; y < argb.height(); ++y) {
+        const auto *row = reinterpret_cast<const QRgb *>(argb.constScanLine(y));
+        for (int x = 0; x < argb.width(); ++x) {
+            if (qAlpha(row[x]) > 8)
+                box |= QRect(x, y, 1, 1);
+        }
+    }
+    liftSelection(box);
+}
+
+void DrawingCanvas::commitSelection()
+{
+    if (!hasSelection())
+        return;
     QPainter p(&m_image);
-    p.setRenderHint(QPainter::Antialiasing);
-    if (m_tool == Eraser)
-        p.setCompositionMode(QPainter::CompositionMode_Clear);
-    p.setPen(QPen(m_color, m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    if (from == to)
-        p.drawPoint(from);
-    else
-        p.drawLine(from, to);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    p.drawImage(m_floatRect, m_floating);
+    p.end();
+    m_floating = {};
+    Q_EMIT selectionChanged();
+    contentModified();
+}
+
+void DrawingCanvas::deleteSelection()
+{
+    if (!hasSelection())
+        return;
+    // Its pixels were already cut out when it was lifted
+    m_floating = {};
+    Q_EMIT selectionChanged();
+    contentModified();
+}
+
+void DrawingCanvas::dropFloating()
+{
+    if (!hasSelection())
+        return;
+    m_floating = {};
+    Q_EMIT selectionChanged();
+}
+
+// --- Painting into the image -------------------------------------------------
+
+void DrawingCanvas::fillAt(qreal x, qreal y)
+{
+    commitSelection();
+    floodFill(QPointF(x, y).toPoint());
 }
 
 void DrawingCanvas::floodFill(QPoint seed)
@@ -297,37 +412,161 @@ void DrawingCanvas::floodFill(QPoint seed)
     contentModified();
 }
 
+void DrawingCanvas::drawSegment(QPointF from, QPointF to)
+{
+    QPainter p(&m_image);
+    p.setRenderHint(QPainter::Antialiasing);
+    if (m_tool == Eraser)
+        p.setCompositionMode(QPainter::CompositionMode_Clear);
+    p.setPen(QPen(m_color, m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    if (from == to)
+        p.drawPoint(from);
+    else
+        p.drawLine(from, to);
+}
+
+void DrawingCanvas::drawShape(QPainter &p, QPointF from, QPointF to) const
+{
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(m_color, m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(m_shapeFilled && m_tool != Line ? QBrush(m_color) : Qt::NoBrush);
+    const QRectF r = QRectF(from, to).normalized();
+    switch (m_tool) {
+    case Line:
+        p.drawLine(from, to);
+        break;
+    case Rectangle:
+        p.drawRect(r);
+        break;
+    case Ellipse:
+        p.drawEllipse(r);
+        break;
+    default:
+        break;
+    }
+}
+
+// --- Pointer -----------------------------------------------------------------
+
+QPointF DrawingCanvas::toImage(QPointF itemPos) const
+{
+    if (m_view.isEmpty())
+        return {};
+    return (itemPos - m_view.topLeft()) * (kCanvasSize.width() / m_view.width());
+}
+
+QRectF DrawingCanvas::toView(const QRectF &imageRect) const
+{
+    const qreal s = m_view.width() / kCanvasSize.width();
+    return QRectF(m_view.topLeft() + imageRect.topLeft() * s, imageRect.size() * s);
+}
+
+bool DrawingCanvas::onResizeHandle(QPointF itemPos) const
+{
+    if (!hasSelection())
+        return false;
+    const QPointF corner = toView(m_floatRect).bottomRight();
+    return std::abs(itemPos.x() - corner.x()) < 12 && std::abs(itemPos.y() - corner.y()) < 12;
+}
+
 void DrawingCanvas::mousePressEvent(QMouseEvent *event)
 {
     const QPointF p = toImage(event->position());
-    if (m_tool == Fill) {
+    m_start = m_last = p;
+
+    switch (m_tool) {
+    case Fill:
         floodFill(p.toPoint());
         return;
+    case Picker: {
+        const QPoint px = p.toPoint();
+        if (m_image.rect().contains(px) && qAlpha(m_image.pixel(px)) > 0)
+            setColor(QColor::fromRgba(m_image.pixel(px)).toRgb());
+        return;
     }
-    pushUndo();
-    m_stroking = true;
-    m_last = p;
-    drawSegment(p, p);
-    update();
+    case Line:
+    case Rectangle:
+    case Ellipse:
+        m_drag = Drag::Shape;
+        update();
+        return;
+    case Select:
+        m_dragOrigin = m_floatRect;
+        if (onResizeHandle(event->position())) {
+            m_drag = Drag::Resize;
+        } else if (hasSelection() && m_floatRect.contains(p)) {
+            m_drag = Drag::Move;
+        } else {
+            commitSelection();
+            m_drag = Drag::Rubber;
+            m_rubber = QRectF(p, p);
+        }
+        update();
+        return;
+    case Brush:
+    case Eraser:
+        pushUndo();
+        m_drag = Drag::Stroke;
+        drawSegment(p, p);
+        update();
+        return;
+    }
 }
 
 void DrawingCanvas::mouseMoveEvent(QMouseEvent *event)
 {
     m_hover = event->position();
-    if (!m_stroking)
-        return;
     const QPointF p = toImage(event->position());
-    drawSegment(m_last, p);
+    switch (m_drag) {
+    case Drag::None:
+        return;
+    case Drag::Stroke:
+        drawSegment(m_last, p);
+        break;
+    case Drag::Shape:
+        break;
+    case Drag::Rubber:
+        m_rubber = QRectF(m_start, p).normalized();
+        break;
+    case Drag::Move:
+        m_floatRect.moveTopLeft(m_dragOrigin.topLeft() + (p - m_start));
+        break;
+    case Drag::Resize: {
+        // Keep the aspect ratio, grow from the top-left corner
+        const qreal w = std::max<qreal>(8, m_dragOrigin.width() + (p.x() - m_start.x()));
+        m_floatRect.setSize(QSizeF(w, w * m_dragOrigin.height() / m_dragOrigin.width()));
+        break;
+    }
+    }
     m_last = p;
     update();
 }
 
 void DrawingCanvas::mouseReleaseEvent(QMouseEvent *)
 {
-    if (!m_stroking)
-        return;
-    m_stroking = false;
-    contentModified();
+    const Drag drag = std::exchange(m_drag, Drag::None);
+    switch (drag) {
+    case Drag::Stroke:
+        contentModified();
+        break;
+    case Drag::Shape: {
+        if (m_tool == Line ? m_start == m_last : (std::abs(m_last.x() - m_start.x()) < 1 || std::abs(m_last.y() - m_start.y()) < 1))
+            break;
+        pushUndo();
+        QPainter p(&m_image);
+        drawShape(p, m_start, m_last);
+        p.end();
+        contentModified();
+        break;
+    }
+    case Drag::Rubber:
+        liftSelection(m_rubber.toAlignedRect());
+        m_rubber = {};
+        break;
+    default:
+        update();
+        break;
+    }
 }
 
 void DrawingCanvas::hoverMoveEvent(QHoverEvent *event)
@@ -359,6 +598,8 @@ void DrawingCanvas::updateViewRect()
     Q_EMIT viewRectChanged();
 }
 
+// --- Rendering ---------------------------------------------------------------
+
 void DrawingCanvas::paint(QPainter *painter)
 {
     if (m_view.isEmpty())
@@ -377,10 +618,40 @@ void DrawingCanvas::paint(QPainter *painter)
     painter->setRenderHint(QPainter::SmoothPixmapTransform);
     painter->drawImage(m_view, m_image);
 
+    const qreal scale = m_view.width() / kCanvasSize.width();
+    painter->setRenderHint(QPainter::Antialiasing);
+
+    // Shape being dragged out, previewed in view coordinates
+    if (m_drag == Drag::Shape) {
+        painter->save();
+        painter->translate(m_view.topLeft());
+        painter->scale(scale, scale);
+        drawShape(*painter, m_start, m_last);
+        painter->restore();
+    }
+
+    QPen dashed(QColor(0x30, 0x80, 0xe0), 1.5, Qt::DashLine);
+    if (m_drag == Drag::Rubber) {
+        painter->setBrush(QColor(0x30, 0x80, 0xe0, 30));
+        painter->setPen(dashed);
+        painter->drawRect(toView(m_rubber));
+    }
+    if (hasSelection()) {
+        const QRectF r = toView(m_floatRect);
+        painter->drawImage(r, m_floating);
+        painter->setBrush(Qt::NoBrush);
+        painter->setPen(dashed);
+        painter->drawRect(r);
+        // Resize handle
+        painter->setPen(QPen(Qt::white, 1.5));
+        painter->setBrush(QColor(0x30, 0x80, 0xe0));
+        painter->drawRect(QRectF(r.bottomRight() - QPointF(6, 6), QSizeF(12, 12)));
+    }
+
     // Brush outline under the cursor
-    if (m_tool != Fill && m_hover.x() >= 0 && m_view.contains(m_hover)) {
-        const qreal r = m_brushSize * 0.5 * m_view.width() / kCanvasSize.width();
-        painter->setRenderHint(QPainter::Antialiasing);
+    const bool brushLike = m_tool == Brush || m_tool == Eraser;
+    if (brushLike && m_hover.x() >= 0 && m_view.contains(m_hover)) {
+        const qreal r = m_brushSize * 0.5 * scale;
         painter->setBrush(Qt::NoBrush);
         painter->setPen(QPen(QColor(255, 255, 255, 200), 2));
         painter->drawEllipse(m_hover, r, r);

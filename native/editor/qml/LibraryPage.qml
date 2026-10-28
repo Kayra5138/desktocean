@@ -8,11 +8,19 @@ Kirigami.ScrollablePage {
     id: page
 
     signal drawNew()
+    signal editFish(string fishId, string name, url image, real scale, int copies)
 
     title: "My aquarium · " + library.swimming + " swimming"
 
     LibraryModel {
         id: library
+    }
+
+    // Used by Main.qml's --edit-first development flag
+    function editFirstForTest() {
+        const fish = library.get(0);
+        if (fish.fishId)
+            page.editFish(fish.fishId, fish.name, fish.image, fish.scale, fish.copies);
     }
 
     actions: [
@@ -45,6 +53,7 @@ Kirigami.ScrollablePage {
             required property string name
             required property url image
             required property int copies
+            required property real scale
 
             width: grid.cellWidth
             height: grid.cellHeight
@@ -60,6 +69,16 @@ Kirigami.ScrollablePage {
             readonly property int copies: cell.copies
 
             actions: [
+                Kirigami.Action {
+                    text: "Edit"
+                    icon.name: "document-edit"
+                    onTriggered: page.editFish(cell.fishId, cell.name, cell.image, cell.scale, cell.copies)
+                },
+                Kirigami.Action {
+                    text: "Flip"
+                    icon.name: "object-flip-horizontal"
+                    onTriggered: library.flip(cell.fishId)
+                },
                 Kirigami.Action {
                     text: "Remove"
                     icon.name: "edit-delete-remove"

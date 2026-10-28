@@ -46,6 +46,18 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
     return {{IdRole, "fishId"}, {NameRole, "name"}, {ImageRole, "image"}, {CopiesRole, "copies"}, {ScaleRole, "scale"}};
 }
 
+QVariantMap LibraryModel::get(int row) const
+{
+    QVariantMap map;
+    const QModelIndex idx = index(row);
+    if (!idx.isValid())
+        return map;
+    const QHash<int, QByteArray> roles = roleNames();
+    for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+        map.insert(QString::fromUtf8(it.value()), data(idx, it.key()));
+    return map;
+}
+
 int LibraryModel::swimming() const
 {
     int n = 0;
@@ -109,6 +121,17 @@ bool LibraryModel::setScale(const QString &id, double scale)
 bool LibraryModel::rename(const QString &id, const QString &name)
 {
     return modify(id, [name](FishEntry &e) { e.name = name.trimmed(); });
+}
+
+bool LibraryModel::flip(const QString &id)
+{
+    QString error;
+    if (!FishLibrary::flip(id, &error)) {
+        setError(error);
+        return false;
+    }
+    reload();
+    return true;
 }
 
 void LibraryModel::setError(const QString &error)
