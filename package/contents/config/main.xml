@@ -30,7 +30,7 @@
       <default>true</default>
     </entry>
     <entry name="ShowDebug" type="Bool">
-      <default>true</default>
+      <default>false</default>
     </entry>
   </group>
 </kcfg>

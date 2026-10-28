@@ -97,6 +97,20 @@ Run `./scripts/build-shaders.sh` after editing anything in `shaders/`, and
 `./scripts/measure.sh [seconds]` samples plasmashell CPU and memory; compare a run
 with the aquarium paused against one with it running.
 
+`DESKTOCEAN_PROFILE=1` makes the tank log its average simulation and geometry
+time every 5 s; `dev/preview.qml -- --fullscreen --fps 30` measures at screen size.
+Measured on a 2560x1440 screen with 30 fish (Ryzen-class CPU, RTX 5070 Ti):
+
+| FPS | CPU (one core) | GPU |
+|---|---|---|
+| 20 | ~3.3% | <1% |
+| 30 (default) | ~4.1% | <1% |
+| 60 | ~10.5% | ~0.5% |
+
+Simulation and geometry take ~0.3 ms per frame together; the rest is Qt Quick's
+fixed per-frame cost, so the frame rate setting is the knob that matters. The
+aquarium adds about 60 MB of memory, mostly the sprite atlas.
+
 ### Layout
 
 | Path | What |

@@ -74,14 +74,24 @@ void writeFish(const Pose &f, const QRectF &uv, const Style &st, const std::vect
     const float headSway = std::sin(ph) * amp * 0.12f * h * (1.f - st.floor);
     const bool masked = weights.size() == size_t(kVertsPerFish);
 
+    // The bend and the wave only depend on the column: work them out once per
+    // column instead of once per vertex
+    float columnBend[kSegments + 1];
+    float columnWave[kSegments + 1];
+    for (int c = 0; c <= kSegments; ++c) {
+        const float u = float(c) / kSegments;
+        columnBend[c] = st.floor + (1.f - st.floor) * std::pow(1.f - u, st.power);
+        columnWave[c] = std::sin(ph - u * st.waveLength);
+    }
+
     for (int r = 0; r <= kRows; ++r) {
         const float vv = float(r) / kRows;
         for (int c = 0; c <= kSegments; ++c) {
             const float u = float(c) / kSegments;
-            float bend = st.floor + (1.f - st.floor) * std::pow(1.f - u, st.power);
+            float bend = columnBend[c];
             if (masked)
                 bend *= weights[size_t(r) * (kSegments + 1) + c];
-            const float wave = std::sin(ph - u * st.waveLength);
+            const float wave = columnWave[c];
 
             const float px = u * w + std::abs(wave) * bend * w * 0.025f;
             const float py = (vv - 0.5f) * h * squash + 0.5f * h + wave * amp * h * bend - headSway * u + bob;

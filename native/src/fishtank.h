@@ -213,6 +213,16 @@ private:
     qreal m_lifeSpeed = 1;
     // Library entries of babies just born -> where to put them once loaded
     QHash<QString, QPointF> m_newborns;
+    // DESKTOCEAN_PROFILE=1: average time spent per tick / per geometry update, logged every 5 s
+    struct Profile {
+        bool enabled = false;
+        QElapsedTimer window;
+        qint64 stepNs = 0, pullNs = 0, paintNs = 0;
+        int ticks = 0, paints = 0;
+    };
+    Profile m_profile;
+    void reportProfile();
+
     // Current population, kept so babies can grow without reloading images
     std::vector<DcFishSpec> m_specs;
     std::vector<FishEntry> m_specEntry;   // the library entry of each spec

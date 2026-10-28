@@ -197,6 +197,21 @@ FishTank::FishTank(QQuickItem *parent)
 
     checkHealth();
     TankHub::registerTank(this);
+
+    m_profile.enabled = qEnvironmentVariableIntValue("DESKTOCEAN_PROFILE") == 1;
+    m_profile.window.start();
+}
+
+void FishTank::reportProfile()
+{
+    if (m_profile.window.elapsed() < 5000)
+        return;
+    const auto avg = [](qint64 ns, int n) { return n ? double(ns) / n / 1000.0 : 0.0; };
+    qInfo("Desktocean profile: %d ticks, step %.1f us, pull %.1f us | %d paints, geometry %.1f us | fish %zu",
+          m_profile.ticks, avg(m_profile.stepNs, m_profile.ticks), avg(m_profile.pullNs, m_profile.ticks),
+          m_profile.paints, avg(m_profile.paintNs, m_profile.paints), m_fish.size());
+    m_profile = Profile{true, {}, 0, 0, 0, 0, 0};
+    m_profile.window.start();
 }
 
 FishTank::~FishTank()
@@ -657,9 +672,18 @@ void FishTank::tick()
     m_time += dt;
     m_flow += dt * (1 + 2 * agitation());
     m_pointer = cursorInItem();
+    QElapsedTimer t;
+    t.start();
     dc_sim_step(m_sim, float(dt), float(m_pointer.x()), float(m_pointer.y()));
     handleBirths();
+    const qint64 stepped = t.nsecsElapsed();
     pullState();
+    if (m_profile.enabled) {
+        m_profile.stepNs += stepped;
+        m_profile.pullNs += t.nsecsElapsed() - stepped;
+        ++m_profile.ticks;
+        reportProfile();
+    }
     checkHealth();
     update();
     Q_EMIT timeChanged();
@@ -915,6 +939,8 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
 
 QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
+    QElapsedTimer profileTimer;
+    profileTimer.start();
     auto *node = static_cast<SpriteNode *>(oldNode);
     if (!node)
         node = new SpriteNode;
@@ -1012,5 +1038,10 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     writeDecorLayer(true);
 
     node->commit();
+    if (m_profile.enabled) {
+        // Runs on the render thread while the GUI thread waits, so no race
+        m_profile.paintNs += profileTimer.nsecsElapsed();
+        ++m_profile.paints;
+    }
     return node;
 }

@@ -10,6 +10,8 @@ Window {
     height: 720
     visible: true
     title: "Desktocean preview"
+    // `--fullscreen` measures at the screen's real size
+    visibility: Qt.application.arguments.indexOf("--fullscreen") >= 0 ? Window.FullScreen : Window.Windowed
 
     Aquarium {
         id: aquarium
@@ -19,6 +21,11 @@ Window {
         theme: {
             const i = Qt.application.arguments.indexOf("--theme");
             return i >= 0 ? Qt.application.arguments[i + 1] : "tropical";
+        }
+        // `--fps 20` tries another frame rate
+        fps: {
+            const i = Qt.application.arguments.indexOf("--fps");
+            return i >= 0 ? Number(Qt.application.arguments[i + 1]) : 30;
         }
         // `--life-speed 300` makes babies happen within a minute or two
         lifeSpeed: {
