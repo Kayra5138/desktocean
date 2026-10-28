@@ -20,16 +20,16 @@ Kirigami.ApplicationWindow {
         id: libraryPage
         LibraryPage {
             onDrawNew: window.pageStack.pop()
-            onEditFish: (fishId, name, image, scale, copies) => {
+            onEditFish: fish => {
                 window.pageStack.pop();
-                drawPage.startEditing(fishId, name, image, scale, copies);
+                drawPage.startEditing(fish);
             }
         }
     }
 
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
-    // Optional: --add-as <name> saves the drawing to the library, --select-all, --edit-first
-    // (opens the first library fish for editing), --library opens "My aquarium".
+    // Optional: --swim <style id>, --wiggle-tail, --add-as <name> (saves the drawing to the library),
+    // --select-all, --edit-first (opens the first library fish for editing), --library.
     Timer {
         readonly property var args: Qt.application.arguments
         function arg(name, offset) {
@@ -45,8 +45,12 @@ Kirigami.ApplicationWindow {
                 drawPage.canvas.color = "#3d8bd9";
                 drawPage.canvas.fillAt(Number(arg("--fill")), Number(arg("--fill", 2)));
             }
+            if (arg("--swim") !== undefined)
+                drawPage.styleForTest(arg("--swim"));
+            if (args.indexOf("--wiggle-tail") >= 0)
+                drawPage.canvas.paintTailWiggleForTest();
             if (arg("--add-as") !== undefined) {
-                const error = drawPage.canvas.saveToLibrary(arg("--add-as"), 1.0, 1);
+                const error = drawPage.canvas.saveToLibrary(arg("--add-as"), 1.0, 1, arg("--swim") || "classic");
                 console.log(error ? "add failed: " + error : "added " + arg("--add-as"));
             }
             if (args.indexOf("--select-all") >= 0)

@@ -15,6 +15,9 @@ decorations and drop them into the tank.
   picture import with background removal, flip; **My aquarium** page to set how many
   copies of each fish swim, or remove them
 - New fish drop into the tank through the surface as soon as you save them
+- **Swim styles** per fish (classic, eel, stiff tail, bouncy, glider) and a **wiggle brush**
+  to paint which parts move more (fins, tail) or stay stiff, with a live swimming preview
+  in the editor; no skeleton needed, it is the same cheap spine bend with per-vertex weights
 
 - Runs as a native Plasma wallpaper plugin, so desktop icons and widgets stay on top and keep working
 - Fish sprites bend along the spine, so a flat drawing swims convincingly; all fish and food are drawn in a single draw call
@@ -86,6 +89,7 @@ with the aquarium paused against one with it running.
 | `native/` | C++ QML plugin `Desktocean.Core`: `FishTank` ticks the core, reads the cursor, batch-renders sprites |
 | `native/editor/` | `desktocean-editor`: drawing canvas, fish library page (Kirigami) |
 | `native/src/fishlibrary.*` | The fish library on disk, shared by plugin and editor |
+| `native/src/fishmesh.*`, `spritenode.*` | Swim styles, mesh bending and batched sprite rendering, shared by tank and editor preview |
 | `shaders/` | Water shader source, compiled to `.qsb` into the package |
 | `scripts/` | Install, build, reload and measure helpers |
 | `dev/preview.qml` | Standalone preview window |

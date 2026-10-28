@@ -20,7 +20,7 @@ class LibraryModel : public QAbstractListModel
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
 public:
-    enum Role { IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole };
+    enum Role { IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole };
 
     explicit LibraryModel(QObject *parent = nullptr);
 
@@ -32,7 +32,7 @@ public:
     QString lastError() const { return m_lastError; }
 
     Q_INVOKABLE void reload();
-    // Row as {fishId, name, image, copies, scale}, or empty
+    // Row as {fishId, name, image, copies, scale, swimStyle, wiggle}, or empty
     Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE bool remove(const QString &id);
     Q_INVOKABLE bool setCopies(const QString &id, int copies);

@@ -30,11 +30,25 @@ set_target_properties(desktocean_sim PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES ${SIM_DIR}/include
 )
 
-# --- Fish library on disk (shared by the plugin and the editor) ---------------
-add_library(desktocean_library STATIC src/fishlibrary.h src/fishlibrary.cpp)
+# --- Fish library on disk and fish mesh (shared by the plugin and the editor) -
+add_library(desktocean_library STATIC
+    src/fishlibrary.h src/fishlibrary.cpp
+    src/fishmesh.h src/fishmesh.cpp
+)
 set_target_properties(desktocean_library PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
 target_include_directories(desktocean_library PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(desktocean_library PUBLIC Qt6::Gui)
+
+# --- Sprite batch rendering (shared by the plugin and the editor preview) -----
+add_library(desktocean_render STATIC src/spritenode.h src/spritenode.cpp)
+set_target_properties(desktocean_render PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
+target_link_libraries(desktocean_render PUBLIC Qt6::Quick desktocean_library)
+qt_add_shaders(desktocean_render "desktocean_render_shaders"
+    PREFIX "/desktocean"
+    FILES
+        shaders/fishbatch.vert
+        shaders/fishbatch.frag
+)
 
 # --- QML plugin: import Desktocean.Core --------------------------------------
 qt_add_qml_module(desktocean_core
@@ -46,19 +60,13 @@ qt_add_qml_module(desktocean_core
         src/fishtank.h src/fishtank.cpp
 )
 
-qt_add_shaders(desktocean_core "desktocean_core_shaders"
-    PREFIX "/desktocean"
-    FILES
-        shaders/fishbatch.vert
-        shaders/fishbatch.frag
-)
 
 add_dependencies(desktocean_core desktocean_sim_cargo)
 # The generated type-registration source includes our headers by bare name.
 target_include_directories(desktocean_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(desktocean_core PRIVATE
     Qt6::Gui Qt6::Qml Qt6::Quick
-    desktocean_sim desktocean_library Threads::Threads ${CMAKE_DL_LIBS} m
+    desktocean_sim desktocean_render desktocean_library Threads::Threads ${CMAKE_DL_LIBS} m
 )
 # Keep Rust's std symbols private so they can't clash with other plugins in plasmashell.
 target_link_options(desktocean_core PRIVATE "LINKER:--exclude-libs,ALL")
@@ -75,8 +83,9 @@ qt_add_qml_module(desktocean-editor
     SOURCES
         editor/drawingcanvas.h editor/drawingcanvas.cpp
         editor/librarymodel.h editor/librarymodel.cpp
+        editor/swimpreview.h editor/swimpreview.cpp
 )
 target_include_directories(desktocean-editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/editor)
 target_link_libraries(desktocean-editor PRIVATE
-    Qt6::Widgets Qt6::Quick Qt6::QuickControls2 desktocean_library
+    Qt6::Widgets Qt6::Quick Qt6::QuickControls2 desktocean_render desktocean_library
 )

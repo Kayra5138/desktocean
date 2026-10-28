@@ -42,7 +42,7 @@ Kirigami.Page {
 
     function addToAquarium() {
         const name = nameField.text.trim() || "Fish";
-        const error = canvas.saveToLibrary(name, sizeBox.currentValue, Math.max(1, copiesBox.value));
+        const error = canvas.saveToLibrary(name, sizeBox.currentValue, Math.max(1, copiesBox.value), styleBox.currentValue);
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
@@ -53,7 +53,7 @@ Kirigami.Page {
 
     function saveChanges() {
         const name = nameField.text.trim() || editingName;
-        const error = canvas.saveOver(editingId, name, sizeBox.currentValue, copiesBox.value);
+        const error = canvas.saveOver(editingId, name, sizeBox.currentValue, copiesBox.value, styleBox.currentValue);
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
@@ -62,15 +62,18 @@ Kirigami.Page {
         resetForm();
     }
 
-    function startEditing(id, name, image, scale, copies) {
-        const error = canvas.loadImage(image);
+    // `fish` is a LibraryModel row: {fishId, name, image, wiggle, swimStyle, scale, copies}
+    function startEditing(fish) {
+        const error = canvas.loadImage(fish.image, fish.wiggle);
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
         }
-        editingId = id;
-        editingName = name;
-        nameField.text = name;
+        const scale = fish.scale;
+        editingId = fish.fishId;
+        editingName = fish.name;
+        nameField.text = fish.name;
+        styleBox.currentIndex = Math.max(0, styleBox.indexOfValue(fish.swimStyle));
         // Closest size preset
         let best = 0;
         for (let i = 0; i < sizeBox.model.length; ++i) {
@@ -78,16 +81,23 @@ Kirigami.Page {
                 best = i;
         }
         sizeBox.currentIndex = best;
-        copiesBox.value = copies;
+        copiesBox.value = fish.copies;
         message.visible = false;
+    }
+
+    // Used by Main.qml's development flags
+    function styleForTest(id) {
+        styleBox.currentIndex = Math.max(0, styleBox.indexOfValue(id));
     }
 
     function resetForm() {
         editingId = "";
         editingName = "";
         canvas.clear();
+        canvas.motionMode = false;
         nameField.clear();
         copiesBox.value = 1;
+        styleBox.currentIndex = 0;
     }
 
     actions: [
@@ -144,12 +154,14 @@ Kirigami.Page {
 
         // --- Tools -------------------------------------------------------------
         QQC2.ScrollView {
+            id: toolScroll
             Layout.fillHeight: true
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 15
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 16
             QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
             ColumnLayout {
-                width: Kirigami.Units.gridUnit * 15 - Kirigami.Units.largeSpacing * 2
+                // availableWidth leaves room for the vertical scroll bar
+                width: toolScroll.availableWidth - Kirigami.Units.largeSpacing * 2
                 x: Kirigami.Units.largeSpacing
                 spacing: Kirigami.Units.smallSpacing
 
@@ -229,7 +241,7 @@ Kirigami.Page {
                         from: 2
                         to: 80
                         value: canvas.brushSize
-                        enabled: [DrawingCanvas.Brush, DrawingCanvas.Eraser, DrawingCanvas.Line, DrawingCanvas.Rectangle, DrawingCanvas.Ellipse].includes(canvas.tool)
+                        enabled: canvas.motionMode || [DrawingCanvas.Brush, DrawingCanvas.Eraser, DrawingCanvas.Line, DrawingCanvas.Rectangle, DrawingCanvas.Ellipse].includes(canvas.tool)
                         onMoved: canvas.brushSize = Math.round(value)
                     }
                     QQC2.Label { text: canvas.brushSize; Layout.minimumWidth: Kirigami.Units.gridUnit * 1.5 }
@@ -274,6 +286,84 @@ Kirigami.Page {
                         text: "Custom…"
                         icon.name: "color-picker"
                         onClicked: colorDialog.open()
+                    }
+                }
+
+                Kirigami.Heading { text: "Motion"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
+                QQC2.ComboBox {
+                    id: styleBox
+                    Layout.fillWidth: true
+                    model: preview.styles
+                    textRole: "label"
+                    valueRole: "id"
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 6
+                    radius: Kirigami.Units.cornerRadius
+                    clip: true
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: "#2185a8" }
+                        GradientStop { position: 1; color: "#0a2a44" }
+                    }
+                    SwimPreview {
+                        id: preview
+                        anchors.fill: parent
+                        canvas: canvas
+                        swimStyle: styleBox.currentValue ?? "classic"
+                    }
+                    QQC2.Label {
+                        anchors.centerIn: parent
+                        visible: canvas.empty
+                        text: "Your fish will swim here"
+                        color: "white"
+                        opacity: 0.7
+                    }
+                }
+                QQC2.Button {
+                    Layout.fillWidth: true
+                    checkable: true
+                    checked: canvas.motionMode
+                    onToggled: canvas.motionMode = checked
+                    icon.name: "transform-move"
+                    text: canvas.motionMode ? "Done painting wiggle" : "Paint wiggle…"
+                    enabled: !canvas.empty
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: canvas.motionMode
+                    spacing: Kirigami.Units.smallSpacing
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Repeater {
+                            model: [
+                                { brush: DrawingCanvas.More, text: "More" },
+                                { brush: DrawingCanvas.Less, text: "Stiffer" },
+                                { brush: DrawingCanvas.Normal, text: "Normal" }
+                            ]
+                            QQC2.ToolButton {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                text: modelData.text
+                                checkable: true
+                                checked: canvas.wiggleBrush === modelData.brush
+                                onClicked: canvas.wiggleBrush = modelData.brush
+                            }
+                        }
+                    }
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        text: "Paint over fins and tail: red parts wiggle more, blue parts stay stiff."
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: "Reset wiggle"
+                        icon.name: "edit-reset"
+                        enabled: canvas.hasWiggle
+                        onClicked: canvas.resetWiggle()
                     }
                 }
 

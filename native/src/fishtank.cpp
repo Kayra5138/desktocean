@@ -1,5 +1,6 @@
 #include "fishtank.h"
 #include "fishlibrary.h"
+#include "spritenode.h"
 
 #include <QCursor>
 #include <QDir>
@@ -10,149 +11,22 @@
 #include <QQmlFile>
 #include <QQuickWindow>
 #include <QRandomGenerator>
-#include <QSGGeometryNode>
-#include <QSGMaterial>
-#include <QSGMaterialShader>
-#include <QSGTexture>
 #include <QStandardPaths>
 #include <QtLogging>
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <iterator>
-#include <memory>
 
 namespace {
-
-// Fish mesh resolution: columns along the spine, rows across the body.
-constexpr int kSegments = 20;
-constexpr int kRows = 2;
-constexpr int kVertsPerFish = (kSegments + 1) * (kRows + 1);
-constexpr int kIndicesPerFish = kSegments * kRows * 6;
 
 // Atlas layout
 constexpr int kPad = 8;          // transparent border so mipmaps don't bleed between sprites
 constexpr int kAtlasWidth = 2048;
 constexpr int kFoodCell = 32;
+constexpr float kFoodSize = 10.f;
 // How many copies of each starter fish go into a fresh library
 constexpr int kStarterCopies[] = {2, 2, 2, 1};
-constexpr float kFoodSize = 10.f;
-
-struct Vertex {
-    float x, y;
-    float u, v;
-    float fog;
-    float alpha;
-};
-
-const QSGGeometry::AttributeSet &vertexAttributes()
-{
-    static const QSGGeometry::Attribute attrs[] = {
-        QSGGeometry::Attribute::createWithAttributeType(0, 2, QSGGeometry::FloatType, QSGGeometry::PositionAttribute),
-        QSGGeometry::Attribute::createWithAttributeType(1, 2, QSGGeometry::FloatType, QSGGeometry::TexCoordAttribute),
-        QSGGeometry::Attribute::createWithAttributeType(2, 1, QSGGeometry::FloatType, QSGGeometry::UnknownAttribute),
-        QSGGeometry::Attribute::createWithAttributeType(3, 1, QSGGeometry::FloatType, QSGGeometry::UnknownAttribute),
-    };
-    static const QSGGeometry::AttributeSet set = {4, sizeof(Vertex), attrs};
-    return set;
-}
-
-class SpriteMaterial : public QSGMaterial
-{
-public:
-    SpriteMaterial() { setFlag(Blending); }
-
-    QSGMaterialType *type() const override
-    {
-        static QSGMaterialType t;
-        return &t;
-    }
-
-    QSGMaterialShader *createShader(QSGRendererInterface::RenderMode) const override;
-
-    int compare(const QSGMaterial *other) const override
-    {
-        const auto *o = static_cast<const SpriteMaterial *>(other);
-        if (texture != o->texture)
-            return texture < o->texture ? -1 : 1;
-        if (fogColor != o->fogColor)
-            return fogColor.rgba() < o->fogColor.rgba() ? -1 : 1;
-        return 0;
-    }
-
-    QSGTexture *texture = nullptr;
-    QColor fogColor;
-};
-
-class SpriteShader : public QSGMaterialShader
-{
-public:
-    SpriteShader()
-    {
-        setShaderFileName(VertexStage, QStringLiteral(":/desktocean/shaders/fishbatch.vert.qsb"));
-        setShaderFileName(FragmentStage, QStringLiteral(":/desktocean/shaders/fishbatch.frag.qsb"));
-    }
-
-    // Uniform block layout (std140): mat4 @0, float opacity @64, vec4 fogColor @80
-    bool updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial) override
-    {
-        QByteArray *buf = state.uniformData();
-        Q_ASSERT(buf->size() >= 96);
-        bool changed = false;
-        if (state.isMatrixDirty()) {
-            const QMatrix4x4 m = state.combinedMatrix();
-            std::memcpy(buf->data(), m.constData(), 64);
-            changed = true;
-        }
-        if (state.isOpacityDirty()) {
-            const float opacity = state.opacity();
-            std::memcpy(buf->data() + 64, &opacity, 4);
-            changed = true;
-        }
-        const auto *mat = static_cast<SpriteMaterial *>(newMaterial);
-        const auto *old = static_cast<SpriteMaterial *>(oldMaterial);
-        if (!old || old->fogColor != mat->fogColor) {
-            const float c[4] = {float(mat->fogColor.redF()), float(mat->fogColor.greenF()),
-                                float(mat->fogColor.blueF()), float(mat->fogColor.alphaF())};
-            std::memcpy(buf->data() + 80, c, 16);
-            changed = true;
-        }
-        return changed;
-    }
-
-    void updateSampledImage(RenderState &state, int binding, QSGTexture **texture, QSGMaterial *newMaterial,
-                            QSGMaterial *) override
-    {
-        if (binding != 1)
-            return;
-        QSGTexture *t = static_cast<SpriteMaterial *>(newMaterial)->texture;
-        if (t)
-            t->commitTextureOperations(state.rhi(), state.resourceUpdateBatch());
-        *texture = t;
-    }
-};
-
-QSGMaterialShader *SpriteMaterial::createShader(QSGRendererInterface::RenderMode) const
-{
-    return new SpriteShader;
-}
-
-class TankNode : public QSGGeometryNode
-{
-public:
-    TankNode()
-        : geometry(vertexAttributes(), 0, 0, QSGGeometry::UnsignedIntType)
-    {
-        geometry.setDrawingMode(QSGGeometry::DrawTriangles);
-        setGeometry(&geometry);
-        setMaterial(&material);
-    }
-
-    QSGGeometry geometry;
-    SpriteMaterial material;
-    std::unique_ptr<QSGTexture> texture;
-};
 
 QImage makeFoodSprite()
 {
@@ -164,74 +38,6 @@ QImage makeFoodSprite()
     p.setBrush(QColor(0xc8, 0x74, 0x3a));
     p.drawEllipse(QRectF(3, 3, kFoodCell - 6, kFoodCell - 6));
     return img;
-}
-
-// Writes one fish as a bent grid mesh. Mirrors what the old per-fish vertex
-// shader did: the tail (u = 0) swings most, the head (u = 1) barely moves.
-void writeFish(const DcFish &f, const QRectF &uv, Vertex *v, quint32 *idx, quint32 base)
-{
-    const float w = f.w, h = f.h;
-    // Keep a sliver of width mid-turn so the sprite never collapses to a line
-    const float flip = std::abs(f.facing) < 0.08f ? (f.facing < 0 ? -0.08f : 0.08f) : f.facing;
-    const float rad = f.tilt * float(M_PI) / 180.f;
-    const float cs = std::cos(rad), sn = std::sin(rad);
-    const float sinPhase = std::sin(f.phase);
-
-    for (int r = 0; r <= kRows; ++r) {
-        const float vv = float(r) / kRows;
-        for (int c = 0; c <= kSegments; ++c) {
-            const float u = float(c) / kSegments;
-            const float tailWeight = std::pow(1.f - u, 1.7f);
-            const float wave = std::sin(f.phase - u * 4.2f);
-
-            float px = u * w + std::abs(wave) * tailWeight * w * 0.025f;
-            float py = vv * h + wave * f.amplitude * h * tailWeight - sinPhase * f.amplitude * 0.12f * h * u;
-
-            // Around the centre: mirror for facing, then pitch, then place
-            const float cx = (px - w * 0.5f) * flip;
-            const float cy = py - h * 0.5f;
-            Vertex &out = *v++;
-            out.x = f.x + cx * cs - cy * sn;
-            out.y = f.y + cx * sn + cy * cs;
-            out.u = float(uv.x() + u * uv.width());
-            out.v = float(uv.y() + vv * uv.height());
-            out.fog = f.depth * 0.55f;
-            out.alpha = 1.f;
-        }
-    }
-
-    const quint32 stride = kSegments + 1;
-    for (int r = 0; r < kRows; ++r) {
-        for (int c = 0; c < kSegments; ++c) {
-            const quint32 i0 = base + r * stride + c;
-            const quint32 i1 = i0 + 1;
-            const quint32 i2 = i0 + stride;
-            const quint32 i3 = i2 + 1;
-            *idx++ = i0; *idx++ = i2; *idx++ = i1;
-            *idx++ = i1; *idx++ = i2; *idx++ = i3;
-        }
-    }
-}
-
-void writeFood(const DcFood &p, const QRectF &uv, Vertex *v, quint32 *idx, quint32 base)
-{
-    const float half = kFoodSize * 0.5f;
-    const float xs[2] = {p.x - half, p.x + half};
-    const float ys[2] = {p.y - half, p.y + half};
-    for (int r = 0; r < 2; ++r) {
-        for (int c = 0; c < 2; ++c) {
-            Vertex &out = *v++;
-            out.x = xs[c];
-            out.y = ys[r];
-            out.u = float(c ? uv.right() : uv.left());
-            out.v = float(r ? uv.bottom() : uv.top());
-            out.fog = 0.f;
-            out.alpha = p.opacity;
-        }
-    }
-    const quint32 quad[6] = {0, 2, 1, 1, 2, 3};
-    for (quint32 q : quad)
-        *idx++ = base + q;
 }
 
 } // namespace
@@ -440,9 +246,11 @@ void FishTank::seedLibrary()
         QString name = QFileInfo(url.path()).baseName().section(QLatin1Char('-'), -1);
         if (!name.isEmpty())
             name[0] = name[0].toUpper();
-        const int copies = kStarterCopies[i % std::size(kStarterCopies)];
+        FishEntry meta;
+        meta.name = name;
+        meta.count = kStarterCopies[i % std::size(kStarterCopies)];
         QString error;
-        if (!FishLibrary::add(img, name, 1.0, copies, &error))
+        if (!FishLibrary::add({img, {}}, meta, &error))
             qWarning("Desktocean: cannot seed fish library: %s", qPrintable(error));
     }
 }
@@ -469,7 +277,8 @@ void FishTank::loadLibrary(bool animateNew)
     // Keep the atlas manageable when the collection grows
     const int maxSide = entries.size() > 32 ? 256 : 400;
 
-    QList<QImage> sprites;
+    QList<QImage> images;
+    std::vector<SpriteInfo> sprites;
     std::vector<DcFishSpec> specs;
     for (const FishEntry &e : entries) {
         if (e.count <= 0)
@@ -481,14 +290,22 @@ void FishTank::loadLibrary(bool animateNew)
         }
         if (std::max(img.width(), img.height()) > maxSide)
             img = img.scaled(maxSide, maxSide, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+        SpriteInfo info;
+        info.style = &FishMesh::style(e.style);
+        if (!e.wiggle.isEmpty())
+            info.weights = FishMesh::weightsFromMask(QImage(e.wigglePath()));
         const auto sprite = uint32_t(sprites.size());
+        sprites.push_back(std::move(info));
+
         const float aspect = float(img.height()) / float(img.width());
-        sprites << img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        images << img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
         for (int k = 0; k < e.count; ++k)
             specs.push_back({quint64(qHash(e.id, size_t(k))), sprite, aspect, float(e.scale)});
     }
 
-    rebuildAtlas(sprites);
+    m_sprites = std::move(sprites);
+    rebuildAtlas(images);
     dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
     m_libraryLoaded = true;
     pullState();
@@ -496,7 +313,7 @@ void FishTank::loadLibrary(bool animateNew)
     update();
 }
 
-void FishTank::rebuildAtlas(const QList<QImage> &sprites)
+void FishTank::rebuildAtlas(const QList<QImage> &images)
 {
     // Shelf packing: left to right, new shelf when the row is full
     std::vector<QRect> placed;
@@ -511,7 +328,7 @@ void FishTank::rebuildAtlas(const QList<QImage> &sprites)
         x += size.width() + 2 * kPad;
         shelf = std::max(shelf, size.height());
     };
-    for (const QImage &img : sprites)
+    for (const QImage &img : images)
         place(img.size());
     place(QSize(kFoodCell, kFoodCell));
     const int atlasH = y + shelf + kPad;
@@ -525,10 +342,9 @@ void FishTank::rebuildAtlas(const QList<QImage> &sprites)
         return QRectF(double(r.x()) / kAtlasWidth, double(r.y()) / atlasH, double(r.width()) / kAtlasWidth,
                       double(r.height()) / atlasH);
     };
-    m_spriteUv.clear();
-    for (int i = 0; i < sprites.size(); ++i) {
-        painter.drawImage(placed[i].topLeft(), sprites[i]);
-        m_spriteUv.push_back(normalised(placed[i]));
+    for (int i = 0; i < images.size(); ++i) {
+        painter.drawImage(placed[i].topLeft(), images[i]);
+        m_sprites[i].uv = normalised(placed[i]);
     }
     painter.drawImage(placed.back().topLeft(), makeFoodSprite());
     m_foodUv = normalised(placed.back());
@@ -541,61 +357,52 @@ void FishTank::rebuildAtlas(const QList<QImage> &sprites)
 
 QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
-    auto *node = static_cast<TankNode *>(oldNode);
+    auto *node = static_cast<SpriteNode *>(oldNode);
     if (!node)
-        node = new TankNode;
+        node = new SpriteNode;
 
     if (m_atlasDirty && !m_atlas.isNull()) {
         m_atlasDirty = false;
-        QSGTexture *t = window()->createTextureFromImage(
-            m_atlas, QQuickWindow::CreateTextureOptions(QQuickWindow::TextureHasAlphaChannel | QQuickWindow::TextureHasMipmaps));
-        t->setFiltering(QSGTexture::Linear);
-        t->setMipmapFiltering(QSGTexture::Linear);
-        node->material.texture = t;
-        node->texture.reset(t);
-        node->markDirty(QSGNode::DirtyMaterial);
+        node->setAtlas(window(), m_atlas);
     }
-    if (node->material.fogColor != m_fogColor) {
-        node->material.fogColor = m_fogColor;
-        node->markDirty(QSGNode::DirtyMaterial);
-    }
+    node->setFogColor(m_fogColor);
 
     // Fish whose sprite is not in the atlas (yet) are skipped
     std::vector<int> order;
-    if (node->material.texture) {
+    if (node->hasAtlas()) {
         for (int i = 0; i < int(m_fish.size()); ++i) {
-            if (m_fish[i].sprite < m_spriteUv.size())
+            if (m_fish[i].sprite < m_sprites.size())
                 order.push_back(i);
         }
     }
     const int nFish = int(order.size());
-    const int nFood = node->material.texture ? int(m_food.size()) : 0;
-    const int vertexCount = nFish * kVertsPerFish + nFood * 4;
-    const int indexCount = nFish * kIndicesPerFish + nFood * 6;
+    const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
 
-    QSGGeometry &g = node->geometry;
-    if (g.vertexCount() != vertexCount || g.indexCount() != indexCount)
-        g.allocate(vertexCount, indexCount);
-
-    auto *v = static_cast<Vertex *>(g.vertexData());
-    quint32 *idx = g.indexDataAsUInt();
+    quint32 *idx = nullptr;
+    FishMesh::Vertex *v = node->reserve(nFish * FishMesh::kVertsPerFish + nFood * 4,
+                                        nFish * FishMesh::kIndicesPerFish + nFood * 6, &idx);
     quint32 base = 0;
 
     // Back to front: one draw call, blending order comes from vertex order
     std::sort(order.begin(), order.end(), [&](int a, int b) { return m_fish[a].depth > m_fish[b].depth; });
     for (int i : order) {
-        writeFish(m_fish[i], m_spriteUv[m_fish[i].sprite], v, idx, base);
-        v += kVertsPerFish;
-        idx += kIndicesPerFish;
-        base += kVertsPerFish;
+        const DcFish &f = m_fish[i];
+        const SpriteInfo &sprite = m_sprites[f.sprite];
+        const FishMesh::Pose pose{f.x, f.y, f.w, f.h, f.facing, f.phase, f.amplitude, f.tilt, f.depth};
+        FishMesh::writeFish(pose, sprite.uv, *sprite.style, sprite.weights, v, idx, base);
+        v += FishMesh::kVertsPerFish;
+        idx += FishMesh::kIndicesPerFish;
+        base += FishMesh::kVertsPerFish;
     }
+    const float half = kFoodSize * 0.5f;
     for (int i = 0; i < nFood; ++i) {
-        writeFood(m_food[i], m_foodUv, v, idx, base);
+        const DcFood &p = m_food[i];
+        FishMesh::writeQuad(QRectF(p.x - half, p.y - half, kFoodSize, kFoodSize), m_foodUv, p.opacity, v, idx, base);
         v += 4;
         idx += 6;
         base += 4;
     }
 
-    node->markDirty(QSGNode::DirtyGeometry);
+    node->commit();
     return node;
 }

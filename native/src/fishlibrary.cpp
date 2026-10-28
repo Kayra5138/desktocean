@@ -41,17 +41,29 @@ void setError(QString *error, const QString &message)
         *error = message;
 }
 
+const QString kBusy = QStringLiteral("The fish library is busy, try again");
+
+// Plain file names only: never follow a path out of the library directory
+bool safeName(const QString &name)
+{
+    return !name.contains(QLatin1Char('/')) && name != QLatin1String("..") && name != QLatin1String(".");
+}
+
 bool save(const QList<FishEntry> &entries, QString *error)
 {
     QJsonArray list;
     for (const FishEntry &e : entries) {
-        list.append(QJsonObject{
+        QJsonObject o{
             {QStringLiteral("id"), e.id},
             {QStringLiteral("name"), e.name},
             {QStringLiteral("file"), e.file},
+            {QStringLiteral("style"), e.style},
             {QStringLiteral("scale"), e.scale},
             {QStringLiteral("count"), e.count},
-        });
+        };
+        if (!e.wiggle.isEmpty())
+            o.insert(QStringLiteral("wiggle"), e.wiggle);
+        list.append(o);
     }
     const QJsonObject root{{QStringLiteral("version"), kManifestVersion}, {QStringLiteral("fish"), list}};
 
@@ -68,11 +80,71 @@ bool save(const QList<FishEntry> &entries, QString *error)
     return true;
 }
 
+bool writePng(const QString &path, const QImage &image, QString *error)
+{
+    QSaveFile png(path);
+    if (!png.open(QIODevice::WriteOnly) || !image.save(&png, "PNG") || !png.commit()) {
+        setError(error, png.errorString());
+        return false;
+    }
+    return true;
+}
+
+void applyMeta(FishEntry &e, const FishEntry &meta, int minCount)
+{
+    if (!meta.name.trimmed().isEmpty())
+        e.name = meta.name.trimmed();
+    e.style = meta.style.isEmpty() ? QStringLiteral("classic") : meta.style;
+    e.scale = std::clamp(meta.scale, 0.3, 3.0);
+    e.count = std::clamp(meta.count, minCount, 50);
+}
+
+// Crops sprite and mask with the same box; false if the drawing is empty
+bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QString *error)
+{
+    const QRect box = FishLibrary::contentBox(in.sprite);
+    if (box.isNull()) {
+        setError(error, QStringLiteral("The drawing is empty"));
+        return false;
+    }
+    *sprite = in.sprite.convertToFormat(QImage::Format_ARGB32).copy(box);
+    *wiggle = in.wiggle.isNull() ? QImage() : in.wiggle.convertToFormat(QImage::Format_Grayscale8).copy(box);
+    return true;
+}
+
+// Writes sprite (and mask) under fresh file names for `e`; a new name each
+// time so image caches and the tank notice the change
+bool writeDrawing(FishEntry &e, const QImage &sprite, const QImage &wiggle, QString *error)
+{
+    const QString stem = e.id + QLatin1Char('-') + QString::number(QDateTime::currentMSecsSinceEpoch());
+    e.file = stem + QStringLiteral(".png");
+    e.wiggle = wiggle.isNull() ? QString() : stem + QStringLiteral(".wiggle.png");
+    if (!writePng(e.path(), sprite, error))
+        return false;
+    if (!wiggle.isNull() && !writePng(e.wigglePath(), wiggle, error)) {
+        QFile::remove(e.path());
+        return false;
+    }
+    return true;
+}
+
+void removeFiles(const FishEntry &e)
+{
+    QFile::remove(e.path());
+    if (!e.wiggle.isEmpty())
+        QFile::remove(e.wigglePath());
+}
+
 } // namespace
 
 QString FishEntry::path() const
 {
     return QDir(FishLibrary::directory()).filePath(file);
+}
+
+QString FishEntry::wigglePath() const
+{
+    return wiggle.isEmpty() ? QString() : QDir(FishLibrary::directory()).filePath(wiggle);
 }
 
 namespace FishLibrary {
@@ -114,54 +186,48 @@ QList<FishEntry> load(QString *error)
         e.id = o.value(QStringLiteral("id")).toString();
         e.name = o.value(QStringLiteral("name")).toString();
         e.file = o.value(QStringLiteral("file")).toString();
+        e.wiggle = o.value(QStringLiteral("wiggle")).toString();
+        e.style = o.value(QStringLiteral("style")).toString(QStringLiteral("classic"));
         e.scale = std::clamp(o.value(QStringLiteral("scale")).toDouble(1.0), 0.3, 3.0);
         e.count = std::clamp(o.value(QStringLiteral("count")).toInt(1), 0, 50);
-        // Never follow a path out of the library directory
-        if (e.id.isEmpty() || e.file.isEmpty() || e.file.contains(QLatin1Char('/')))
+        if (e.id.isEmpty() || e.file.isEmpty() || !safeName(e.file) || !safeName(e.wiggle))
             continue;
         entries << e;
     }
     return entries;
 }
 
-std::optional<FishEntry> add(const QImage &sprite, const QString &name, double scale, int count, QString *error)
+std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, QString *error)
 {
-    const QImage cropped = cropToContent(sprite);
-    if (cropped.isNull()) {
-        setError(error, QStringLiteral("The drawing is empty"));
+    QImage sprite, wiggle;
+    if (!cropDrawing(drawing, &sprite, &wiggle, error))
         return std::nullopt;
-    }
 
     WriteLock lock;
     if (!lock.locked()) {
-        setError(error, QStringLiteral("The fish library is busy, try again"));
+        setError(error, kBusy);
         return std::nullopt;
     }
 
     FishEntry e;
     e.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    e.name = name.trimmed().isEmpty() ? QStringLiteral("Fish") : name.trimmed();
-    e.file = e.id + QStringLiteral(".png");
-    e.scale = std::clamp(scale, 0.3, 3.0);
-    e.count = std::clamp(count, 1, 50);
+    e.name = QStringLiteral("Fish");
+    applyMeta(e, meta, 1);
 
-    // Sprite first, manifest second: readers never see an entry without its file
-    QSaveFile png(e.path());
-    if (!png.open(QIODevice::WriteOnly) || !cropped.save(&png, "PNG") || !png.commit()) {
-        setError(error, png.errorString());
+    // Files first, manifest second: readers never see an entry without its files
+    if (!writeDrawing(e, sprite, wiggle, error))
         return std::nullopt;
-    }
 
     QString loadError;
     QList<FishEntry> entries = load(&loadError);
     if (!loadError.isEmpty()) {
         setError(error, loadError);
-        QFile::remove(e.path());
+        removeFiles(e);
         return std::nullopt;
     }
     entries << e;
     if (!save(entries, error)) {
-        QFile::remove(e.path());
+        removeFiles(e);
         return std::nullopt;
     }
     return e;
@@ -171,34 +237,32 @@ bool remove(const QString &id, QString *error)
 {
     WriteLock lock;
     if (!lock.locked()) {
-        setError(error, QStringLiteral("The fish library is busy, try again"));
+        setError(error, kBusy);
         return false;
     }
     QList<FishEntry> entries = load(error);
     const auto it = std::find_if(entries.begin(), entries.end(), [&](const FishEntry &e) { return e.id == id; });
     if (it == entries.end())
         return true;
-    const QString path = it->path();
+    const FishEntry gone = *it;
     entries.erase(it);
     if (!save(entries, error))
         return false;
-    QFile::remove(path);
+    removeFiles(gone);
     return true;
 }
 
-bool update(const FishEntry &entry, QString *error)
+bool update(const FishEntry &meta, QString *error)
 {
     WriteLock lock;
     if (!lock.locked()) {
-        setError(error, QStringLiteral("The fish library is busy, try again"));
+        setError(error, kBusy);
         return false;
     }
     QList<FishEntry> entries = load(error);
     for (FishEntry &e : entries) {
-        if (e.id == entry.id) {
-            e.name = entry.name;
-            e.scale = std::clamp(entry.scale, 0.3, 3.0);
-            e.count = std::clamp(entry.count, 0, 50);
+        if (e.id == meta.id) {
+            applyMeta(e, meta, 0);
             return save(entries, error);
         }
     }
@@ -206,44 +270,35 @@ bool update(const FishEntry &entry, QString *error)
     return false;
 }
 
-bool replaceSprite(const FishEntry &entry, const QImage &sprite, QString *error)
+bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *error)
 {
-    const QImage cropped = cropToContent(sprite);
-    if (cropped.isNull()) {
-        setError(error, QStringLiteral("The drawing is empty"));
+    QImage sprite, wiggle;
+    if (!cropDrawing(drawing, &sprite, &wiggle, error))
         return false;
-    }
+
     WriteLock lock;
     if (!lock.locked()) {
-        setError(error, QStringLiteral("The fish library is busy, try again"));
+        setError(error, kBusy);
         return false;
     }
     QList<FishEntry> entries = load(error);
-    const auto it = std::find_if(entries.begin(), entries.end(), [&](const FishEntry &e) { return e.id == entry.id; });
+    const auto it = std::find_if(entries.begin(), entries.end(), [&](const FishEntry &e) { return e.id == meta.id; });
     if (it == entries.end()) {
         setError(error, QStringLiteral("No such fish"));
         return false;
     }
 
-    // A new file name, so image caches and the tank notice the change
-    const QString oldPath = it->path();
+    const FishEntry old = *it;
     FishEntry updated = *it;
-    updated.file = entry.id + QLatin1Char('-') + QString::number(QDateTime::currentMSecsSinceEpoch()) + QStringLiteral(".png");
-    updated.name = entry.name.trimmed().isEmpty() ? it->name : entry.name.trimmed();
-    updated.scale = std::clamp(entry.scale, 0.3, 3.0);
-    updated.count = std::clamp(entry.count, 0, 50);
-
-    QSaveFile png(updated.path());
-    if (!png.open(QIODevice::WriteOnly) || !cropped.save(&png, "PNG") || !png.commit()) {
-        setError(error, png.errorString());
+    applyMeta(updated, meta, 0);
+    if (!writeDrawing(updated, sprite, wiggle, error))
         return false;
-    }
     *it = updated;
     if (!save(entries, error)) {
-        QFile::remove(updated.path());
+        removeFiles(updated);
         return false;
     }
-    QFile::remove(oldPath);
+    removeFiles(old);
     return true;
 }
 
@@ -253,18 +308,21 @@ bool flip(const QString &id, QString *error)
     for (const FishEntry &e : entries) {
         if (e.id != id)
             continue;
-        const QImage img(e.path());
-        if (img.isNull()) {
+        const QImage sprite(e.path());
+        if (sprite.isNull()) {
             setError(error, QStringLiteral("Cannot read %1").arg(e.path()));
             return false;
         }
-        return replaceSprite(e, img.flipped(Qt::Horizontal), error);
+        const QImage wiggle = e.wiggle.isEmpty() ? QImage() : QImage(e.wigglePath());
+        const FishDrawing flipped{sprite.flipped(Qt::Horizontal),
+                                  wiggle.isNull() ? QImage() : wiggle.flipped(Qt::Horizontal)};
+        return replaceDrawing(e, flipped, error);
     }
     setError(error, QStringLiteral("No such fish"));
     return false;
 }
 
-QImage cropToContent(const QImage &image, int margin)
+QRect contentBox(const QImage &image, int margin)
 {
     const QImage img = image.convertToFormat(QImage::Format_ARGB32);
     int left = img.width(), right = -1, top = img.height(), bottom = -1;
@@ -283,8 +341,13 @@ QImage cropToContent(const QImage &image, int margin)
         return {};
     QRect box(QPoint(left, top), QPoint(right, bottom));
     box.adjust(-margin, -margin, margin, margin);
-    box = box.intersected(img.rect());
-    return img.copy(box);
+    return box.intersected(img.rect());
+}
+
+QImage cropToContent(const QImage &image, int margin)
+{
+    const QRect box = contentBox(image, margin);
+    return box.isNull() ? QImage() : image.convertToFormat(QImage::Format_ARGB32).copy(box);
 }
 
 } // namespace FishLibrary

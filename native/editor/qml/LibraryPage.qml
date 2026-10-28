@@ -8,7 +8,7 @@ Kirigami.ScrollablePage {
     id: page
 
     signal drawNew()
-    signal editFish(string fishId, string name, url image, real scale, int copies)
+    signal editFish(var fish)
 
     title: "My aquarium · " + library.swimming + " swimming"
 
@@ -20,7 +20,7 @@ Kirigami.ScrollablePage {
     function editFirstForTest() {
         const fish = library.get(0);
         if (fish.fishId)
-            page.editFish(fish.fishId, fish.name, fish.image, fish.scale, fish.copies);
+            page.editFish(fish);
     }
 
     actions: [
@@ -54,6 +54,7 @@ Kirigami.ScrollablePage {
             required property url image
             required property int copies
             required property real scale
+            required property int index
 
             width: grid.cellWidth
             height: grid.cellHeight
@@ -72,7 +73,7 @@ Kirigami.ScrollablePage {
                 Kirigami.Action {
                     text: "Edit"
                     icon.name: "document-edit"
-                    onTriggered: page.editFish(cell.fishId, cell.name, cell.image, cell.scale, cell.copies)
+                    onTriggered: page.editFish(library.get(cell.index))
                 },
                 Kirigami.Action {
                     text: "Flip"

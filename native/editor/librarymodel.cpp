@@ -37,13 +37,18 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return e.count;
     case ScaleRole:
         return e.scale;
+    case StyleRole:
+        return e.style;
+    case WiggleRole:
+        return e.wiggle.isEmpty() ? QUrl() : QUrl::fromLocalFile(e.wigglePath());
     }
     return {};
 }
 
 QHash<int, QByteArray> LibraryModel::roleNames() const
 {
-    return {{IdRole, "fishId"}, {NameRole, "name"}, {ImageRole, "image"}, {CopiesRole, "copies"}, {ScaleRole, "scale"}};
+    return {{IdRole, "fishId"},   {NameRole, "name"},       {ImageRole, "image"},  {CopiesRole, "copies"},
+            {ScaleRole, "scale"}, {StyleRole, "swimStyle"}, {WiggleRole, "wiggle"}};
 }
 
 QVariantMap LibraryModel::get(int row) const

@@ -19,6 +19,7 @@ constexpr int kMaxHistory = 30;
 // Per-channel difference still treated as "the same colour" by the bucket
 constexpr int kFillTolerance = 48;
 constexpr int kBackgroundTolerance = 36;
+constexpr int kWiggleNeutral = 128;
 
 int colorDistance(QRgb a, QRgb b)
 {
@@ -111,8 +112,10 @@ QPainterPath templateOutline(int index)
 DrawingCanvas::DrawingCanvas(QQuickItem *parent)
     : QQuickPaintedItem(parent)
     , m_image(kCanvasSize, QImage::Format_ARGB32)
+    , m_mask(kCanvasSize, QImage::Format_ARGB32)
 {
     m_image.fill(Qt::transparent);
+    m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
     setAcceptedMouseButtons(Qt::LeftButton);
     setAcceptHoverEvents(true);
     setAntialiasing(true);
@@ -147,6 +150,57 @@ void DrawingCanvas::setBrushSize(int size)
     Q_EMIT brushSizeChanged();
 }
 
+void DrawingCanvas::setMotionMode(bool on)
+{
+    if (on == m_motionMode)
+        return;
+    commitSelection();
+    m_motionMode = on;
+    update();
+    Q_EMIT motionModeChanged();
+}
+
+void DrawingCanvas::setWiggleBrush(Wiggle brush)
+{
+    if (brush == m_wiggleBrush)
+        return;
+    m_wiggleBrush = brush;
+    Q_EMIT wiggleBrushChanged();
+}
+
+FishDrawing DrawingCanvas::drawing() const
+{
+    if (hasSelection()) {
+        // Include the floating selection without committing it
+        QImage composed = m_image;
+        QPainter p(&composed);
+        p.setRenderHint(QPainter::SmoothPixmapTransform);
+        p.drawImage(m_floatRect, m_floating);
+        p.end();
+        return {composed, m_hasWiggle ? m_mask : QImage()};
+    }
+    return {m_image, m_hasWiggle ? m_mask : QImage()};
+}
+
+void DrawingCanvas::resetWiggle()
+{
+    if (!m_hasWiggle)
+        return;
+    pushUndo();
+    m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
+    contentModified();
+}
+
+void DrawingCanvas::paintTailWiggleForTest()
+{
+    pushUndo();
+    QPainter p(&m_mask);
+    p.fillRect(QRect(0, 0, kCanvasSize.width() / 3, kCanvasSize.height()), QColor(255, 255, 255));
+    p.end();
+    setMotionMode(true);
+    contentModified();
+}
+
 void DrawingCanvas::setShapeFilled(bool filled)
 {
     if (filled == m_shapeFilled)
@@ -159,7 +213,7 @@ void DrawingCanvas::setShapeFilled(bool filled)
 
 void DrawingCanvas::pushUndo()
 {
-    m_undo.append(m_image);
+    m_undo.append({m_image, m_mask});
     if (m_undo.size() > kMaxHistory)
         m_undo.removeFirst();
     m_redo.clear();
@@ -172,8 +226,10 @@ void DrawingCanvas::undo()
         return;
     // The snapshot on top predates lifting the selection, so just let it go
     dropFloating();
-    m_redo.append(m_image);
-    m_image = m_undo.takeLast();
+    m_redo.append({m_image, m_mask});
+    const Snapshot snap = m_undo.takeLast();
+    m_image = snap.image;
+    m_mask = snap.mask;
     Q_EMIT historyChanged();
     contentModified();
 }
@@ -183,8 +239,10 @@ void DrawingCanvas::redo()
     if (m_redo.isEmpty())
         return;
     commitSelection();
-    m_undo.append(m_image);
-    m_image = m_redo.takeLast();
+    m_undo.append({m_image, m_mask});
+    const Snapshot snap = m_redo.takeLast();
+    m_image = snap.image;
+    m_mask = snap.mask;
     Q_EMIT historyChanged();
     contentModified();
 }
@@ -198,6 +256,7 @@ void DrawingCanvas::clear()
         return;
     pushUndo();
     m_image.fill(Qt::transparent);
+    m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
     contentModified();
 }
 
@@ -210,6 +269,7 @@ void DrawingCanvas::flipHorizontal()
     }
     pushUndo();
     m_image = m_image.flipped(Qt::Horizontal);
+    m_mask = m_mask.flipped(Qt::Horizontal);
     contentModified();
 }
 
@@ -224,7 +284,7 @@ bool DrawingCanvas::hasOpaqueBorder(const QUrl &url) const
     return std::all_of(std::begin(corners), std::end(corners), [](QRgb c) { return qAlpha(c) > 200; });
 }
 
-void DrawingCanvas::replaceImage(const QImage &source, bool keepHistory)
+void DrawingCanvas::replaceImage(const QImage &source, const QImage &wiggle, bool keepHistory)
 {
     commitSelection();
     if (keepHistory) {
@@ -235,13 +295,19 @@ void DrawingCanvas::replaceImage(const QImage &source, bool keepHistory)
         Q_EMIT historyChanged();
     }
     m_image.fill(Qt::transparent);
+    m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
     const QSize target = source.size().scaled(kCanvasSize * 0.9, Qt::KeepAspectRatio);
+    const QRect placed(QPoint((kCanvasSize.width() - target.width()) / 2, (kCanvasSize.height() - target.height()) / 2),
+                       target);
     QPainter p(&m_image);
     p.setRenderHint(QPainter::SmoothPixmapTransform);
-    p.drawImage(QRect(QPoint((kCanvasSize.width() - target.width()) / 2, (kCanvasSize.height() - target.height()) / 2),
-                      target),
-                source);
+    p.drawImage(placed, source);
     p.end();
+    if (!wiggle.isNull()) {
+        QPainter mp(&m_mask);
+        mp.setRenderHint(QPainter::SmoothPixmapTransform);
+        mp.drawImage(placed, wiggle.convertToFormat(QImage::Format_ARGB32));
+    }
     contentModified();
 }
 
@@ -267,17 +333,18 @@ QString DrawingCanvas::importImage(const QUrl &url, bool removeBackground)
     const QImage cropped = FishLibrary::cropToContent(img, 0);
     if (cropped.isNull())
         return QStringLiteral("The image is empty after removing the background");
-    replaceImage(cropped, true);
+    replaceImage(cropped, {}, true);
     return {};
 }
 
-QString DrawingCanvas::loadImage(const QUrl &url)
+QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle)
 {
     QImageReader reader(QQmlFile::urlToLocalFileOrQrc(url));
     const QImage img = reader.read();
     if (img.isNull())
         return QStringLiteral("Could not open the fish: %1").arg(reader.errorString());
-    replaceImage(img.convertToFormat(QImage::Format_ARGB32), false);
+    const QImage mask = wiggle.isEmpty() ? QImage() : QImage(QQmlFile::urlToLocalFileOrQrc(wiggle));
+    replaceImage(img.convertToFormat(QImage::Format_ARGB32), mask.size() == img.size() ? mask : QImage(), false);
     return {};
 }
 
@@ -286,6 +353,7 @@ void DrawingCanvas::loadTemplate(int index)
     commitSelection();
     pushUndo();
     m_image.fill(Qt::transparent);
+    m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
     QPainter p(&m_image);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(QPen(QColor(0x2a, 0x2a, 0x35), 7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -295,34 +363,88 @@ void DrawingCanvas::loadTemplate(int index)
     contentModified();
 }
 
-QString DrawingCanvas::saveToLibrary(const QString &name, double scale, int count)
+QString DrawingCanvas::saveToLibrary(const QString &name, double scale, int count, const QString &style)
 {
     commitSelection();
+    FishEntry meta;
+    meta.name = name;
+    meta.scale = scale;
+    meta.count = count;
+    meta.style = style;
     QString error;
-    if (!FishLibrary::add(m_image, name, scale, count, &error))
+    if (!FishLibrary::add(drawing(), meta, &error))
         return error.isEmpty() ? QStringLiteral("Could not save the fish") : error;
     return {};
 }
 
-QString DrawingCanvas::saveOver(const QString &id, const QString &name, double scale, int count)
+QString DrawingCanvas::saveOver(const QString &id, const QString &name, double scale, int count, const QString &style)
 {
     commitSelection();
-    FishEntry entry;
-    entry.id = id;
-    entry.name = name;
-    entry.scale = scale;
-    entry.count = count;
+    FishEntry meta;
+    meta.id = id;
+    meta.name = name;
+    meta.scale = scale;
+    meta.count = count;
+    meta.style = style;
     QString error;
-    if (!FishLibrary::replaceSprite(entry, m_image, &error))
+    if (!FishLibrary::replaceDrawing(meta, drawing(), &error))
         return error.isEmpty() ? QStringLiteral("Could not save the fish") : error;
     return {};
 }
 
 void DrawingCanvas::contentModified()
 {
-    m_empty = !hasSelection() && FishLibrary::cropToContent(m_image, 0).isNull();
+    m_empty = !hasSelection() && FishLibrary::contentBox(m_image, 0).isNull();
+    // Any pixel away from neutral means the user painted motion
+    m_hasWiggle = false;
+    for (int y = 0; y < m_mask.height() && !m_hasWiggle; ++y) {
+        const auto *row = reinterpret_cast<const QRgb *>(m_mask.constScanLine(y));
+        for (int x = 0; x < m_mask.width(); ++x) {
+            if (qRed(row[x]) != kWiggleNeutral) {
+                m_hasWiggle = true;
+                break;
+            }
+        }
+    }
+    m_overlayDirty = true;
     update();
     Q_EMIT contentChanged();
+}
+
+void DrawingCanvas::paintWiggle(QPointF from, QPointF to)
+{
+    const int g = m_wiggleBrush == More ? 255 : m_wiggleBrush == Less ? 0 : kWiggleNeutral;
+    QPainter p(&m_mask);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(QColor(g, g, g), m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    if (from == to)
+        p.drawPoint(from);
+    else
+        p.drawLine(from, to);
+    m_overlayDirty = true;
+}
+
+const QImage &DrawingCanvas::wiggleOverlay()
+{
+    if (!m_overlayDirty)
+        return m_overlay;
+    m_overlayDirty = false;
+    // Red where it wiggles more, blue where it is stiffer; only over the drawing
+    m_overlay = QImage(kCanvasSize, QImage::Format_ARGB32_Premultiplied);
+    m_overlay.fill(Qt::transparent);
+    for (int y = 0; y < kCanvasSize.height(); ++y) {
+        const auto *img = reinterpret_cast<const QRgb *>(m_image.constScanLine(y));
+        const auto *mask = reinterpret_cast<const QRgb *>(m_mask.constScanLine(y));
+        auto *out = reinterpret_cast<QRgb *>(m_overlay.scanLine(y));
+        for (int x = 0; x < kCanvasSize.width(); ++x) {
+            const int d = qRed(mask[x]) - kWiggleNeutral;
+            if (d == 0 || qAlpha(img[x]) < 16)
+                continue;
+            const int a = std::min(200, std::abs(d) * 3 / 2);
+            out[x] = d > 0 ? qPremultiply(qRgba(235, 60, 60, a)) : qPremultiply(qRgba(50, 120, 240, a));
+        }
+    }
+    return m_overlay;
 }
 
 // --- Selection ---------------------------------------------------------------
@@ -474,6 +596,14 @@ void DrawingCanvas::mousePressEvent(QMouseEvent *event)
     const QPointF p = toImage(event->position());
     m_start = m_last = p;
 
+    if (m_motionMode) {
+        pushUndo();
+        m_drag = Drag::Stroke;
+        paintWiggle(p, p);
+        update();
+        return;
+    }
+
     switch (m_tool) {
     case Fill:
         floodFill(p.toPoint());
@@ -521,7 +651,10 @@ void DrawingCanvas::mouseMoveEvent(QMouseEvent *event)
     case Drag::None:
         return;
     case Drag::Stroke:
-        drawSegment(m_last, p);
+        if (m_motionMode)
+            paintWiggle(m_last, p);
+        else
+            drawSegment(m_last, p);
         break;
     case Drag::Shape:
         break;
@@ -617,6 +750,8 @@ void DrawingCanvas::paint(QPainter *painter)
     painter->fillRect(m_view, QBrush(checker));
     painter->setRenderHint(QPainter::SmoothPixmapTransform);
     painter->drawImage(m_view, m_image);
+    if (m_motionMode)
+        painter->drawImage(m_view, wiggleOverlay());
 
     const qreal scale = m_view.width() / kCanvasSize.width();
     painter->setRenderHint(QPainter::Antialiasing);
@@ -649,7 +784,7 @@ void DrawingCanvas::paint(QPainter *painter)
     }
 
     // Brush outline under the cursor
-    const bool brushLike = m_tool == Brush || m_tool == Eraser;
+    const bool brushLike = m_motionMode || m_tool == Brush || m_tool == Eraser;
     if (brushLike && m_hover.x() >= 0 && m_view.contains(m_hover)) {
         const qreal r = m_brushSize * 0.5 * scale;
         painter->setBrush(Qt::NoBrush);

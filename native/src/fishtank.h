@@ -14,6 +14,8 @@
 
 #include <desktocean_sim.h>
 
+#include "fishmesh.h"
+
 #include <vector>
 
 // The living part of the aquarium: owns the Rust simulation, ticks it at `fps`,
@@ -98,7 +100,7 @@ private:
     void loadLibrary(bool animateNew);
     void seedLibrary();
     void watchLibrary();
-    void rebuildAtlas(const QList<QImage> &sprites);
+    void rebuildAtlas(const QList<QImage> &images);
     QPointF cursorInItem() const;
     void checkHealth();
 
@@ -123,9 +125,16 @@ private:
     std::vector<DcFish> m_fish;
     std::vector<DcFood> m_food;
 
-    // Sprite atlas: one rect per library sprite plus the food pellet
+    // One per library fish drawing, indexed by DcFish::sprite
+    struct SpriteInfo {
+        QRectF uv;                                  // normalised atlas rect
+        const FishMesh::Style *style = nullptr;
+        std::vector<float> weights;                 // wiggle mask per vertex, or empty
+    };
+    std::vector<SpriteInfo> m_sprites;
+
+    // Sprite atlas: every fish drawing plus the food pellet
     QImage m_atlas;
-    std::vector<QRectF> m_spriteUv;   // normalised atlas rects, indexed by DcFish::sprite
     QRectF m_foodUv;
     bool m_atlasDirty = false;
 };
