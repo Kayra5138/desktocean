@@ -159,6 +159,9 @@ void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  //
 void dc_sim_set_exits(DcSim *sim, uint32_t left, uint32_t right);  // side edges with a screen next to them
 uint32_t dc_sim_take_departures(DcSim *sim, DcDeparture *out, uint32_t cap);  // drains them
 bool dc_sim_arrive(DcSim *sim, uint64_t id, int32_t side, float y);  // swim in through a side edge
+void dc_sim_carry_to(DcSim *sim, float x, float y);   // bubble wand: the bubble is here
+void dc_sim_carry_end(DcSim *sim);                     // let go: it pops, the fish swims out
+bool dc_sim_carry_bubble(DcSim *sim, DcBubble *out);   // alpha = how close a fish is to coming in
 uint32_t dc_sim_hearts(DcSim *sim, DcBubble *out, uint32_t cap);   // radius = half size
 uint32_t dc_sim_trust(DcSim *sim, DcTrust *out, uint32_t cap);      // returns total count
 void dc_sim_set_trust(DcSim *sim, const DcTrust *list, uint32_t count);

@@ -4,10 +4,12 @@ use std::f32::consts::TAU;
 use crate::relations::{FRIEND, RIVAL, Relations};
 use crate::rng::Rng;
 
+mod carry;
 mod crawl;
 mod eggs;
 mod pet;
 mod travel;
+pub use carry::Carry;
 pub use crawl::{Crawler, CrawlerSpec, Gait};
 pub use eggs::{Egg, HATCH_SECS};
 pub use pet::Heart;
@@ -298,6 +300,8 @@ enum Mode {
     Lay { partner: u64, count: u32, left: f32 },
     /// Being stroked with the cursor: holds still and enjoys it
     Petted { left: f32 },
+    /// Swimming into, or riding in, the bubble (see carry.rs)
+    Bubbled,
 }
 
 /// The opening of a cave or hollow, in scene pixels: fish can swim in there.
@@ -578,6 +582,8 @@ pub struct Sim {
     /// Side edges that lead to another screen, and fish that left through them
     exits: (bool, bool),
     departures: Vec<Departure>,
+    /// The bubble carrying a fish around, while the wand is in use
+    carry: Option<Carry>,
     /// Hearts floating up from petted fish
     hearts: Vec<Heart>,
     last_pointer: Option<(f32, f32)>,
@@ -626,6 +632,7 @@ impl Sim {
             shelters: Vec::new(),
             exits: (false, false),
             departures: Vec::new(),
+            carry: None,
             hearts: Vec::new(),
             last_pointer: None,
             saved_trust: HashMap::new(),
@@ -1242,6 +1249,10 @@ impl Sim {
         }
         let dt = dt.clamp(0.0, 0.1);
         self.time += dt;
+        // While the bubble is out, the cursor is busy with it: nobody follows,
+        // flees from or gets petted by it
+        self.update_carry(dt);
+        let pointer = pointer.filter(|_| self.carry.is_none());
         self.update_pointer(dt, pointer);
         self.update_petting(dt, pointer);
         self.update_food(dt);
@@ -1349,6 +1360,10 @@ impl Sim {
         }
         if let Mode::Petted { left } = f.mode {
             self.step_petted(f, left, dt);
+            return;
+        }
+        if let Mode::Bubbled = f.mode {
+            self.step_bubbled(f, dt);
             return;
         }
         let p = f.personality;
@@ -1679,7 +1694,8 @@ impl Sim {
                 | Mode::Eating { .. }
                 | Mode::Hide { .. }
                 | Mode::Lay { .. }
-                | Mode::Petted { .. } => {
+                | Mode::Petted { .. }
+                | Mode::Bubbled => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);

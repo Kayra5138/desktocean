@@ -212,6 +212,7 @@ aquarium adds about 60 MB of memory, mostly the sprite atlas.
 | `scripts/` | Install, build, reload and measure helpers |
 | `applet/` | The Desktocean control widget (Plasma applet) |
 | `applet-foodjar/` | The fish food jar widget (Plasma applet) |
+| `applet-bubble/` | The bubble wand widget: carry a fish somewhere else (Plasma applet) |
 | `dev/preview.qml` | Standalone preview window |
 
 ## Roadmap

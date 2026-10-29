@@ -72,6 +72,11 @@ public:
     // Drops food right below `item` (the food jar widget) into the tank on its
     // screen; false if no tank is there
     Q_INVOKABLE bool feedBelow(QQuickItem *item);
+    // The bubble wand: the bubble is at (x, y) in `item` (the wand's mouse
+    // area); a fish next to it for a moment swims in and rides along.
+    // carryEnd() lets go.
+    Q_INVOKABLE bool carryAt(QQuickItem *item, qreal x, qreal y);
+    Q_INVOKABLE void carryEnd();
     // Drops food at global screen x (y picks the screen when screens are stacked; -1 = any)
     Q_INVOKABLE bool feedAtGlobalX(qreal x, qreal y = -1);
     // Drops food above the cursor in the tank under it ("Feed fish at cursor" shortcut)

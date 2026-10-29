@@ -323,6 +323,57 @@ bool feedUnderCursor()
 }
 } // namespace
 
+namespace {
+QPointer<FishTank> &carryTank()
+{
+    static QPointer<FishTank> tank;
+    return tank;
+}
+} // namespace
+
+bool TankHub::carryAt(QQuickItem *item, qreal x, qreal y)
+{
+    if (!item || !item->window())
+        return false;
+    FishTank *found = nullptr;
+    QPointF local;
+    // A widget on the desktop shares the wallpaper's window
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (t && t->window() == item->window() && t->width() > 0) {
+            found = t;
+            local = item->mapToItem(t, QPointF(x, y));
+            break;
+        }
+    }
+    if (!found) {
+        const QPointF global = item->mapToGlobal(QPointF(x, y));
+        for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+            if (!t || t->width() <= 0)
+                continue;
+            const QPointF p = t->mapFromGlobal(global);
+            if (p.x() >= 0 && p.y() >= 0 && p.x() < t->width() && p.y() < t->height()) {
+                found = t;
+                local = p;
+                break;
+            }
+        }
+    }
+    // Moved over to another screen: the old bubble pops
+    if (carryTank() && carryTank() != found)
+        carryTank()->carryEnd();
+    carryTank() = found;
+    if (found)
+        found->carryTo(local);
+    return found;
+}
+
+void TankHub::carryEnd()
+{
+    if (carryTank())
+        carryTank()->carryEnd();
+    carryTank() = nullptr;
+}
+
 bool TankHub::feedBelow(QQuickItem *item)
 {
     if (!item || !item->window())

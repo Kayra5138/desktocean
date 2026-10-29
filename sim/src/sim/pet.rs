@@ -33,6 +33,16 @@ pub struct Heart {
 impl Heart {
     pub const LIFETIME: f32 = 2.2;
 
+    pub(super) fn new(x: f32, y: f32, size: f32, seed: f32) -> Self {
+        Heart {
+            x,
+            y,
+            size,
+            age: 0.0,
+            seed,
+        }
+    }
+
     pub fn alpha(&self) -> f32 {
         let t = self.age / Self::LIFETIME;
         (t * 6.0).min(1.0) * (1.0 - t).max(0.0)

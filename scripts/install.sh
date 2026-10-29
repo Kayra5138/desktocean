@@ -91,6 +91,13 @@ else
     kpackagetool6 -t Plasma/Applet -i "$ROOT/applet-foodjar" >/dev/null
     echo "Installed the fish food jar: add \"Desktocean Fish Food\" from the desktop's \"Add Widgets…\""
 fi
+if kpackagetool6 -t Plasma/Applet -s desktocean.bubble >/dev/null 2>&1; then
+    kpackagetool6 -t Plasma/Applet -u "$ROOT/applet-bubble" >/dev/null
+    echo "Upgraded the bubble wand widget"
+else
+    kpackagetool6 -t Plasma/Applet -i "$ROOT/applet-bubble" >/dev/null
+    echo "Installed the bubble wand: add \"Desktocean Bubble Wand\" from the desktop's \"Add Widgets…\""
+fi
 
 if kpackagetool6 -t Plasma/Wallpaper -s desktocean.aquarium >/dev/null 2>&1; then
     kpackagetool6 -t Plasma/Wallpaper -u "$ROOT/package"

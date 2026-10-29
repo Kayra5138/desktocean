@@ -1,5 +1,6 @@
 import QtQuick
 import "../package/contents/ui"
+import Desktocean.Core
 
 // Runs the aquarium in a normal window, without plasmashell:
 //   /usr/lib/qt6/bin/qml -I build/qml dev/preview.qml
@@ -78,6 +79,23 @@ Window {
         interval: 600
         running: Qt.application.arguments.indexOf("--matchmake") >= 0
         onTriggered: aquarium.befriendAll()
+    }
+
+    // `--bubble` blows a bubble that drifts slowly round the middle of the
+    // tank, as the bubble wand would; fish next to it come in
+    Timer {
+        readonly property bool on: Qt.application.arguments.indexOf("--bubble") >= 0
+        property real t: 0
+        interval: 33
+        repeat: true
+        running: on
+        onTriggered: {
+            t += interval / 1000;
+            // Waits in the middle first, so someone can come in, then goes round
+            const go = Math.max(0, t - 8);
+            TankHub.carryAt(aquarium, aquarium.width / 2 + Math.sin(go * 0.25) * aquarium.width * 0.25,
+                            aquarium.height * 0.45 + Math.sin(go * 0.5) * aquarium.height * 0.15);
+        }
     }
 
     // `--announce` simulates a notification a second after start

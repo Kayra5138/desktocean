@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 84" width="64" height="84">
+  <defs>
+    <radialGradient id="soap" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="0.55" stop-color="#bfe8ff" stop-opacity="0.25"/>
+      <stop offset="0.85" stop-color="#e6c8ff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#9fd8ff" stop-opacity="0.6"/>
+    </radialGradient>
+  </defs>
+  <!-- Handle -->
+  <rect x="29" y="44" width="6" height="38" rx="3" fill="#f2a65a" stroke="#8a4f1c" stroke-width="2"/>
+  <!-- Ring with a soap film -->
+  <circle cx="32" cy="24" r="19" fill="url(#soap)" stroke="#e8792f" stroke-width="5"/>
+  <path d="M 21 17 Q 25 10 33 9" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+</svg>

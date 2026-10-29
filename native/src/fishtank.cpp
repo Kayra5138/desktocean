@@ -538,6 +538,20 @@ void FishTank::setExits(bool left, bool right)
     dc_sim_set_exits(m_sim, left, right);
 }
 
+void FishTank::carryTo(QPointF at)
+{
+    dc_sim_carry_to(m_sim, float(at.x()), float(at.y()));
+    pullState();
+    update();
+}
+
+void FishTank::carryEnd()
+{
+    dc_sim_carry_end(m_sim);
+    pullState();
+    update();
+}
+
 void FishTank::refreshGrowth()
 {
     // Once a minute is also often enough to keep trust and eggs saved
@@ -1272,6 +1286,8 @@ void FishTank::pullState()
     m_ripples.resize(n);
     m_ripples.resize(std::min(n, dc_sim_ripples(m_sim, m_ripples.data(), n)));
 
+    m_carrying = dc_sim_carry_bubble(m_sim, &m_carryBubble);
+
     n = dc_sim_hearts(m_sim, nullptr, 0);
     m_hearts.resize(n);
     m_hearts.resize(std::min(n, dc_sim_hearts(m_sim, m_hearts.data(), n)));
@@ -1658,7 +1674,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     const int nFish = int(order.size());
     const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
-    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size() + m_hearts.size()) : 0;
+    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size() + m_hearts.size()) + (m_carrying ? 1 : 0) : 0;
     // Caves are drawn twice: whole behind the fish, and cut open over the fish inside
     const int nDecor = node->hasAtlas() ? int(std::accumulate(m_decor.begin(), m_decor.end(), 0, [&](int n, const DecorItem &d) {
                                                if (d.sprite >= m_sprites.size())
@@ -1775,6 +1791,16 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         for (const DcBubble &b : m_bubbles) {
             FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv,
                                 b.alpha, v, idx, base);
+            v += 4;
+            idx += 6;
+            base += 4;
+        }
+        // The wand's bubble, around the fish it carries; it firms up as a
+        // fish decides to come in
+        if (m_carrying) {
+            const DcBubble &b = m_carryBubble;
+            FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv,
+                                0.55f + 0.35f * b.alpha, v, idx, base);
             v += 4;
             idx += 6;
             base += 4;

@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Desktocean"
+            }
+        ],
+        "Category": "Fun and Games",
+        "Description": "A bubble wand for the Desktocean aquarium: blow a bubble, hold it by a fish, and it swims in to be carried somewhere else",
+        "Icon": "applications-games",
+        "Id": "desktocean.bubble",
+        "License": "GPL-3.0-or-later",
+        "Name": "Desktocean Bubble Wand",
+        "Version": "0.1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

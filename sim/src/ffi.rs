@@ -637,6 +637,49 @@ pub unsafe extern "C" fn dc_sim_arrive(handle: *mut DcSim, id: u64, side: i32, y
     with_sim(handle, false, |s| y.is_finite() && s.arrive(id, side, y))
 }
 
+/// The bubble wand: the bubble is at (x, y) (scene pixels); starts one if needed.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_to(handle: *mut DcSim, x: f32, y: f32) {
+    with_sim(handle, (), |s| {
+        if x.is_finite() && y.is_finite() {
+            s.carry_to(x, y)
+        }
+    });
+}
+
+/// Let go of the bubble: it pops and the fish inside swims out.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_end(handle: *mut DcSim) {
+    with_sim(handle, (), |s| s.carry_end());
+}
+
+/// The bubble to draw, if one is out (alpha: 0..1, how close a fish is to coming in).
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for one write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_bubble(handle: *mut DcSim, out: *mut DcBubble) -> bool {
+    with_sim(handle, false, |s| {
+        let (Some((x, y, radius)), Some(c)) = (s.carry_bubble(), s.carry()) else {
+            return false;
+        };
+        let progress = c.invite_progress();
+        // SAFETY: caller provides room for one element.
+        if let Some(o) = unsafe { out.as_mut() } {
+            *o = DcBubble {
+                x,
+                y,
+                radius,
+                alpha: progress,
+            };
+        }
+        true
+    })
+}
+
 /// A clutch of eggs
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
