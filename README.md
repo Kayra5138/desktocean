@@ -50,7 +50,10 @@ decorations and drop them into the tank.
 - **Your computer in the water**: when a notification arrives a fish swims up and blows bubbles
   (not in Do Not Disturb); when the CPU is busy the current picks up, plants sway harder and more
   bubbles rise. Fish also let out a few bubbles now and then. Both can be turned off
-- Water, light rays, caustics, sand and bubbles in a single fragment shader
+- **Weather** on the surface and in the light (see [Weather](#weather) below): rain rings and
+  streaks, snow that lands and melts, greyer light under clouds and fog, lightning in storms,
+  rougher water in the wind. Real weather for your city, or simulated seasonal weather
+- Water, light rays, caustics, sand, bubbles and weather in a single fragment shader
 - Right-click the desktop → **Desktocean** → Feed fish (drops food above the cursor), Clear food,
   Draw a fish…, My fish…, Tank layout…, Pause aquarium
 - Fish eat only with their **mouth** (marked in the editor with the Mouth tool, or guessed from the
@@ -94,6 +97,34 @@ an optional `.wiggle.png` motion mask, and a `fish.json` manifest. Friendships a
 in `~/.local/share/desktocean/state.json`. On first run the tank is seeded with four starter fish;
 remove or keep them from the editor's **My aquarium** page.
 
+## Weather
+
+Settings → **Weather effects** (on by default) and **City**:
+
+- With a city set (`Istanbul`, `Paris, France`, or coordinates like `48.85, 2.35`) the current
+  conditions come from [Open-Meteo](https://open-meteo.com) (free, no account) every 30 minutes.
+  The city is looked up once with Open-Meteo's geocoding API and its coordinates are cached in
+  `~/.cache/desktocean/weather.json` together with the last reading. **Only the city name and its
+  coordinates leave your computer.**
+- With no city, or while offline (a reading up to 2 hours old is kept through an outage), the
+  weather is simulated: it changes every 20–60 minutes with odds that follow the season. Snow only
+  falls in the cold months (south of the equator the seasons flip when a city is known).
+
+Open-Meteo's WMO weather codes map to clear, cloudy, fog, drizzle, rain, heavy rain, snow and storm,
+each with an intensity, plus wind speed and temperature. In the tank:
+
+| Weather | What you see |
+|---|---|
+| Drizzle, rain, heavy rain | Drops hit the surface with small rings and plunge in as short streaks (slanted in the wind); light gets greyer and dimmer |
+| Storm | Heavy rain, a dark sky and lightning every 5–20 s that lights up the water and the fish |
+| Snow | Flakes float on the surface and a few sink and melt just below it; the surface turns paler |
+| Cloudy, fog | Fewer light rays, greyer light; in fog distant fish fade into a grey haze |
+| Wind | A rougher surface and a stronger current: plants sway harder and more bubbles rise (weather stirs the water like a busy CPU does) |
+
+Changes roll in over about 20 seconds. Everything is drawn in the existing water shader, in a band
+just below the surface, and skipped entirely when its amount is zero; the C++ side updates a few
+numbers once a second at most. The diagnostics overlay shows the weather and where it came from.
+
 ## Development
 
 Run the aquarium in a plain window, without touching plasmashell:
@@ -103,6 +134,8 @@ Run the aquarium in a plain window, without touching plasmashell:
 ```
 
 Click to feed, <kbd>Space</kbd> to pause, <kbd>S</kbd> to save `dev/preview.png`.
+`-- --weather rain` forces the weather (`clear`, `cloudy`, `fog`, `drizzle`, `rain`, `heavy-rain`,
+`snow`, `storm`, `wind`), `--city Paris` uses the real weather and `--no-weather` turns it off.
 Run `./scripts/build-shaders.sh` after editing anything in `shaders/`, and
 `cmake --build build` after editing `sim/` or `native/`. Rust tests: `cargo test` in `sim/`.
 

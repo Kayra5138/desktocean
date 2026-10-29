@@ -18,6 +18,7 @@
 #include "fishlibrary.h"
 #include "fishmesh.h"
 
+#include <algorithm>
 #include <vector>
 
 // The living part of the aquarium: owns the Rust simulation, ticks it at `fps`,
@@ -57,6 +58,10 @@ class FishTank : public QQuickItem
     Q_PROPERTY(bool reactToCpu READ reactToCpu WRITE setReactToCpu NOTIFY reactToCpuChanged)
     // Smoothed CPU load 0..1 (0 when reactToCpu is off); drives the water's agitation
     Q_PROPERTY(qreal agitation READ agitation NOTIFY agitationChanged)
+    // Wind and storms stir the water too (0..1); added to the CPU load in `agitation`
+    Q_PROPERTY(qreal weatherStir READ weatherStir WRITE setWeatherStir NOTIFY agitationChanged)
+    // Overcast and lightning: scales the fishes' light (1 = clear sky)
+    Q_PROPERTY(qreal weatherLight READ weatherLight WRITE setWeatherLight NOTIFY weatherLightChanged)
     // Water clock: like `time`, but runs faster when the water is agitated
     Q_PROPERTY(qreal flow READ flow NOTIFY timeChanged)
     // Close friends have babies now and then, up to maxFish fish in the tank
@@ -109,7 +114,11 @@ public:
     qreal daylight() const { return m_daylight; }
     bool reactToCpu() const { return m_reactToCpu; }
     void setReactToCpu(bool react);
-    qreal agitation() const { return m_reactToCpu ? m_cpuLoad : 0; }
+    qreal agitation() const { return std::min<qreal>(1, (m_reactToCpu ? m_cpuLoad : 0) + m_weatherStir); }
+    qreal weatherStir() const { return m_weatherStir; }
+    void setWeatherStir(qreal stir);
+    qreal weatherLight() const { return m_weatherLight; }
+    void setWeatherLight(qreal light);
     qreal flow() const { return m_flow; }
     bool babies() const { return m_babies; }
     void setBabies(bool babies);
@@ -164,6 +173,7 @@ Q_SIGNALS:
     void daylightChanged();
     void reactToCpuChanged();
     void agitationChanged();
+    void weatherLightChanged();
     void babiesChanged();
     void fishCountChanged();
     void timeChanged();
@@ -258,6 +268,8 @@ private:
     std::vector<DcFishSpec> m_specs;
     std::vector<FishEntry> m_specEntry;   // the library entry of each spec
     qreal m_cpuLoad = 0;
+    qreal m_weatherStir = 0;
+    qreal m_weatherLight = 1;
     qreal m_flow = 0;
 
     qreal m_time = 0;

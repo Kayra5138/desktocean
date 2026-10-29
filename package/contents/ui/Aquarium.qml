@@ -28,6 +28,12 @@ Item {
     readonly property var themeColors: tank.themeColors
     property alias hourOverride: tank.hourOverride
     property string pauseReason: ""
+    // Weather on the surface and in the light (see native/src/weather.h)
+    property alias weatherEnabled: weather.enabled
+    // City for real weather from Open-Meteo; empty = simulated seasonal weather
+    property alias weatherCity: weather.city
+    // Development aid: rain|snow|storm|fog|wind|clear|...
+    property alias forcedWeather: weather.forced
     readonly property alias foodCount: tank.foodCount
 
     // Must match SAND_TOP in sim/src/sim.rs
@@ -61,6 +67,21 @@ Item {
         return tank.openEditor();
     }
 
+    Weather {
+        id: weather
+        onLightning: lightning.restart()
+    }
+
+    // 0..1 while lightning lights up the tank: a bright flicker, then a slow fade
+    property real flash: 0
+    SequentialAnimation {
+        id: lightning
+        NumberAnimation { target: aquarium; property: "flash"; to: 1; duration: 40 }
+        NumberAnimation { target: aquarium; property: "flash"; to: 0.25; duration: 90 }
+        NumberAnimation { target: aquarium; property: "flash"; to: 0.85; duration: 50 }
+        NumberAnimation { target: aquarium; property: "flash"; to: 0; duration: 700; easing.type: Easing.OutQuad }
+    }
+
     ShaderEffect {
         id: water
         anchors.fill: parent
@@ -73,6 +94,12 @@ Item {
         property color deepColor: aquarium.themeColors.deep
         property color sandLight: aquarium.themeColors.sandLight
         property color sandDark: aquarium.themeColors.sandDark
+        property real rain: weather.rain
+        property real snow: weather.snow
+        property real gloom: weather.gloom
+        property real haze: weather.haze
+        property real wind: weather.windiness
+        property real flash: aquarium.flash
         fragmentShader: Qt.resolvedUrl("../shaders/water.frag.qsb")
     }
 
@@ -80,9 +107,17 @@ Item {
         id: tank
         anchors.fill: parent
         onThemeRequested: theme => aquarium.themeRequested(theme)
-        // Distant fish fade into the water colour, which darkens at night
+        // Wind and storms stir the water like a busy computer does
+        weatherStir: weather.stir
+        // Overcast skies dim the fish a little; lightning lights them up
+        weatherLight: 1 - 0.18 * weather.gloom + 0.5 * aquarium.flash
+        // Distant fish fade into the water colour, which darkens at night and greys in fog
         readonly property color themeFog: Qt.tint(aquarium.themeColors.deep, Qt.rgba(aquarium.themeColors.shallow.r, aquarium.themeColors.shallow.g, aquarium.themeColors.shallow.b, 0.35))
-        fogColor: Qt.rgba(themeFog.r * (0.2 + 0.8 * daylight), themeFog.g * (0.2 + 0.8 * daylight), themeFog.b * (0.3 + 0.7 * daylight), 1)
+        readonly property real fogGrey: (themeFog.r + themeFog.g + themeFog.b) / 3 + 0.12 * weather.haze
+        readonly property color weatherFog: Qt.rgba(themeFog.r + (fogGrey - themeFog.r) * (0.3 * weather.gloom + 0.6 * weather.haze),
+                                                    themeFog.g + (fogGrey - themeFog.g) * (0.3 * weather.gloom + 0.6 * weather.haze),
+                                                    themeFog.b + (fogGrey - themeFog.b) * (0.3 * weather.gloom + 0.6 * weather.haze), 1)
+        fogColor: Qt.rgba(weatherFog.r * (0.2 + 0.8 * daylight), weatherFog.g * (0.2 + 0.8 * daylight), weatherFog.b * (0.3 + 0.7 * daylight), 1)
         // Seeds an empty fish library on first run; after that the library is the source of truth
         starterFish: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
@@ -144,7 +179,8 @@ Item {
                 + "Fish: " + tank.fishCount + "  Food: " + tank.foodCount + "\n"
                 + "Following cursor: " + (tank.lureActive ? "yes" : "no") + "\n"
                 + tank.stats() + "\n"
-                + "CPU stir: " + Math.round(tank.agitation * 100) + "%\n"
+                + "Stir: " + Math.round(tank.agitation * 100) + "% (weather " + Math.round(tank.weatherStir * 100) + "%)\n"
+                + "Weather: " + weather.summary() + "\n"
                 + "Cursor: " + (p.x >= 0 ? Math.round(p.x) + "," + Math.round(p.y) : "none");
         }
 
