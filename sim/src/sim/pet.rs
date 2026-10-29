@@ -10,7 +10,7 @@
 use super::{Fish, Mode, Sim};
 
 /// Px of gentle stroking over a fish before it counts as being petted.
-const PET_STROKE: f32 = 650.0;
+const PET_STROKE: f32 = 455.0;
 /// Cursor speeds (px/s) that count as stroking; faster is a sweep.
 const STROKE_SPEED: (f32, f32) = (40.0, 1100.0);
 /// Above this, the cursor stirs the water.

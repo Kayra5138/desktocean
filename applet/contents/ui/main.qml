@@ -54,6 +54,10 @@ PlasmoidItem {
     }
 
     fullRepresentation: PlasmaExtras.Representation {
+        // On the desktop the widget's box grows to at least this, so nothing
+        // spills out of it
+        Layout.minimumWidth: Math.max(Kirigami.Units.gridUnit * 14, content.implicitWidth + Kirigami.Units.largeSpacing * 2)
+        Layout.minimumHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2
         Layout.preferredWidth: Kirigami.Units.gridUnit * 18
         Layout.preferredHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2
         collapseMarginsHint: true
