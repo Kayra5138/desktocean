@@ -33,6 +33,8 @@ pub struct Carry {
     vx: f32,
     vy: f32,
     idle: f32,
+    /// Thrown when let go: it pops once its momentum runs out
+    flung: bool,
     /// When it was last moved, and where it was at the last step (for its speed)
     moved_at: f32,
     last: (f32, f32),
@@ -40,6 +42,10 @@ pub struct Carry {
 
 /// Left alone this long (not moving much), a bubble floats up to pop.
 const IDLE_SECS: f32 = 3.0;
+/// Let go faster than this (px/s), a bubble counts as thrown.
+const FLING_SPEED: f32 = 150.0;
+/// A thrown bubble pops once it has slowed below this.
+const SPENT_SPEED: f32 = 30.0;
 
 impl Carry {
     pub fn radius(&self, fish: &[Fish]) -> f32 {
@@ -98,6 +104,7 @@ impl Sim {
             vx: 0.0,
             vy: 0.0,
             idle: 0.0,
+            flung: false,
             moved_at: self.time,
             last: (x, y),
         });
@@ -115,6 +122,7 @@ impl Sim {
         c.rising = false;
         c.held = true;
         c.idle = 0.0;
+        c.flung = false;
         c.moved_at = time;
         true
     }
@@ -130,6 +138,7 @@ impl Sim {
                 c.vx = 0.0;
                 c.vy = 0.0;
             }
+            c.flung = c.vx.hypot(c.vy) > FLING_SPEED;
         }
     }
 
@@ -198,11 +207,11 @@ impl Sim {
             let drag = (-1.6 * dt).exp();
             c.vx *= drag;
             c.vy *= drag;
-            // Bounces off the sides, the surface and the sand, losing a little
-            // speed each time
+            // Bounces off the very edges of the screen (and the surface),
+            // losing a little speed each time
             let (left, right) = (r, (self.width - r).max(r));
-            let top = self.water_top() + r;
-            let bottom = (self.sand_top() + r * 0.3).min(self.height - r).max(top);
+            let top = self.water_top() + r * 0.6;
+            let bottom = (self.height - r).max(top);
             const BOUNCE: f32 = 0.75;
             if c.x < left || c.x > right {
                 c.x = c.x.clamp(left, right);
@@ -211,6 +220,10 @@ impl Sim {
             if c.y < top || c.y > bottom {
                 c.y = c.y.clamp(top, bottom);
                 c.vy = -c.vy * BOUNCE;
+            }
+            // Thrown and its momentum spent: pop
+            if c.flung && c.vx.hypot(c.vy) < SPENT_SPEED {
+                return true;
             }
             // Settled and left alone a while: up it goes
             if c.vx.hypot(c.vy) < 40.0 {
@@ -283,8 +296,11 @@ impl Sim {
         // Where it can get to: the bubble, kept inside the water
         let tx =
             c.x.clamp(f.w * 0.5, (self.width - f.w * 0.5).max(f.w * 0.5));
-        let ty =
-            c.y.clamp(self.water_top() + f.h * 0.5, self.sand_top() - f.h * 0.3);
+        // (in a bubble it may go down over the sand, to the very bottom)
+        let ty = c.y.clamp(
+            self.water_top() + f.h * 0.5,
+            (self.height - f.h * 0.5).max(self.water_top() + f.h),
+        );
         let (dx, dy) = (tx - f.x, ty - f.y);
         let dist = dx.hypot(dy);
         // Brought to the front of the tank, so nobody swims across it
@@ -325,8 +341,10 @@ impl Sim {
         }
         f.facing += (f.dir - f.facing).clamp(-6.0 * dt, 6.0 * dt);
         f.speed = f.vx.hypot(f.vy);
-        f.y =
-            f.y.clamp(self.water_top() + f.h * 0.5, self.sand_top() - f.h * 0.3);
+        f.y = f.y.clamp(
+            self.water_top() + f.h * 0.5,
+            (self.height - f.h * 0.5).max(self.water_top() + f.h),
+        );
         f.x = f.x.clamp(f.w * 0.5, self.width - f.w * 0.5);
     }
 }
@@ -442,7 +460,7 @@ mod tests {
             }
             s.carry_release(id);
             let start = get(&s, id).unwrap();
-            let (mut bounced, mut travelled) = (false, 0.0f32);
+            let (mut bounced, mut travelled, mut reached) = (false, 0.0f32, false);
             let mut last = (start.x, start.y);
             for _ in 0..30 * 2 {
                 s.step(DT, None);
@@ -452,15 +470,31 @@ mod tests {
                 bounced |= (c.x - last.0) * dx < -1.0 || (c.y - last.1) * dy < -1.0;
                 last = (c.x, c.y);
                 let r = c.radius(s.fish());
-                assert!(c.y - r >= s.water_top() - 1.0, "stays under the surface");
+                reached |= c.x + r >= 1919.0
+                    || c.x - r <= 1.0
+                    || c.y + r >= 1079.0
+                    || c.y - r * 0.6 <= s.water_top() + 1.0;
+                assert!(c.y - r * 0.6 >= s.water_top() - 1.0, "stays (mostly) under the surface");
                 assert!(
                     c.x - r >= -1.0 && c.x + r <= 1921.0,
                     "stays inside the sides"
                 );
             }
             assert!(
-                travelled > 200.0,
+                travelled > 150.0,
                 "flung {dx},{dy}: it should sail on ({travelled:.0}px)"
+            );
+            assert!(
+                reached,
+                "flung {dx},{dy}: it should go all the way to the edge before bouncing"
+            );
+            // Spent: it pops
+            for _ in 0..30 * 3 {
+                s.step(DT, None);
+            }
+            assert!(
+                get(&s, id).is_none(),
+                "flung {dx},{dy}: it should pop once its momentum is spent"
             );
             assert!(
                 bounced,
