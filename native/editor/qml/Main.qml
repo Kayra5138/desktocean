@@ -126,7 +126,8 @@ Kirigami.ApplicationWindow {
 
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
     // Optional: --swim <style id>, --wiggle-tail, --add-as <name> (saves the drawing to the library),
-    // --kind <fish|plant|decor>, --select-all, --edit-first (opens the first library fish for
+    // --kind <fish|plant|decor>, --symmetry <h|v>, --stroke x0,y0,x1,y1,... (a red brush stroke),
+    // --select-all, --edit-first (opens the first library fish for
     // editing), --names-first (opens its names dialog), --library, --layout.
     Timer {
         readonly property var args: Qt.application.arguments
@@ -139,6 +140,12 @@ Kirigami.ApplicationWindow {
         onTriggered: {
             if (arg("--template") !== undefined)
                 drawPage.canvas.loadTemplate(Number(arg("--template")));
+            if (arg("--symmetry") !== undefined)
+                drawPage.canvas.symmetry = arg("--symmetry") === "v" ? DrawingCanvas.LeftRight : DrawingCanvas.TopBottom;
+            if (arg("--stroke") !== undefined) {
+                drawPage.canvas.color = "#e04848";
+                drawPage.canvas.strokeForTest(arg("--stroke").split(",").map(Number));
+            }
             if (arg("--fill") !== undefined) {
                 drawPage.canvas.color = "#3d8bd9";
                 drawPage.canvas.fillAt(Number(arg("--fill")), Number(arg("--fill", 2)));

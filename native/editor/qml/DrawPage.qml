@@ -325,6 +325,43 @@ Kirigami.Page {
                         }
                     }
 
+                    Kirigami.Heading { text: "Mirror"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Repeater {
+                            model: [
+                                { mode: DrawingCanvas.NoSymmetry, text: "Off", icon: "dialog-cancel" },
+                                { mode: DrawingCanvas.TopBottom, text: "Top/bottom", icon: "object-flip-vertical" },
+                                { mode: DrawingCanvas.LeftRight, text: "Left/right", icon: "object-flip-horizontal" }
+                            ]
+                            QQC2.ToolButton {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                text: modelData.text
+                                icon.name: modelData.icon
+                                display: QQC2.AbstractButton.TextUnderIcon
+                                checkable: true
+                                checked: canvas.symmetry === modelData.mode
+                                onClicked: canvas.symmetry = modelData.mode
+                            }
+                        }
+                    }
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        visible: canvas.symmetry !== DrawingCanvas.NoSymmetry
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        text: "Brush, eraser, shapes and fill paint on both sides of the dashed line. Drag its round handle to move it."
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        visible: canvas.symmetry !== DrawingCanvas.NoSymmetry && !canvas.symmetryCentred
+                        text: "Back to the middle"
+                        icon.name: "align-vertical-center"
+                        onClicked: canvas.centreSymmetryAxis()
+                    }
+
                     Kirigami.Heading { text: "Brush size"; level: 4; Layout.topMargin: Kirigami.Units.largeSpacing }
                     RowLayout {
                         Layout.fillWidth: true

@@ -1,6 +1,7 @@
 #include "drawingcanvas.h"
 #include "fishlibrary.h"
 
+#include <QCursor>
 #include <QImageReader>
 #include <QMouseEvent>
 #include <QPainter>
@@ -293,6 +294,69 @@ void DrawingCanvas::paintTailWiggleForTest()
     p.fillRect(QRect(0, 0, kCanvasSize.width() / 3, kCanvasSize.height()), QColor(255, 255, 255));
     p.end();
     setMotionMode(true);
+    contentModified();
+}
+
+void DrawingCanvas::setSymmetry(Symmetry symmetry)
+{
+    if (symmetry == m_symmetry)
+        return;
+    m_symmetry = symmetry;
+    update();
+    Q_EMIT symmetryChanged();
+}
+
+bool DrawingCanvas::symmetryCentred() const
+{
+    return m_symmetry == LeftRight ? qFuzzyCompare(m_axis.x(), kCanvasSize.width() / 2.0)
+                                   : qFuzzyCompare(m_axis.y(), kCanvasSize.height() / 2.0);
+}
+
+void DrawingCanvas::centreSymmetryAxis()
+{
+    m_axis = QPointF(kCanvasSize.width() / 2.0, kCanvasSize.height() / 2.0);
+    update();
+    Q_EMIT symmetryChanged();
+}
+
+QPointF DrawingCanvas::mirrored(QPointF p) const
+{
+    if (m_symmetry == TopBottom)
+        return QPointF(p.x(), 2 * m_axis.y() - p.y());
+    if (m_symmetry == LeftRight)
+        return QPointF(2 * m_axis.x() - p.x(), p.y());
+    return p;
+}
+
+QPointF DrawingCanvas::axisHandle() const
+{
+    const qreal s = m_view.width() / kCanvasSize.width();
+    // At the start of the line, a little inside the canvas
+    if (m_symmetry == LeftRight)
+        return QPointF(m_view.left() + m_axis.x() * s, m_view.top() + 14);
+    return QPointF(m_view.left() + 14, m_view.top() + m_axis.y() * s);
+}
+
+bool DrawingCanvas::onAxisHandle(QPointF itemPos) const
+{
+    if (m_symmetry == NoSymmetry)
+        return false;
+    const QPointF d = itemPos - axisHandle();
+    return QPointF::dotProduct(d, d) < 12 * 12;
+}
+
+void DrawingCanvas::strokeForTest(const QVariantList &points)
+{
+    if (points.size() < 2)
+        return;
+    pushUndo();
+    QPointF last(points[0].toDouble(), points[1].toDouble());
+    drawSegment(last, last);
+    for (int i = 2; i + 1 < points.size(); i += 2) {
+        const QPointF p(points[i].toDouble(), points[i + 1].toDouble());
+        drawSegment(last, p);
+        last = p;
+    }
     contentModified();
 }
 
@@ -610,10 +674,9 @@ void DrawingCanvas::paintWiggle(QPointF from, QPointF to)
     QPainter p(&m_mask);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(QPen(QColor(g, g, g), m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    if (from == to)
-        p.drawPoint(from);
-    else
-        p.drawLine(from, to);
+    drawOneSegment(p, from, to);
+    if (m_symmetry != NoSymmetry)
+        drawOneSegment(p, mirrored(from), mirrored(to));
     m_overlayDirty = true;
 }
 
@@ -716,15 +779,24 @@ void DrawingCanvas::fillAt(qreal x, qreal y)
 
 void DrawingCanvas::floodFill(QPoint seed)
 {
-    if (!m_image.rect().contains(seed))
-        return;
-    const QRgb target = m_image.pixel(seed);
     const QRgb fill = m_color.rgba();
-    if (colorDistance(target, fill) == 0)
-        return;
-    pushUndo();
-    flood(m_image, {seed}, target, kFillTolerance, [fill](QRgb &px) { px = fill; });
-    contentModified();
+    // With symmetry the mirrored spot is filled too, in the same undo step
+    QList<QPoint> seeds{seed};
+    if (m_symmetry != NoSymmetry)
+        seeds << mirrored(QPointF(seed)).toPoint();
+    bool pushed = false;
+    for (const QPoint &at : std::as_const(seeds)) {
+        if (!m_image.rect().contains(at))
+            continue;
+        const QRgb target = m_image.pixel(at);
+        if (colorDistance(target, fill) == 0)
+            continue;
+        if (!std::exchange(pushed, true))
+            pushUndo();
+        flood(m_image, {at}, target, kFillTolerance, [fill](QRgb &px) { px = fill; });
+    }
+    if (pushed)
+        contentModified();
 }
 
 void DrawingCanvas::drawSegment(QPointF from, QPointF to)
@@ -736,6 +808,13 @@ void DrawingCanvas::drawSegment(QPointF from, QPointF to)
     // A stylus draws thinner when pressed lightly; the mouse always reports 1
     const qreal width = std::max(1.0, m_brushSize * (0.2 + 0.8 * m_pressure));
     p.setPen(QPen(m_color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    drawOneSegment(p, from, to);
+    if (m_symmetry != NoSymmetry)
+        drawOneSegment(p, mirrored(from), mirrored(to));
+}
+
+void DrawingCanvas::drawOneSegment(QPainter &p, QPointF from, QPointF to) const
+{
     if (from == to)
         p.drawPoint(from);
     else
@@ -747,6 +826,13 @@ void DrawingCanvas::drawShape(QPainter &p, QPointF from, QPointF to) const
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(QPen(m_color, m_brushSize, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.setBrush(m_shapeFilled && m_tool != Line ? QBrush(m_color) : Qt::NoBrush);
+    drawOneShape(p, from, to);
+    if (m_symmetry != NoSymmetry)
+        drawOneShape(p, mirrored(from), mirrored(to));
+}
+
+void DrawingCanvas::drawOneShape(QPainter &p, QPointF from, QPointF to) const
+{
     const QRectF r = QRectF(from, to).normalized();
     switch (m_tool) {
     case Line:
@@ -795,6 +881,11 @@ void DrawingCanvas::mousePressEvent(QMouseEvent *event)
     }
     const QPointF p = toImage(event->position());
     m_start = m_last = p;
+
+    if (onAxisHandle(event->position()) && m_tool != Select) {
+        m_drag = Drag::Axis;
+        return;
+    }
 
     if (m_motionMode) {
         pushUndo();
@@ -861,6 +952,11 @@ void DrawingCanvas::mouseMoveEvent(QMouseEvent *event)
         m_pan = event->position() - m_panStart;
         updateViewRect();
         return;
+    case Drag::Axis:
+        m_axis = QPointF(std::clamp(p.x(), 0.0, qreal(kCanvasSize.width())),
+                         std::clamp(p.y(), 0.0, qreal(kCanvasSize.height())));
+        Q_EMIT symmetryChanged();
+        break;
     case Drag::Stroke:
         if (m_motionMode)
             paintWiggle(m_last, p);
@@ -916,6 +1012,10 @@ void DrawingCanvas::mouseReleaseEvent(QMouseEvent *)
 void DrawingCanvas::hoverMoveEvent(QHoverEvent *event)
 {
     m_hover = event->position();
+    if (onAxisHandle(m_hover))
+        setCursor(m_symmetry == LeftRight ? Qt::SizeHorCursor : Qt::SizeVerCursor);
+    else
+        unsetCursor();
     update();
 }
 
@@ -1015,14 +1115,34 @@ void DrawingCanvas::paint(QPainter *painter)
         }
     }
 
-    // Brush outline under the cursor
+    // The mirror line, faint and dashed, with a round handle to drag it by
+    if (m_symmetry != NoSymmetry) {
+        const QPointF a = m_view.topLeft() + m_axis * scale;
+        const QLineF line = m_symmetry == LeftRight ? QLineF(a.x(), m_view.top(), a.x(), m_view.bottom())
+                                                    : QLineF(m_view.left(), a.y(), m_view.right(), a.y());
+        painter->setPen(QPen(QColor(255, 255, 255, 140), 3));
+        painter->drawLine(line);
+        painter->setPen(QPen(QColor(0x30, 0x80, 0xe0, 150), 1.5, Qt::DashLine));
+        painter->drawLine(line);
+        const bool hot = m_drag == Drag::Axis || (m_hover.x() >= 0 && onAxisHandle(m_hover));
+        painter->setPen(QPen(Qt::white, 1.5));
+        painter->setBrush(QColor(0x30, 0x80, 0xe0, hot ? 230 : 150));
+        painter->drawEllipse(axisHandle(), 7, 7);
+    }
+
+    // Brush outline under the cursor (and its mirror image)
     const bool brushLike = m_motionMode || m_tool == Brush || m_tool == Eraser;
-    if (brushLike && m_hover.x() >= 0 && m_view.contains(m_hover)) {
+    if (brushLike && m_drag != Drag::Axis && m_hover.x() >= 0 && m_view.contains(m_hover) && !onAxisHandle(m_hover)) {
         const qreal r = m_brushSize * 0.5 * scale;
+        QList<QPointF> at{m_hover};
+        if (m_symmetry != NoSymmetry)
+            at << m_view.topLeft() + mirrored(toImage(m_hover)) * scale;
         painter->setBrush(Qt::NoBrush);
-        painter->setPen(QPen(QColor(255, 255, 255, 200), 2));
-        painter->drawEllipse(m_hover, r, r);
-        painter->setPen(QPen(QColor(0, 0, 0, 160), 1));
-        painter->drawEllipse(m_hover, r, r);
+        for (const QPointF &c : std::as_const(at)) {
+            painter->setPen(QPen(QColor(255, 255, 255, 200), 2));
+            painter->drawEllipse(c, r, r);
+            painter->setPen(QPen(QColor(0, 0, 0, 160), 1));
+            painter->drawEllipse(c, r, r);
+        }
     }
 }
