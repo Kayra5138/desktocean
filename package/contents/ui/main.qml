@@ -196,21 +196,22 @@ WallpaperItem {
             focus: true
 
             property bool steering: false
-            property bool up: false
-            property bool down: false
-            property bool left: false
-            property bool right: false
+            // (not left/right: those are Item's own, final properties)
+            property bool keyUp: false
+            property bool keyDown: false
+            property bool keyLeft: false
+            property bool keyRight: false
 
             function send(dash) {
-                aquarium.controlInput((right ? 1 : 0) - (left ? 1 : 0), (down ? 1 : 0) - (up ? 1 : 0), dash);
+                aquarium.controlInput((keyRight ? 1 : 0) - (keyLeft ? 1 : 0), (keyDown ? 1 : 0) - (keyUp ? 1 : 0), dash);
             }
 
             function setKey(key, pressed) {
                 switch (key) {
-                case Qt.Key_W: case Qt.Key_Up: up = pressed; return true;
-                case Qt.Key_S: case Qt.Key_Down: down = pressed; return true;
-                case Qt.Key_A: case Qt.Key_Left: left = pressed; return true;
-                case Qt.Key_D: case Qt.Key_Right: right = pressed; return true;
+                case Qt.Key_W: case Qt.Key_Up: keyUp = pressed; return true;
+                case Qt.Key_S: case Qt.Key_Down: keyDown = pressed; return true;
+                case Qt.Key_A: case Qt.Key_Left: keyLeft = pressed; return true;
+                case Qt.Key_D: case Qt.Key_Right: keyRight = pressed; return true;
                 }
                 return false;
             }
