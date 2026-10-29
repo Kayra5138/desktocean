@@ -2,6 +2,8 @@
 #include "fishtank.h"
 
 #include <QAction>
+#include <QCoreApplication>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QIconEngine>
@@ -44,8 +46,22 @@ void TankHub::unregisterTank(FishTank *tank)
     tanks().removeAll(nullptr);
 }
 
+bool TankHub::isLockScreen()
+{
+    static const bool lockScreen = [] {
+        if (qEnvironmentVariableIsSet("DESKTOCEAN_LOCKSCREEN"))
+            return qEnvironmentVariableIntValue("DESKTOCEAN_LOCKSCREEN") == 1;
+        return QFileInfo(QCoreApplication::applicationFilePath()).fileName().startsWith(QLatin1String("kscreenlocker"))
+            || QCoreApplication::applicationName().startsWith(QLatin1String("kscreenlocker"));
+    }();
+    return lockScreen;
+}
+
 bool TankHub::isPrimary(const FishTank *tank)
 {
+    // The lock screen only looks: plasmashell's tank records the babies
+    if (isLockScreen())
+        return false;
     for (const QPointer<FishTank> &t : std::as_const(tanks())) {
         if (t)
             return t == tank;

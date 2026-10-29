@@ -6,15 +6,23 @@ import org.kde.plasma.plasmoid
 
 // Plasma entry point. Plasma draws desktop icons and widgets above this item,
 // so the aquarium only has to fill the background.
+//
+// The same package also runs as the lock screen wallpaper (kscreenlocker_greet).
+// There the tank only shows the fish: no menu, no window or notification
+// watching, and the library and friendships are left to plasmashell's tank.
 WallpaperItem {
     id: root
     anchors.fill: parent
 
-    readonly property bool covered: root.configuration.PauseOnMaximized && windows.coveredExists
+    readonly property bool lockScreen: TankHub.lockScreen
+    readonly property bool covered: root.configuration.PauseOnMaximized && (windows.item?.coveredExists ?? false)
 
-    WindowWatcher {
+    Loader {
         id: windows
-        screenGeometry: root.parent?.screenGeometry ?? null
+        active: !root.lockScreen
+        sourceComponent: WindowWatcher {
+            screenGeometry: root.parent?.screenGeometry ?? null
+        }
     }
 
     Aquarium {
@@ -27,9 +35,12 @@ WallpaperItem {
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu
-        babies: root.configuration.Babies
+        babies: root.configuration.Babies && !root.lockScreen
         // Chosen in the editor's tank layout: store it like a choice made in the settings
+        // (the desktop's settings, not the lock screen's)
         onThemeRequested: theme => {
+            if (root.lockScreen)
+                return;
             root.configuration.Theme = theme;
             root.configuration.writeConfig();
         }
@@ -48,22 +59,24 @@ WallpaperItem {
     readonly property bool tankVisible: aquarium.running && !aquarium.paused
     property double pendingAnnounce: 0   // ms timestamp, 0 = none
 
-    NotificationManager.Notifications {
-        id: notifications
-        showNotifications: root.configuration.ReactToNotifications
-        showJobs: false
-        showExpired: false
-        showDismissed: false
-        onRowsInserted: {
-            // Do Not Disturb is a property of the notification server, not of this model
-            const quiet = NotificationManager.Server.inhibited;
-            console.debug("Desktocean: notification arrived,", quiet ? "do not disturb" : root.tankVisible ? "announcing" : "tank hidden, keeping it for later");
-            if (quiet)
-                return;
-            if (root.tankVisible)
-                aquarium.announce();
-            else
-                root.pendingAnnounce = Date.now();
+    Loader {
+        active: !root.lockScreen
+        sourceComponent: NotificationManager.Notifications {
+            showNotifications: root.configuration.ReactToNotifications
+            showJobs: false
+            showExpired: false
+            showDismissed: false
+            onRowsInserted: {
+                // Do Not Disturb is a property of the notification server, not of this model
+                const quiet = NotificationManager.Server.inhibited;
+                console.debug("Desktocean: notification arrived,", quiet ? "do not disturb" : root.tankVisible ? "announcing" : "tank hidden, keeping it for later");
+                if (quiet)
+                    return;
+                if (root.tankVisible)
+                    aquarium.announce();
+                else
+                    root.pendingAnnounce = Date.now();
+            }
         }
     }
 
@@ -84,7 +97,7 @@ WallpaperItem {
 
     // Right-clicking the desktop shows one "Desktocean" entry; its submenu
     // holds everything else, so the desktop menu stays tidy
-    contextualActions: [desktoceanMenu]
+    contextualActions: root.lockScreen ? [] : [desktoceanMenu]
 
     PlasmaCore.Action {
         id: desktoceanMenu
@@ -126,6 +139,8 @@ WallpaperItem {
     ]
 
     Component.onCompleted: {
+        if (root.lockScreen)
+            return;
         TankHub.makeSubmenu(desktoceanMenu, desktoceanActions, Qt.resolvedUrl("../images/menu-desktocean.svg"));
         TankHub.setMonochromeIcon(feedAction, Qt.resolvedUrl("../images/menu-feed.svg"));
     }

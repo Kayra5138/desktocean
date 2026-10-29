@@ -87,6 +87,23 @@ reloads the QML (desktop and panels blink for a second):
 ./scripts/reload-plasma.sh
 ```
 
+### Lock screen
+
+The aquarium can also be the lock screen wallpaper, with the same fish:
+
+```bash
+./scripts/install.sh --lockscreen
+```
+
+or pick it yourself in *System Settings* → *Screen Locking* → *Appearance: Configure…* →
+*Wallpaper type* → **Desktocean** (its settings there are separate from the desktop's).
+`./scripts/install.sh --no-lockscreen` puts the default picture back.
+
+On the lock screen the fish only swim: there is no menu, no reaction to notifications, and
+nothing is written to the fish library. Babies and friendships are recorded by the desktop's
+aquarium only. The lock screen is started by KWin and finds `Desktocean.Core` through the same
+`QML_IMPORT_PATH`; right after the very first install, log out and back in once.
+
 ## Your fish
 
 Fish live in `~/.local/share/desktocean/fish/`: one PNG per fish (head facing right),

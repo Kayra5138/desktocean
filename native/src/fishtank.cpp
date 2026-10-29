@@ -493,6 +493,8 @@ void FishTank::saveState() const
 {
     if (!m_stateLoaded)
         return;   // never overwrite saved friendships before they were read
+    if (TankHub::isLockScreen())
+        return;   // plasmashell's tank keeps the state; the lock screen only reads it
     const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
     std::vector<DcRelation> rel(n);
     rel.resize(std::min(n, dc_sim_relations(m_sim, rel.data(), n)));
@@ -906,7 +908,8 @@ void FishTank::seedDecor()
 void FishTank::watchLibrary()
 {
     const QString dir = FishLibrary::directory();
-    QDir().mkpath(dir);
+    if (!TankHub::isLockScreen())
+        QDir().mkpath(dir);
     const QString parent = QFileInfo(dir).dir().path();
     for (const QString &path : {dir, parent}) {
         if (!m_watcher.directories().contains(path))
@@ -933,9 +936,11 @@ void FishTank::checkRequests()
 
 void FishTank::loadLibrary(bool animateNew)
 {
-    if (!FishLibrary::exists() && !m_starterFish.isEmpty())
+    // The lock screen shows the library as it is; plasmashell seeds it
+    const bool writable = !TankHub::isLockScreen();
+    if (writable && !FishLibrary::exists() && !m_starterFish.isEmpty())
         seedLibrary();
-    if (!FishLibrary::decorSeeded())
+    if (writable && !FishLibrary::decorSeeded())
         seedDecor();
     watchLibrary();
 

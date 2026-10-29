@@ -27,6 +27,9 @@ class TankHub : public QObject
     Q_PROPERTY(int friendships READ friendships NOTIFY stateChanged)
     Q_PROPERTY(int rivalries READ rivalries NOTIFY stateChanged)
     Q_PROPERTY(qreal daylight READ daylight NOTIFY stateChanged)
+    // This process is the lock screen (kscreenlocker_greet), not plasmashell:
+    // the tank only shows the fish there and never writes the library
+    Q_PROPERTY(bool lockScreen READ lockScreen CONSTANT)
 
 public:
     explicit TankHub(QObject *parent = nullptr);
@@ -36,6 +39,8 @@ public:
     // The first tank does the once-per-library jobs (recording babies), so a
     // multi-monitor setup doesn't do them once per screen
     static bool isPrimary(const FishTank *tank);
+    // Running inside the lock screen; DESKTOCEAN_LOCKSCREEN=1/0 overrides for testing
+    static bool isLockScreen();
 
     bool available() const;
     bool paused() const;
@@ -46,6 +51,7 @@ public:
     int friendships() const;
     int rivalries() const;
     qreal daylight() const;
+    bool lockScreen() const { return isLockScreen(); }
 
     // Drops food somewhere in every tank
     Q_INVOKABLE void feed();
