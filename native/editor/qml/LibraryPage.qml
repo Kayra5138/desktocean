@@ -11,6 +11,8 @@ Kirigami.ScrollablePage {
 
     signal drawNew()
     signal editFish(var fish)
+    // Family tree, centred on a fish ("" for none)
+    signal openFamily(string fishId)
 
     title: "My fish · " + library.swimming + " swimming"
 
@@ -56,6 +58,11 @@ Kirigami.ScrollablePage {
         console.warn("share-first:", message.text);
     }
 
+    // Used by Main.qml's --family development flag
+    function familyForTest(row) {
+        page.openFamily(row === undefined ? "" : library.get(row).fishId);
+    }
+
     // Used by Main.qml's --names-first development flag
     function namesFirstForTest() {
         namesDialog.edit(library.get(0));
@@ -66,6 +73,11 @@ Kirigami.ScrollablePage {
             text: "Draw a new fish"
             icon.name: "draw-brush"
             onTriggered: page.drawNew()
+        },
+        Kirigami.Action {
+            text: "Family tree"
+            icon.name: "view-list-tree"
+            onTriggered: page.openFamily("")
         },
         Kirigami.Action {
             text: "Import fish…"
@@ -136,6 +148,13 @@ Kirigami.ScrollablePage {
                     visible: cell.kind === "fish"
                     displayHint: Kirigami.DisplayHint.AlwaysHide
                     onTriggered: namesDialog.edit(library.get(cell.index))
+                },
+                Kirigami.Action {
+                    text: "Family…"
+                    icon.name: "view-list-tree"
+                    visible: cell.kind === "fish"
+                    displayHint: Kirigami.DisplayHint.AlwaysHide
+                    onTriggered: page.openFamily(cell.fishId)
                 },
                 Kirigami.Action {
                     text: "Share…"

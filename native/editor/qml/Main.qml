@@ -134,11 +134,25 @@ Kirigami.ApplicationWindow {
         id: libraryPage
         LibraryPage {
             onDrawNew: window.pageStack.pop()
-            onEditFish: fish => window.unlessUnsaved(() => {
-                window.pageStack.pop();
-                drawPage.startEditing(fish);
-            })
+            onEditFish: fish => window.editFromList(fish)
+            onOpenFamily: fishId => window.pageStack.push(familyPage, { focusId: fishId })
         }
+    }
+
+    Component {
+        id: familyPage
+        FamilyTreePage {
+            onEditFish: fish => window.editFromList(fish)
+        }
+    }
+
+    // Back to the drawing page with a library fish open
+    function editFromList(fish) {
+        unlessUnsaved(() => {
+            while (pageStack.depth > 1)
+                pageStack.pop();
+            drawPage.startEditing(fish);
+        });
     }
 
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
@@ -146,6 +160,7 @@ Kirigami.ApplicationWindow {
     // --kind <fish|plant|decor>, --symmetry <h|v>, --stroke x0,y0,x1,y1,... (a red brush stroke),
     // --select-all, --edit-first (opens the first library fish for
     // editing), --names-first (opens its names dialog), --share-first <path> (exports it),
+    // --family [row] (the family tree, centred on that library row),
     // --library, --layout. A .desktocean file among the arguments is imported.
     Timer {
         readonly property var args: Qt.application.arguments
@@ -190,6 +205,10 @@ Kirigami.ApplicationWindow {
                 window.pageStack.push(libraryPage).namesFirstForTest();
             if (arg("--share-first") !== undefined)
                 window.pageStack.push(libraryPage).shareFirstForTest(arg("--share-first"));
+            if (args.indexOf("--family") >= 0) {
+                const row = arg("--family");
+                window.pageStack.push(libraryPage).familyForTest(/^[0-9]+$/.test(row) ? Number(row) : undefined);
+            }
             if (args.indexOf("--library") >= 0)
                 window.pageStack.push(libraryPage);
             if (args.indexOf("--layout") >= 0)

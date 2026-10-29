@@ -6,9 +6,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QUrl>
 
-#include <QRegularExpression>
+#include <functional>
 
 LibraryModel::LibraryModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -214,6 +215,52 @@ bool LibraryModel::flip(const QString &id)
     }
     reload();
     return true;
+}
+
+QVariantList LibraryModel::familyTree() const
+{
+    QHash<QString, int> rowOf;
+    for (int i = 0; i < m_entries.size(); ++i)
+        rowOf.insert(m_entries[i].id, i);
+    // Drawn fish are generation 0, babies one below their youngest parent
+    QHash<int, int> generation;
+    std::function<int(int, int)> generationOf = [&](int row, int depth) -> int {
+        if (generation.contains(row))
+            return generation[row];
+        const FishEntry &e = m_entries[row];
+        int g = 0;
+        if (e.bornAt > 0) {
+            g = 1;
+            for (const QString &p : e.parents) {
+                const int parent = rowOf.value(p, -1);
+                if (parent >= 0 && parent != row && depth < 64)
+                    g = std::max(g, generationOf(parent, depth + 1) + 1);
+            }
+        }
+        generation.insert(row, g);
+        return g;
+    };
+
+    QVariantList nodes;
+    for (int i = 0; i < m_entries.size(); ++i) {
+        const FishEntry &e = m_entries[i];
+        QStringList parents;
+        int lost = 0;
+        for (const QString &p : e.parents) {
+            if (!rowOf.contains(p) || p == e.id)
+                ++lost;
+            else if (!parents.contains(p))
+                parents << p;
+        }
+        nodes << QVariantMap{{QStringLiteral("fishId"), e.id},
+                             {QStringLiteral("row"), i},
+                             {QStringLiteral("name"), e.displayName},
+                             {QStringLiteral("image"), QUrl::fromLocalFile(e.path())},
+                             {QStringLiteral("generation"), generationOf(i, 0)},
+                             {QStringLiteral("parents"), parents},
+                             {QStringLiteral("lostParents"), lost}};
+    }
+    return nodes;
 }
 
 QString LibraryModel::exportName(const QString &id) const
