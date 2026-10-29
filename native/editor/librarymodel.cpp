@@ -1,5 +1,6 @@
 #include "librarymodel.h"
 
+#include <algorithm>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -150,6 +151,19 @@ void LibraryModel::reload()
         if (kind == m_kind || (m_kind == QLatin1String("fish") && creature)
             || (m_kind == QLatin1String("scenery") && !creature))
             entries << e;
+    }
+    // The same fish in the same order (a count or a name changed): update the
+    // rows in place, so the list keeps its scroll position and the card being
+    // edited stays put
+    const bool sameRows = entries.size() == m_entries.size()
+        && std::equal(entries.cbegin(), entries.cend(), m_entries.cbegin(),
+                      [](const FishEntry &a, const FishEntry &b) { return a.id == b.id; });
+    if (sameRows && !entries.isEmpty()) {
+        m_entries = entries;
+        loadRelations();
+        Q_EMIT dataChanged(index(0), index(int(m_entries.size()) - 1));
+        Q_EMIT countChanged();   // the number swimming may have changed
+        return;
     }
     beginResetModel();
     m_entries = entries;
