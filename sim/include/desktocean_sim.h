@@ -50,6 +50,7 @@ typedef struct DcCrawler {
     uint32_t sprite;
     uint32_t gait;
     float hop;         // lifted off the ground while hopping in play, scene pixels
+    float depth;       // 0 near .. 1 far (from where on the sand it walks)
 } DcCrawler;
 
 // A fish swam out through a side edge, toward the screen next to it
@@ -85,6 +86,11 @@ typedef struct DcEgg {
 typedef struct DcShelter {
     float x, y, w, h;
 } DcShelter;
+
+// The floor recedes from FLOOR_NEAR (bottom of the sand, depth 0) to
+// SAND_TOP (its back edge, depth 1): fractions of the height
+#define DC_SAND_TOP   0.86f
+#define DC_FLOOR_NEAR 0.97f
 
 // What kind of fish it is at heart
 #define DC_CHARACTER_EXPLORER 0u
@@ -182,7 +188,7 @@ void dc_sim_set_eggs(DcSim *sim, const DcEgg *list, uint32_t count);  // restore
 void dc_sim_set_nests(DcSim *sim, const float *xy, uint32_t count);   // count (x, y) pairs on plants
 void dc_sim_set_crawlers(DcSim *sim, const DcCrawlerSpec *list, uint32_t count);
 uint32_t dc_sim_crawlers(DcSim *sim, DcCrawler *out, uint32_t cap);  // returns total count
-void dc_sim_set_ground(DcSim *sim, const float *heights, uint32_t count, float step);  // scene y per step px
+void dc_sim_set_ground(DcSim *sim, const float *heights, const float *depths, uint32_t count, float step);  // scene y (+ depth, may be null) per step px
 void dc_sim_set_life_speed(DcSim *sim, float speed);                  // 0 = no babies
 uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
 void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);

@@ -1169,6 +1169,12 @@ QRectF FishTank::decorRect(const DecorItem &d) const
     return QRectF(d.placement.x * width() - w / 2, d.placement.y * height() - h, w, h);
 }
 
+float FishTank::decorDepth(const DecorItem &d) const
+{
+    // Where it stands on the floor: lower down is nearer
+    return std::clamp(1.f - (float(d.placement.y) - DC_SAND_TOP) / (DC_FLOOR_NEAR - DC_SAND_TOP), 0.f, 1.f);
+}
+
 void FishTank::updateShelters()
 {
     std::vector<DcShelter> shelters;
@@ -1200,15 +1206,16 @@ void FishTank::updateShelters()
 
 void FishTank::updateGround()
 {
-    // Crawlers climb over decorations behind the fish; caves they walk into
-    // (behind the front), and things in front of the fish would hide them
+    // Crawlers climb over rocks at about their depth; caves they walk into
+    // (behind the front)
     constexpr float kStep = 8.f;
     const int n = int(width() / kStep) + 2;
     if (width() <= 0 || height() <= 0)
         return;
     std::vector<float> heights(size_t(n), std::numeric_limits<float>::infinity());
+    std::vector<float> depths(size_t(n), 0.5f);
     for (const DecorItem &d : m_decor) {
-        if (!d.opening.isNull() || d.placement.front || d.sway > 0 || d.sprite >= m_sprites.size())
+        if (!d.opening.isNull() || d.sway > 0 || d.sprite >= m_sprites.size())
             continue;
         const std::vector<float> &top = m_sprites[d.sprite].top;
         if (top.empty())
@@ -1221,11 +1228,13 @@ void FishTank::updateGround()
             if (d.placement.flip)
                 u = 1 - u;
             const float t = top[std::min(top.size() - 1, size_t(u * top.size()))];
-            if (t >= 0)
-                heights[size_t(i)] = std::min(heights[size_t(i)], float(box.top() + t * box.height()));
+            if (t >= 0 && float(box.top() + t * box.height()) < heights[size_t(i)]) {
+                heights[size_t(i)] = float(box.top() + t * box.height());
+                depths[size_t(i)] = decorDepth(d);
+            }
         }
     }
-    dc_sim_set_ground(m_sim, heights.data(), uint32_t(heights.size()), kStep);
+    dc_sim_set_ground(m_sim, heights.data(), depths.data(), uint32_t(heights.size()), kStep);
 }
 
 void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
@@ -1796,59 +1805,86 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         &idx);
     quint32 base = 0;
 
-    // Draw order: decorations behind the fish (caves whole), fish inside caves,
-    // the caves' fronts, the other fish back to front, food, then decorations
-    // in front of the fish
-    enum class Layer { Back, CaveFront, Front };
-    auto writeDecorLayer = [&](Layer layer) {
-        if (nDecor == 0)
-            return;
+    // Everything that stands or swims in the tank is drawn back to front by
+    // depth, in one go: decorations (deeper the higher up the sand they
+    // stand), crawlers, eggs and fish. A cave is drawn whole just behind its
+    // depth and cut open just in front of it, so a fish inside goes between.
+    enum class Kind { Decor, CaveFront, Crawler, Eggs, Fish };
+    struct Draw {
+        float depth;
+        Kind kind;
+        int index;
+    };
+    std::vector<Draw> draws;
+    draws.reserve(m_decor.size() * 2 + m_crawlers.size() + m_eggs.size() + order.size());
+    std::vector<QRectF> caveOpenings(m_decor.size());
+    for (int i = 0; i < int(m_decor.size()); ++i) {
+        const DecorItem &d = m_decor[size_t(i)];
+        if (d.sprite >= m_sprites.size())
+            continue;
+        const float depth = decorDepth(d);
+        if (d.opening.isNull()) {
+            draws.push_back({depth, Kind::Decor, i});
+        } else {
+            draws.push_back({depth + 0.002f, Kind::Decor, i});
+            draws.push_back({depth - 0.002f, Kind::CaveFront, i});
+            const QRectF box = decorRect(d);
+            const QRectF &o = d.opening;
+            const double left = d.placement.flip ? 1 - o.right() : o.left();
+            caveOpenings[size_t(i)] = QRectF(box.x() + left * box.width(), box.y() + o.y() * box.height(),
+                                             o.width() * box.width(), o.height() * box.height());
+        }
+    }
+    for (int i = 0; i < int(m_crawlers.size()); ++i) {
+        if (m_crawlers[size_t(i)].sprite < m_sprites.size())
+            draws.push_back({m_crawlers[size_t(i)].depth, Kind::Crawler, i});
+    }
+    // Eggs sit on a plant: just in front of it
+    for (int i = 0; i < nEggs / kEggsPerClutch; ++i) {
+        const DcEgg &e = m_eggs[size_t(i)];
+        float depth = 0.5f;
         for (const DecorItem &d : m_decor) {
-            const bool cave = !d.opening.isNull();
-            const bool wanted = layer == Layer::Back        ? cave || !d.placement.front
-                                : layer == Layer::CaveFront ? cave
-                                                            : !cave && d.placement.front;
-            if (!wanted || d.sprite >= m_sprites.size())
-                continue;
-            const uint32_t sprite = layer == Layer::CaveFront ? d.frontSprite : d.sprite;
+            if (d.sway > 0 && decorRect(d).contains(QPointF(e.x, e.y)))
+                depth = decorDepth(d) - 0.001f;
+        }
+        draws.push_back({depth, Kind::Eggs, i});
+    }
+    for (int i : order) {
+        const DcFish &f = m_fish[size_t(i)];
+        float depth = f.depth;
+        // In a cave: at the cave's depth, between its back and its front
+        if (f.sheltered) {
+            for (size_t k = 0; k < caveOpenings.size(); ++k) {
+                if (!caveOpenings[k].isNull() && caveOpenings[k].adjusted(-f.w, -f.h, f.w, f.h).contains(QPointF(f.x, f.y)))
+                    depth = decorDepth(m_decor[k]);
+            }
+        }
+        draws.push_back({depth, Kind::Fish, i});
+    }
+    std::stable_sort(draws.begin(), draws.end(), [](const Draw &a, const Draw &b) { return a.depth > b.depth; });
+
+    const float eggSize = std::clamp(float(height()) / 1080.f, 0.7f, 2.f) * 12.f;
+    for (const Draw &item : draws) {
+        switch (item.kind) {
+        case Kind::Decor:
+        case Kind::CaveFront: {
+            const DecorItem &d = m_decor[size_t(item.index)];
+            const uint32_t sprite = item.kind == Kind::CaveFront ? d.frontSprite : d.sprite;
             const QRectF box = decorRect(d);
             // A busy computer stirs the current
             const float sway = d.sway * float(1 + 1.5 * agitation());
+            // Farther back, a little more of the water's colour (as with fish)
             const FishMesh::DecorPose pose{float(box.center().x()), float(box.bottom()), float(box.width()),
                                            float(box.height()), sway, d.phase, d.placement.flip,
-                                           layer == Layer::Front ? 0.f : 0.15f};
+                                           decorDepth(d) * 0.45f};
             FishMesh::writeDecor(pose, m_sprites[sprite].uv, float(m_flow), v, idx, base);
             v += FishMesh::kVertsPerDecor;
             idx += FishMesh::kIndicesPerDecor;
             base += FishMesh::kVertsPerDecor;
+            break;
         }
-    };
-    writeDecorLayer(Layer::Back);
-
-    // Eggs on the plants; they start to wobble just before they hatch
-    if (nEggs > 0) {
-        const float size = std::clamp(float(height()) / 1080.f, 0.7f, 2.f) * 12.f;
-        for (const DcEgg &e : m_eggs) {
-            const float wobble = e.progress > 0.85f ? std::sin(float(m_time) * 18.f + e.x) * 1.5f : 0.f;
-            for (int k = 0; k < kEggsPerClutch; ++k) {
-                // A rosette: one in the middle, the rest around it
-                const float a = float(k) * 2.4f + e.x * 0.1f;
-                const float r = k == 0 ? 0.f : size * (0.7f + 0.25f * float(k % 2));
-                const float ex = e.x + std::cos(a) * r + wobble, ey = e.y + std::sin(a) * r * 0.8f;
-                FishMesh::writeQuad(QRectF(ex - size / 2, ey - size / 2, size, size), m_eggUv, 0.95f, v, idx, base);
-                v += 4;
-                idx += 6;
-                base += 4;
-            }
-        }
-    }
-
-    // Crawlers on the bottom (and on the rocks), behind the fish; ones walking
-    // past a cave go behind its front
-    if (nCrawlers > 0) {
-        for (const DcCrawler &c : m_crawlers) {
-            if (c.sprite >= m_sprites.size())
-                continue;
+        case Kind::Crawler: {
+            const DcCrawler &c = m_crawlers[size_t(item.index)];
             // (lifted while hopping about in play)
             const FishMesh::CrawlerPose pose{c.x, c.y - c.hop, c.w, c.h, c.facing, c.phase, c.tilt, c.buried,
                                              FishMesh::Gait(c.gait)};
@@ -1856,27 +1892,37 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             v += FishMesh::kVertsPerFish;
             idx += FishMesh::kIndicesPerFish;
             base += FishMesh::kVertsPerFish;
+            break;
         }
-    }
-
-    // Back to front: one draw call, blending order comes from vertex order
-    std::sort(order.begin(), order.end(), [&](int a, int b) { return m_fish[a].depth > m_fish[b].depth; });
-    auto writeFishLayer = [&](bool sheltered) {
-        for (int i : order) {
-            const DcFish &f = m_fish[i];
-            if ((f.sheltered != 0) != sheltered)
-                continue;
+        case Kind::Eggs: {
+            // A rosette; they start to wobble just before they hatch
+            const DcEgg &e = m_eggs[size_t(item.index)];
+            const float wobble = e.progress > 0.85f ? std::sin(float(m_time) * 18.f + e.x) * 1.5f : 0.f;
+            for (int k = 0; k < kEggsPerClutch; ++k) {
+                const float a = float(k) * 2.4f + e.x * 0.1f;
+                const float r = k == 0 ? 0.f : eggSize * (0.7f + 0.25f * float(k % 2));
+                const float ex = e.x + std::cos(a) * r + wobble, ey = e.y + std::sin(a) * r * 0.8f;
+                FishMesh::writeQuad(QRectF(ex - eggSize / 2, ey - eggSize / 2, eggSize, eggSize), m_eggUv, 0.95f, v,
+                                    idx, base);
+                v += 4;
+                idx += 6;
+                base += 4;
+            }
+            break;
+        }
+        case Kind::Fish: {
+            const DcFish &f = m_fish[size_t(item.index)];
             const SpriteInfo &sprite = m_sprites[f.sprite];
             const FishMesh::Pose pose{f.x, f.y, f.w, f.h, f.facing, f.phase, f.amplitude, f.tilt, f.depth};
             FishMesh::writeFish(pose, sprite.uv, *sprite.style, sprite.weights, v, idx, base);
             v += FishMesh::kVertsPerFish;
             idx += FishMesh::kIndicesPerFish;
             base += FishMesh::kVertsPerFish;
+            break;
         }
-    };
-    writeFishLayer(true);
-    writeDecorLayer(Layer::CaveFront);
-    writeFishLayer(false);
+        }
+    }
+
     for (int i = 0; i < nFood; ++i) {
         // Pellets come in three sizes, one for each size of fish
         const DcFood &p = m_food[i];
@@ -1921,7 +1967,6 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             base += 4;
         }
     }
-    writeDecorLayer(Layer::Front);
 
     node->commit();
     if (m_profile.enabled) {

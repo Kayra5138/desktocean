@@ -5,7 +5,7 @@
 //! when the cursor lingers next to them: crabs and shrimp dig in, snails pull
 //! into their shell.
 
-use super::Sim;
+use super::{Sim, depth_of_floor};
 
 /// How a bottom creature moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +80,8 @@ pub struct Crawler {
     pub buried: f32,
     /// Lifted off the ground while hopping about in play, scene pixels
     pub hop: f32,
+    /// 0 near .. 1 far: from how far back on the sand it walks
+    pub depth: f32,
     /// How far back on the sand it walks (scene y of its feet on flat sand)
     lane: f32,
     lane_target: f32,
@@ -125,8 +127,15 @@ impl Sim {
 
     /// Height of the ground (scene y) every `step` px from x = 0: rocks and
     /// other decorations crawlers can climb. Empty = flat sand.
-    pub fn set_ground(&mut self, heights: &[f32], step: f32) {
+    /// `depths` (same length, or empty) says how far back the decoration
+    /// making each column is: crawlers only climb what is at about their depth.
+    pub fn set_ground(&mut self, heights: &[f32], depths: &[f32], step: f32) {
         self.ground = heights.to_vec();
+        self.ground_depth = if depths.len() == heights.len() {
+            depths.to_vec()
+        } else {
+            Vec::new()
+        };
         self.ground_step = step.max(1.0);
     }
 
@@ -157,6 +166,7 @@ impl Sim {
             tilt: 0.0,
             buried: 0.0,
             hop: 0.0,
+            depth: 0.5,
             lane,
             lane_target: lane,
             dir: if self.rng.chance(0.5) { 1.0 } else { -1.0 },
@@ -182,13 +192,21 @@ impl Sim {
     }
 
     /// The ground under x: the sand at `lane`, or a rock's top if that is higher
-    fn ground_at(&self, x: f32, lane: f32) -> f32 {
+    fn ground_at(&self, x: f32, lane: f32, depth: f32) -> f32 {
         if self.ground.is_empty() {
             return lane;
         }
         let i = (x / self.ground_step)
             .round()
             .clamp(0.0, (self.ground.len() - 1) as f32) as usize;
+        // A rock well in front of or behind the crawler isn't in its way
+        if self
+            .ground_depth
+            .get(i)
+            .is_some_and(|d| (d - depth).abs() > 0.25)
+        {
+            return lane;
+        }
         self.ground[i].min(lane)
     }
 
@@ -340,13 +358,14 @@ impl Sim {
             c.lane += (c.lane_target - c.lane).clamp(-25.0 * dt * screen, 25.0 * dt * screen);
             c.phase = (c.phase + c.speed * dt * 0.12 / screen) % 1000.0;
 
+            c.depth = depth_of_floor(c.lane / self.height.max(1.0));
             // Stand on the ground: the highest point under the middle of the
             // body, tilted to follow the slope
             let reach = c.w * 0.3;
             let (gl, gm, gr) = (
-                self.ground_at(c.x - reach, c.lane),
-                self.ground_at(c.x, c.lane),
-                self.ground_at(c.x + reach, c.lane),
+                self.ground_at(c.x - reach, c.lane, c.depth),
+                self.ground_at(c.x, c.lane, c.depth),
+                self.ground_at(c.x + reach, c.lane, c.depth),
             );
             let target_y = gm.min((gl + gr) * 0.5);
             // Climb at a crawl, drop a bit quicker
@@ -471,7 +490,7 @@ mod tests {
                 }
             })
             .collect();
-        s.set_ground(&ground, 8.0);
+        s.set_ground(&ground, &[], 8.0);
         s.crawlers[0].x = 1000.0;
         let mut highest = f32::INFINITY;
         for _ in 0..30 * 5 {

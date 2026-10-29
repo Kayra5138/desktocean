@@ -386,6 +386,8 @@ private:
     };
     // Where a decoration is drawn: bottom-centre anchored, sized by height
     QRectF decorRect(const DecorItem &d) const;
+    // 0 near .. 1 far, from where on the sand it stands
+    float decorDepth(const DecorItem &d) const;
     // Tells the sim where the cave openings are and how high the rocks are
     void updateShelters();
     void updateGround();

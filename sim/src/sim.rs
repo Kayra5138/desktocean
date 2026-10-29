@@ -15,8 +15,18 @@ pub use eggs::{Egg, HATCH_SECS};
 pub use pet::Heart;
 pub use travel::Departure;
 
-/// Fraction of the height where the sand starts.
+/// Fraction of the height where the sand starts: the far edge of the floor.
 pub const SAND_TOP: f32 = 0.86;
+/// Fraction of the height where the floor is nearest to us. The sand between
+/// SAND_TOP and this is a floor receding into the tank: things standing lower
+/// on it are nearer (depth 0), things at its back edge are farthest (depth 1).
+pub const FLOOR_NEAR: f32 = 0.97;
+
+/// Depth (0 near .. 1 far) of something standing on the floor at `y`, a
+/// fraction of the height
+pub fn depth_of_floor(y: f32) -> f32 {
+    (1.0 - (y - SAND_TOP) / (FLOOR_NEAR - SAND_TOP)).clamp(0.0, 1.0)
+}
 /// Fraction of the height where the water surface is.
 pub const WATER_TOP: f32 = 0.05;
 /// Food lies on the sand this long before it dissolves.
@@ -600,6 +610,7 @@ pub struct Sim {
     crawler_specs: Vec<CrawlerSpec>,
     /// Height of the ground every `ground_step` px (rocks crawlers climb)
     ground: Vec<f32>,
+    ground_depth: Vec<f32>,
     ground_step: f32,
     schools: Vec<School>,
     next_school: u32,
@@ -645,6 +656,7 @@ impl Sim {
             crawlers: Vec::new(),
             crawler_specs: Vec::new(),
             ground: Vec::new(),
+            ground_depth: Vec::new(),
             ground_step: 8.0,
             schools: Vec::new(),
             next_school: 1,
@@ -861,6 +873,12 @@ impl Sim {
         self.height * SAND_TOP
     }
 
+    /// The floor under something at this depth (scene y): fish near the front
+    /// can swim down over the sand, among the plants there
+    pub fn floor_at(&self, depth: f32) -> f32 {
+        self.height * (SAND_TOP + (1.0 - depth.clamp(0.0, 1.0)) * (FLOOR_NEAR - SAND_TOP))
+    }
+
     fn has_size(&self) -> bool {
         self.width > 1.0 && self.height > 1.0
     }
@@ -962,7 +980,7 @@ impl Sim {
     /// doesn't keep turning, and in the least crowded spot so the fish spread
     /// out over the whole tank instead of bunching up.
     fn pick_target(&mut self, f: &mut Fish) {
-        let (wt, st) = (self.water_top(), self.sand_top());
+        let (wt, st) = (self.water_top(), self.floor_at(f.depth));
         let (lo, hi) = (f.w * 0.6, (self.width - f.w * 0.6).max(f.w * 0.6 + 1.0));
         let (top, bottom) = (wt + f.h, (st - f.h * 0.7).max(wt + f.h + 1.0));
         let water = bottom - top;
@@ -1079,9 +1097,9 @@ impl Sim {
         let bottom = match f.mode {
             Mode::Hide { shelter, .. } if shelter < self.shelters.len() => {
                 let s = self.shelters[shelter];
-                (self.sand_top() - f.h * 0.3).max(s.y + s.h - f.h * 0.4)
+                (self.floor_at(f.depth) - f.h * 0.3).max(s.y + s.h - f.h * 0.4)
             }
-            _ => self.sand_top() - f.h * 0.3,
+            _ => self.floor_at(f.depth) - f.h * 0.3,
         };
         f.y = f.y.clamp(top, bottom.max(top));
     }
@@ -1260,7 +1278,7 @@ impl Sim {
         self.update_bubbles(dt);
         self.update_schools(dt);
 
-        let (wt, st) = (self.water_top(), self.sand_top());
+        let (wt, st) = (self.water_top(), self.floor_at(0.0));
         // The cursor, when it is in the water; nobody plays with it at night
         let lure = pointer.filter(|&(_, y)| self.daylight > 0.3 && y > wt && y < st);
 
@@ -2415,7 +2433,7 @@ mod tests {
                 f.x
             );
             assert!(
-                f.y >= 1080.0 * WATER_TOP && f.y <= 1080.0 * SAND_TOP,
+                f.y >= 1080.0 * WATER_TOP && f.y <= s.floor_at(f.depth),
                 "y {}",
                 f.y
             );
@@ -3463,7 +3481,9 @@ mod tests {
                 if k % 15 == 0 {
                     for f in s.fish() {
                         cols[((f.x / 2560.0 * 3.0) as usize).min(2)] += 1.0;
-                        let water = (f.y - 1440.0 * WATER_TOP) / (1440.0 * (SAND_TOP - WATER_TOP));
+                        // (each fish's floor is as far down as its depth allows)
+                        let water =
+                            (f.y - 1440.0 * WATER_TOP) / (s.floor_at(f.depth) - 1440.0 * WATER_TOP);
                         rows[((water * 3.0) as usize).min(2)] += 1.0;
                         n += 1.0;
                     }

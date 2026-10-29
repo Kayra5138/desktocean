@@ -100,7 +100,7 @@ Kirigami.Page {
                     wrapMode: Text.WordWrap
                     color: "white"
                     opacity: 0.35
-                    text: "Fish swim here, between the back and front layers.\nDrag to move · scroll to resize · Delete removes"
+                    text: "Lower on the sand is nearer: fish swim in front of and behind things by depth.\nDrag to move · scroll to resize · Delete removes"
                 }
 
                 Repeater {
@@ -127,12 +127,12 @@ Kirigami.Page {
                         width: height / aspect
                         x: posX * tank.width - width / 2
                         y: posY * tank.height - height
-                        z: (front ? 1000 : 0) + posY * 100
+                        // Lower on the sand is nearer, as in the aquarium
+                        z: posY * 100
                         source: image
                         mirror: flipped
                         smooth: true
                         mipmap: true
-                        opacity: front ? 1 : 0.88
 
                         function rebind() {
                             x = Qt.binding(() => posX * tank.width - width / 2);
@@ -243,10 +243,11 @@ Kirigami.Page {
                             onMoved: layout.setScale(page.selected, value)
                         }
                     }
-                    QQC2.Switch {
-                        text: "In front of the fish"
-                        checked: page.selectedItem ? page.selectedItem.front : false
-                        onToggled: layout.setFront(page.selected, checked)
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        text: "To bring it forward, move it lower on the sand; higher up puts it further back."
                     }
                     RowLayout {
                         Layout.fillWidth: true

@@ -422,6 +422,8 @@ pub struct DcCrawler {
     pub gait: u32,
     /// Lifted off the ground while hopping in play, scene pixels
     pub hop: f32,
+    /// 0 near .. 1 far (from where on the sand it walks)
+    pub depth: f32,
 }
 
 /// Replaces the bottom creatures (same ids keep their place).
@@ -480,6 +482,7 @@ pub unsafe extern "C" fn dc_sim_crawlers(handle: *mut DcSim, out: *mut DcCrawler
                     sprite: c.sprite,
                     gait: c.gait.index(),
                     hop: c.hop,
+                    depth: c.depth,
                 };
             }
         }
@@ -488,27 +491,34 @@ pub unsafe extern "C" fn dc_sim_crawlers(handle: *mut DcSim, out: *mut DcCrawler
 }
 
 /// Height of the ground (scene y) every `step` px from x = 0, for crawlers
-/// climbing rocks. `count` 0 = flat sand.
+/// climbing rocks, and (optional, null) how far back the decoration there is
+/// (0 near .. 1 far): crawlers only climb what is at about their depth.
+/// `count` 0 = flat sand.
 /// # Safety
-/// `handle` must be null or a live pointer from `dc_sim_new`, and `heights` null or valid for `count` reads.
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `heights`
+/// (and `depths` if not null) null or valid for `count` reads.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dc_sim_set_ground(
     handle: *mut DcSim,
     heights: *const f32,
+    depths: *const f32,
     count: u32,
     step: f32,
 ) {
     with_sim(handle, (), |s| {
-        let list: Vec<f32> = if heights.is_null() || count == 0 || !step.is_finite() {
-            Vec::new()
-        } else {
+        let read = |p: *const f32, fallback: f32| -> Vec<f32> {
+            if p.is_null() || count == 0 || !step.is_finite() {
+                return Vec::new();
+            }
             // SAFETY: caller provides `count` readable elements.
-            unsafe { std::slice::from_raw_parts(heights, count.min(100_000) as usize) }
+            unsafe { std::slice::from_raw_parts(p, count.min(100_000) as usize) }
                 .iter()
-                .map(|h| if h.is_finite() { *h } else { f32::INFINITY })
+                .map(|h| if h.is_finite() { *h } else { fallback })
                 .collect()
         };
-        s.set_ground(&list, step)
+        let list = read(heights, f32::INFINITY);
+        let depth = read(depths, 0.5);
+        s.set_ground(&list, &depth, step)
     });
 }
 
