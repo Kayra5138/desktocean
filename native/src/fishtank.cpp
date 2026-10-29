@@ -1762,10 +1762,11 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     writeFishLayer(true);
     writeDecorLayer(Layer::CaveFront);
     writeFishLayer(false);
-    const float half = kFoodSize * 0.5f;
     for (int i = 0; i < nFood; ++i) {
+        // Pellets come in three sizes, one for each size of fish
         const DcFood &p = m_food[i];
-        FishMesh::writeQuad(QRectF(p.x - half, p.y - half, kFoodSize, kFoodSize), m_foodUv, p.opacity, v, idx, base);
+        const float size = p.size > 0 ? p.size : kFoodSize, half = size * 0.5f;
+        FishMesh::writeQuad(QRectF(p.x - half, p.y - half, size, size), m_foodUv, p.opacity, v, idx, base);
         v += 4;
         idx += 6;
         base += 4;

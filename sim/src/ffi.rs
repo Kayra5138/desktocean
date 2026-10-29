@@ -108,6 +108,8 @@ pub struct DcFood {
     pub x: f32,
     pub y: f32,
     pub opacity: f32,
+    /// Diameter in scene pixels (small, medium or large pellet)
+    pub size: f32,
 }
 
 fn with_sim<R>(handle: *mut DcSim, fallback: R, f: impl FnOnce(&mut Sim) -> R) -> R {
@@ -810,6 +812,7 @@ pub unsafe extern "C" fn dc_sim_food(handle: *mut DcSim, out: *mut DcFood, cap: 
                     x: p.x,
                     y: p.y,
                     opacity: p.opacity(),
+                    size: p.diameter(),
                 };
             }
         }
