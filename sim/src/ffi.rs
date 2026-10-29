@@ -108,7 +108,7 @@ pub struct DcFood {
     pub x: f32,
     pub y: f32,
     pub opacity: f32,
-    /// Diameter in scene pixels (small, medium or large pellet)
+    /// Diameter in scene pixels (one size of pellet per fish size)
     pub size: f32,
 }
 

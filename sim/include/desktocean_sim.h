@@ -134,7 +134,7 @@ typedef struct DcRipple {
 typedef struct DcFood {
     float x, y;
     float opacity;
-    float size;        // diameter, scene pixels (pellets come in three sizes)
+    float size;        // diameter, scene pixels (one pellet size per fish size)
 } DcFood;
 
 const char *dc_sim_version(void);

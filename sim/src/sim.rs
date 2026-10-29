@@ -412,15 +412,16 @@ pub struct Fish {
 }
 
 impl Fish {
-    /// The pellet size this fish eats: 0 small, 1 medium, 2 large (babies
-    /// count as small until they have grown)
+    /// The pellet size this fish eats, one per size in the editor (Tiny 0.4,
+    /// Small 0.6, Medium 1.0, Large 1.4, Huge 1.9): the nearest one. Babies eat
+    /// smaller food until they have grown.
     pub fn bite(&self) -> u8 {
-        if self.scale < 0.8 {
-            0
-        } else if self.scale <= 1.25 {
-            1
-        } else {
-            2
+        match self.scale {
+            s if s < 0.5 => 0,
+            s if s < 0.8 => 1,
+            s if s < 1.2 => 2,
+            s if s < 1.65 => 3,
+            _ => 4,
         }
     }
 
@@ -529,7 +530,8 @@ pub struct Ripple {
 pub struct Food {
     pub x: f32,
     pub y: f32,
-    /// Pellet size class: 0 small, 1 medium, 2 large; each fish eats its own size
+    /// Pellet size class, one per fish size: 0 tiny, 1 small, 2 medium,
+    /// 3 large, 4 huge; each fish eats its own size
     pub size: u8,
     seed: f32,
     age: f32,
@@ -540,7 +542,7 @@ pub struct Food {
 impl Food {
     /// Diameter in scene pixels
     pub fn diameter(&self) -> f32 {
-        [6.0, 10.0, 15.0][self.size.min(2) as usize]
+        [5.0, 7.0, 10.0, 13.0, 17.0][self.size.min(4) as usize]
     }
 
     pub fn opacity(&self) -> f32 {
@@ -1173,7 +1175,7 @@ impl Sim {
         let wt = self.water_top();
         // A mix of pellet sizes for the fish that are here, at least one of
         // each size someone eats
-        let mut eaters = [0usize; 3];
+        let mut eaters = [0usize; 5];
         for f in &self.fish {
             eaters[f.bite() as usize] += 1;
         }
@@ -1181,7 +1183,7 @@ impl Sim {
         let sizes: Vec<u8> = if total == 0 {
             vec![1; 8]
         } else {
-            (0..3u8)
+            (0..5u8)
                 .flat_map(|c| {
                     let n = eaters[c as usize];
                     let k = if n == 0 {
@@ -3629,12 +3631,12 @@ mod tests {
         let sizes: std::collections::HashSet<u8> = s.food.iter().map(|p| p.size).collect();
         assert_eq!(
             sizes.len(),
-            3,
-            "small, medium and large fish: all three sizes fall"
+            5,
+            "fish of five sizes: five sizes of food fall"
         );
         // Track who eats what
         let mut eaten = Vec::new();
-        for _ in 0..30 * 60 {
+        for n in 1..30 * 60 {
             s.fish.iter_mut().for_each(|f| f.hunger = 1.0);
             let before: Vec<(usize, u8)> = s
                 .food
@@ -3648,7 +3650,7 @@ mod tests {
                 let f = s.fish.iter().find(|f| f.id == eater).unwrap();
                 eaten.push((f.bite(), size));
             }
-            if s.food.is_empty() {
+            if n % (30 * 6) == 0 {
                 s.feed(None);
             }
         }
