@@ -82,6 +82,11 @@ pub struct Crawler {
     pub hop: f32,
     /// 0 near .. 1 far: from how far back on the sand it walks
     pub depth: f32,
+    /// Riding in a bubble from the wand (see carry.rs)
+    pub(super) carried: bool,
+    /// Dropped from a bubble: falling back to the ground
+    pub(super) falling: bool,
+    pub(super) fall_v: f32,
     /// How far back on the sand it walks (scene y of its feet on flat sand)
     lane: f32,
     lane_target: f32,
@@ -167,6 +172,9 @@ impl Sim {
             buried: 0.0,
             hop: 0.0,
             depth: 0.5,
+            carried: false,
+            falling: false,
+            fall_v: 0.0,
             lane,
             lane_target: lane,
             dir: if self.rng.chance(0.5) { 1.0 } else { -1.0 },
@@ -215,6 +223,23 @@ impl Sim {
         let night = 1.0 - self.daylight;
         for k in 0..self.crawlers.len() {
             let mut c = self.crawlers[k].clone();
+            // In a bubble: the bubble moves it (carry.rs)
+            if c.carried {
+                continue;
+            }
+            // Dropped from a bubble: falls to the ground below, then carries on
+            if c.falling {
+                let ground = self.ground_at(c.x, c.lane, c.depth);
+                c.fall_v += 900.0 * dt;
+                c.y += c.fall_v * dt;
+                if c.y >= ground {
+                    c.y = ground;
+                    c.falling = false;
+                    c.fall_v = 0.0;
+                }
+                self.crawlers[k] = c;
+                continue;
+            }
             let (pace, walk_secs, rest_secs) = c.gait.pace();
             // Crabs and shrimp come out more at night
             let lively = match c.gait {

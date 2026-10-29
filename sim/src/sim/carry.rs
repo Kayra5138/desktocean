@@ -18,12 +18,14 @@ pub struct Carry {
     pub id: u32,
     pub x: f32,
     pub y: f32,
-    /// The fish inside, or on its way in
+    /// The fish (or crawler) inside, or on its way in
     pub fish: Option<u64>,
+    /// What is inside is a crawler (crab, snail...) rather than a fish
+    pub crawler: bool,
     /// It has arrived: it now floats where the bubble goes
     pub holding: bool,
-    /// The fish the bubble is waiting by, and for how long
-    candidate: Option<u64>,
+    /// The fish or crawler the bubble is waiting by (crawler?), and for how long
+    candidate: Option<(bool, u64)>,
     linger: f32,
     /// Let go of: floating up to pop at the surface
     pub rising: bool,
@@ -48,13 +50,6 @@ const FLING_SPEED: f32 = 150.0;
 const SPENT_SPEED: f32 = 30.0;
 
 impl Carry {
-    pub fn radius(&self, fish: &[Fish]) -> f32 {
-        match self.fish.and_then(|id| fish.iter().find(|f| f.id == id)) {
-            Some(f) if self.holding => f.w.max(f.h) * 0.62 + 10.0,
-            _ => EMPTY_RADIUS,
-        }
-    }
-
     /// 0 .. 1 while waiting for a fish to come
     pub fn invite_progress(&self) -> f32 {
         if self.fish.is_some() {
@@ -74,17 +69,38 @@ impl Sim {
         self.carries.iter().position(|c| c.id == id)
     }
 
+    /// A bubble's radius: round whoever is inside
+    pub fn carry_radius(&self, c: &Carry) -> f32 {
+        if !c.holding {
+            return EMPTY_RADIUS;
+        }
+        let size = match (c.fish, c.crawler) {
+            (Some(id), false) => self.fish.iter().find(|f| f.id == id).map(|f| f.w.max(f.h)),
+            (Some(id), true) => self
+                .crawlers
+                .iter()
+                .find(|k| k.id == id)
+                .map(|k| k.w.max(k.h)),
+            _ => None,
+        };
+        size.map_or(EMPTY_RADIUS, |s| s * 0.62 + 10.0)
+    }
+
     /// Where to draw a bubble: around its fish once it is inside (the fish
     /// can't leave the water), where it was led otherwise. (x, y, radius)
     pub fn bubble_of(&self, c: &Carry) -> (f32, f32, f32) {
-        let held = c
-            .fish
-            .filter(|_| c.holding)
-            .and_then(|id| self.fish.iter().find(|f| f.id == id));
-        match held {
-            Some(f) => (f.x, f.y, c.radius(&self.fish)),
-            None => (c.x, c.y, c.radius(&self.fish)),
-        }
+        let r = self.carry_radius(c);
+        let inside = match (c.fish.filter(|_| c.holding), c.crawler) {
+            (Some(id), false) => self.fish.iter().find(|f| f.id == id).map(|f| (f.x, f.y)),
+            (Some(id), true) => self
+                .crawlers
+                .iter()
+                .find(|k| k.id == id)
+                .map(|k| (k.x, k.y - k.h * 0.5)),
+            _ => None,
+        };
+        let (x, y) = inside.unwrap_or((c.x, c.y));
+        (x, y, r)
     }
 
     /// A new bubble at (x, y), scene pixels; it floats there on its own
@@ -96,6 +112,7 @@ impl Sim {
             x,
             y,
             fish: None,
+            crawler: false,
             holding: false,
             candidate: None,
             linger: 0.0,
@@ -167,7 +184,17 @@ impl Sim {
                 0.3,
             );
         }
-        if let Some(f) = c
+        if c.crawler {
+            // A crawler drops back down to the ground
+            if let Some(k) = c
+                .fish
+                .and_then(|id| self.crawlers.iter_mut().find(|k| k.id == id))
+            {
+                k.carried = false;
+                k.falling = true;
+                k.fall_v = 0.0;
+            }
+        } else if let Some(f) = c
             .fish
             .and_then(|id| self.fish.iter_mut().find(|f| f.id == id))
         {
@@ -199,7 +226,7 @@ impl Sim {
             c.vy = 0.6 * c.vy + 0.4 * (c.y - c.last.1) / dt;
         }
         c.last = (c.x, c.y);
-        let r = c.radius(&self.fish);
+        let r = self.carry_radius(c);
         if !c.held && !c.rising {
             // Drifting on after a fling, slowing down in the water
             c.x += c.vx * dt;
@@ -241,35 +268,51 @@ impl Sim {
                 return true;
             }
         }
-        // The fish it held went away (to another screen, out of the library)
-        if c.fish
-            .is_some_and(|id| !self.fish.iter().any(|f| f.id == id))
-        {
+        // What it held went away (to another screen, out of the library)
+        let gone = match (c.fish, c.crawler) {
+            (Some(id), false) => !self.fish.iter().any(|f| f.id == id),
+            (Some(id), true) => !self.crawlers.iter().any(|k| k.id == id),
+            _ => false,
+        };
+        if gone {
             c.fish = None;
             c.holding = false;
         }
         if c.fish.is_none() {
-            // Waiting by the nearest fish that could come (and isn't in another bubble)
-            let nearest = self
+            // Waiting by the nearest fish or crawler that could come (and isn't
+            // in another bubble)
+            let fish = self
                 .fish
                 .iter()
                 .filter(|f| {
                     !f.entering && f.travel == 0 && !f.arriving && !matches!(f.mode, Mode::Bubbled)
                 })
-                .map(|f| (f.id, (f.x - c.x).hypot(f.y - c.y), f.trust))
-                .filter(|&(_, d, _)| d < INVITE_RADIUS)
-                .min_by(|a, b| a.1.total_cmp(&b.1));
+                .map(|f| (false, f.id, (f.x - c.x).hypot(f.y - c.y), f.trust));
+            let crawlers = self
+                .crawlers
+                .iter()
+                .filter(|k| !k.carried && !k.falling)
+                .map(|k| (true, k.id, (k.x - c.x).hypot(k.y - k.h * 0.5 - c.y), 0.5));
+            let nearest = fish
+                .chain(crawlers)
+                .filter(|&(_, _, d, _)| d < INVITE_RADIUS)
+                .min_by(|a, b| a.2.total_cmp(&b.2));
             match nearest {
-                Some((id, _, trust)) => {
-                    if c.candidate == Some(id) {
+                Some((crawler, id, _, trust)) => {
+                    if c.candidate == Some((crawler, id)) {
                         c.linger += dt;
                     } else {
-                        c.candidate = Some(id);
+                        c.candidate = Some((crawler, id));
                         c.linger = 0.0;
                     }
                     if c.linger >= INVITE_SECS * (1.0 - 0.6 * trust) {
                         c.fish = Some(id);
-                        if let Some(f) = self.fish.iter_mut().find(|f| f.id == id) {
+                        c.crawler = crawler;
+                        if crawler {
+                            if let Some(k) = self.crawlers.iter_mut().find(|k| k.id == id) {
+                                k.carried = true;
+                            }
+                        } else if let Some(f) = self.fish.iter_mut().find(|f| f.id == id) {
                             f.mode = Mode::Bubbled;
                             f.flee_left = 0.0;
                             f.follow_left = 0.0;
@@ -280,6 +323,29 @@ impl Sim {
                     c.candidate = None;
                     c.linger = 0.0;
                 }
+            }
+        }
+        // A crawler can't swim: it floats up into the bubble, then rides in it
+        if let (Some(id), true) = (c.fish, c.crawler) {
+            let (tx, ty) = (
+                c.x.clamp(0.0, self.width),
+                c.y.clamp(self.water_top(), self.height),
+            );
+            if let Some(k) = self.crawlers.iter_mut().find(|k| k.id == id) {
+                let (cx, cy) = (k.x, k.y - k.h * 0.5);
+                let (dx, dy) = (tx - cx, ty - cy);
+                let dist = dx.hypot(dy);
+                if c.holding || dist < 15.0 {
+                    c.holding = true;
+                    k.x = tx;
+                    k.y = ty + k.h * 0.5 + (self.time * 1.3 + k.phase).sin() * 3.0;
+                } else {
+                    let step = (150.0 * dt).min(dist);
+                    k.x += dx / dist * step;
+                    k.y += dy / dist * step;
+                }
+                k.tilt *= 0.9;
+                k.hop = 0.0;
             }
         }
         false
@@ -470,7 +536,7 @@ mod tests {
                 // Coming back along either axis it was flung along
                 bounced |= (c.x - last.0) * dx < -1.0 || (c.y - last.1) * dy < -1.0;
                 last = (c.x, c.y);
-                let r = c.radius(s.fish());
+                let r = s.carry_radius(&c);
                 reached |= c.x + r >= 1919.0
                     || c.x - r <= 1.0
                     || c.y + r >= 1079.0
@@ -571,6 +637,51 @@ mod tests {
             "both bubbles have a fish"
         );
         assert_ne!(ca.fish, cb.fish, "each its own");
+    }
+
+    #[test]
+    fn a_crab_rides_in_a_bubble_and_drops_back_down() {
+        let mut s = Sim::new(4);
+        s.resize(1920.0, 1080.0);
+        s.set_crawlers(&[crate::sim::CrawlerSpec {
+            id: 900,
+            sprite: 0,
+            aspect: 0.6,
+            scale: 1.0,
+            gait: crate::sim::Gait::Crab,
+        }]);
+        let (kx, ky) = (s.crawlers()[0].x, s.crawlers()[0].y);
+        let id = s.carry_new(kx, ky - 80.0);
+        for _ in 0..30 * 3 {
+            let x = s.crawlers()[0].x;
+            s.carry_to(id, x, ky - 80.0);
+            s.step(DT, None);
+        }
+        let c = get(&s, id).unwrap();
+        assert!(
+            c.crawler && c.fish == Some(900) && c.holding,
+            "the crab should be in the bubble: {c:?}"
+        );
+        // Carried up into the water
+        for _ in 0..30 {
+            s.carry_to(id, 900.0, 400.0);
+            s.step(DT, None);
+        }
+        assert!(
+            s.crawlers()[0].y < 600.0,
+            "the crab rides up with the bubble (y {})",
+            s.crawlers()[0].y
+        );
+        s.carry_end(id);
+        for _ in 0..30 * 3 {
+            s.step(DT, None);
+        }
+        let k = &s.crawlers()[0];
+        assert!(
+            k.y > 1080.0 * 0.85,
+            "it drops back down to the sand (y {})",
+            k.y
+        );
     }
 
     #[test]
