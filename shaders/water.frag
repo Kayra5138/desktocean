@@ -28,9 +28,23 @@ layout(std140, binding = 0) uniform buf {
     float haze;         // fog
     float wind;
     float flash;        // lightning, 0..1 for a moment
+    float scenery;      // 1 = distant reef, kelp and wreck, floor details, sky window; 0 = plain
 };
 
 float hash(float n) { return fract(sin(n) * 43758.5453); }
+
+// Smooth 1D value noise and a few octaves of it, for ridge lines
+float noise1(float x) {
+    float i = floor(x), f = fract(x);
+    float u = f * f * (3.0 - 2.0 * f);
+    return mix(hash(i), hash(i + 1.0), u);
+}
+float fbm1(float x) {
+    return 0.5 * noise1(x) + 0.3 * noise1(x * 2.13 + 7.1) + 0.2 * noise1(x * 4.37 + 3.3);
+}
+
+// How much of a pixel a silhouette covers, with a soft 1.5 px edge
+float cover(float d) { return smoothstep(1.5, -1.5, d); }
 
 // Cheap caustic pattern: a few domain-warped sine iterations.
 float caustic(vec2 p, float t) {
@@ -73,6 +87,72 @@ void main() {
     float c = caustic(mod(cp, 6.2831853), time * 0.35);
     col += vec3(0.6, 0.9, 1.0) * c * 0.10 * pow(1.0 - uv.y, 4.0) * (0.25 + 0.75 * daylight) * (1.0 - 0.8 * gloom);
 
+    // ---- Distant scenery: far reef, kelp and a wreck, fading into the water ----
+    if (scenery > 0.5) {
+        float x = uv.x * aspect;
+        // Far ridge: rolling reef hills well back, a shade darker than the water
+        float farTop = sandTop - 0.2 - 0.14 * fbm1(x * 1.8 + 11.0);
+        vec3 farColor = col * 0.74 + shallow * 0.05;
+        // Nearer ridge: lower rocks with round coral heads along the top, darker
+        float nearTop = sandTop - 0.06 - 0.08 * fbm1(x * 3.1 + 2.0);
+        float lobes = 0.0;
+        for (int k = 0; k < 8; k++) {
+            float fk = float(k);
+            float cx = (fk + 0.25 + 0.5 * hash(fk * 3.3 + 1.0)) / 8.0 * aspect;
+            float r = 0.03 + 0.03 * hash(fk * 7.7);
+            vec2 d = vec2(x - cx, (uv.y - (sandTop - 0.06 - 0.08 * fbm1(cx * 3.1 + 2.0))) * 1.2);
+            lobes = max(lobes, smoothstep(r, r - 0.003, length(d)));
+        }
+        vec3 nearColor = col * 0.55;
+
+        // Kelp: tall leafy strands swaying slowly, between the two ridges
+        float kelp = 0.0;
+        for (int k = 0; k < 10; k++) {
+            float fk = float(k);
+            float kx = (fk + 0.15 + 0.7 * hash(fk * 5.1)) / 10.0 * aspect;
+            float height = 0.3 + 0.25 * hash(fk * 9.3);
+            float base = sandTop;
+            float up = (base - uv.y) / height;          // 0 at the root .. 1 at the tip
+            if (up < 0.0 || up > 1.0)
+                continue;
+            float sway = sin(time * 0.3 + fk * 1.7 + up * 2.5) * 0.04 * up * up;
+            // A stem with leaves bulging out every so often
+            float leaf = 0.5 + 0.5 * sin(up * 38.0 + fk * 3.0);
+            float width = (0.004 + 0.009 * leaf * (1.0 - 0.6 * up)) * (1.0 - 0.5 * up);
+            float dx = abs(x - kx - sway);
+            kelp = max(kelp, cover((dx - width) * resolution.y));
+        }
+
+        // A wreck resting on the far reef: a tilted hull and a broken mast
+        float wx = 0.66 * aspect;
+        float wreckBase = sandTop - 0.2 - 0.14 * fbm1(wx * 1.8 + 11.0);
+        vec2 w = vec2(x - wx, uv.y - (wreckBase - 0.025));
+        float ca = cos(0.1), sa = sin(0.1);
+        w = vec2(ca * w.x - sa * w.y, sa * w.x + ca * w.y);
+        // Hull: wider at the deck, rounded keel
+        float hull = max(abs(w.x) - 0.13 + max(w.y, 0.0) * 1.4, abs(w.y) - 0.035);
+        float cabin = max(abs(w.x + 0.04) - 0.03, abs(w.y + 0.05) - 0.018);
+        float mast = max(abs(w.x - 0.03 + (w.y + 0.12) * 0.25) - 0.003, abs(w.y + 0.12) - 0.09);
+        float spar = max(abs(w.y + 0.17 - (w.x - 0.05) * 0.4) - 0.0025, abs(w.x - 0.05) - 0.05);
+        float wreck = max(max(cover(hull * resolution.y), cover(cabin * resolution.y)),
+                          max(cover(mast * resolution.y), cover(spar * resolution.y)));
+
+        col = mix(col, farColor, cover((farTop - uv.y) * resolution.y));
+        col = mix(col, col * 0.82, wreck);
+        col = mix(col, col * 0.7, kelp * 0.85);
+        float nearCov = max(cover((nearTop - uv.y) * resolution.y), lobes);
+        col = mix(col, nearColor, nearCov);
+
+        // The sky window: the bright patch overhead, sun by day, moon by night
+        vec2 sw = vec2((uv.x - 0.5) * aspect * 0.7, uv.y + 0.08);
+        float window = smoothstep(0.42, 0.0, length(sw));
+        vec3 skyColor = mix(vec3(0.75, 0.95, 1.0), vec3(0.35, 0.45, 0.65), night);
+        col += skyColor * window * window * mix(0.18, 0.07, night) * (1.0 - 0.7 * gloom);
+        vec2 sun = vec2((uv.x - 0.5 - 0.08 * sin(time * 0.01)) * aspect, uv.y - 0.02);
+        col += mix(vec3(1.0, 0.98, 0.9), vec3(0.8, 0.85, 1.0), night)
+             * smoothstep(0.06, 0.0, length(sun)) * mix(0.25, 0.12, night) * (1.0 - 0.8 * gloom);
+    }
+
     // Surface line
     // Surface line; wind makes it rougher, snow paler
     float surf = 0.012 + 0.004 * (1.0 + 1.5 * agitation + wind) * sin(uv.x * 40.0 + time * 1.3)
@@ -91,7 +171,32 @@ void main() {
         float grain = hash(floor(px.x * 0.5) + floor(px.y * 0.5) * 1931.0);
         sand *= 0.93 + 0.07 * grain;
         float sc = caustic(mod(vec2(uv.x * aspect, uv.y) * 9.0, 6.2831853), time * 0.4);
-        sand += vec3(0.5, 0.6, 0.55) * sc * 0.18 * (1.0 - d) * daylight;
+        sand += vec3(0.5, 0.6, 0.55) * sc * mix(0.18, 0.26, scenery) * (1.0 - d) * daylight;
+        if (scenery > 0.5) {
+            // Ripples in the sand, getting wider toward the front
+            float rp = sin((uv.x * aspect * 60.0 + 3.0 * sin(uv.x * aspect * 4.0)) / (0.6 + d) + d * 14.0);
+            sand *= 1.0 + 0.05 * rp;
+            // Pebbles and the odd shell, larger toward the front
+            float cellSize = mix(14.0, 34.0, d);
+            vec2 cell = floor(vec2(px.x, px.y) / cellSize);
+            float h = hash(cell.x * 91.7 + cell.y * 47.3);
+            if (h > 0.86) {
+                vec2 c = (cell + vec2(0.3 + 0.4 * hash(h * 3.0), 0.3 + 0.4 * hash(h * 7.0))) * cellSize;
+                vec2 q = (px - c) / (cellSize * (0.12 + 0.12 * hash(h * 11.0)));
+                if (h > 0.985) {
+                    // A little scallop shell: a fan with ribs
+                    float r = length(q);
+                    float ang = atan(q.x, -q.y);
+                    float fan = step(r, 1.4) * step(abs(ang), 1.2) * step(-0.2, -q.y);
+                    float ribs = 0.85 + 0.15 * sin(ang * 14.0);
+                    sand = mix(sand, vec3(0.93, 0.86, 0.8) * ribs * (0.3 + 0.7 * daylight), fan * 0.85);
+                } else {
+                    float pebble = smoothstep(1.0, 0.8, length(q * vec2(1.0, 1.6)));
+                    vec3 stone = mix(sandDark.rgb * 0.7, sandLight.rgb * 1.1, hash(h * 5.0)) * (0.3 + 0.7 * daylight);
+                    sand = mix(sand, stone, pebble * 0.7);
+                }
+            }
+        }
         // Blend sand toward water color for depth
         sand = mix(sand, deep, 0.35);
         float soft = smoothstep(edge, edge + 0.006, uv.y);

@@ -24,6 +24,8 @@ Item {
     // The tank itself, for development aids in dev/preview.qml
     readonly property alias tank: tank
     property alias autoFeed: tank.autoFeed
+    // Distant reef, kelp and wreck, sand details and the sky window
+    property bool scenery: true
     // Optional sounds
     property alias sounds: tank.sounds
     property alias soundVolume: tank.soundVolume
@@ -111,6 +113,7 @@ Item {
         property real haze: weather.haze
         property real wind: weather.windiness
         property real flash: aquarium.flash
+        property real scenery: aquarium.scenery ? 1 : 0
         fragmentShader: Qt.resolvedUrl("../shaders/water.frag.qsb")
     }
 

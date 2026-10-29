@@ -45,6 +45,7 @@ WallpaperItem {
         showDebug: root.configuration.ShowDebug
         showNames: root.configuration.ShowNames
         autoFeed: root.configuration.AutoFeed
+        scenery: root.configuration.Scenery
         sounds: root.configuration.Sounds
         soundVolume: root.configuration.SoundVolume / 100
         ambientSound: root.configuration.AmbientSound
