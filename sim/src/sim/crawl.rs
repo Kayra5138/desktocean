@@ -535,7 +535,11 @@ mod tests {
         s.crawlers[0].x = 700.0;
         s.feed(Some(1000.0));
         let mut eaten_by_crab = false;
-        for _ in 0..30 * 40 {
+        for _ in 0..30 * 80 {
+            // Food sinks slowly: keep the crab close by until some has landed
+            if !s.food.iter().any(|p| p.landed) {
+                s.crawlers[0].x = 800.0;
+            }
             let (n, oldest) = (
                 s.food.len(),
                 s.food.iter().map(|p| p.age).fold(0.0, f32::max),

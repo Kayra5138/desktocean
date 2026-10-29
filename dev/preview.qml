@@ -71,7 +71,7 @@ Window {
                 aquarium.grabToImage(r => r.saveToFile(Qt.resolvedUrl("preview.png").toString().replace("file://", "")));
         }
 
-        TapHandler { onTapped: eventPoint => aquarium.feed(eventPoint.position.x) }
+        TapHandler { onTapped: eventPoint => aquarium.feedAt(eventPoint.position.x, eventPoint.position.y) }
     }
 
     // `--matchmake` makes every pair best friends (with --life-speed: quick babies)

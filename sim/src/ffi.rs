@@ -221,6 +221,26 @@ pub unsafe extern "C" fn dc_sim_feed(handle: *mut DcSim, x: f32) {
     });
 }
 
+/// Food right where it is dropped (scene pixels); it sinks from there.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_feed_at(handle: *mut DcSim, x: f32, y: f32) {
+    with_sim(handle, (), |s| {
+        if x.is_finite() && y.is_finite() {
+            s.feed_at(x, y)
+        }
+    });
+}
+
+/// Food along the whole surface, evenly spread.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_feed_everywhere(handle: *mut DcSim) {
+    with_sim(handle, (), |s| s.feed_everywhere());
+}
+
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
 #[unsafe(no_mangle)]

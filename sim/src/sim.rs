@@ -29,6 +29,8 @@ pub fn depth_of_floor(y: f32) -> f32 {
 }
 /// Fraction of the height where the water surface is.
 pub const WATER_TOP: f32 = 0.05;
+/// Pellets sink this fast, px/s.
+const FOOD_SINK: f32 = 19.0;
 /// Food lies on the sand this long before it dissolves.
 const FOOD_LIFETIME: f32 = 10.0;
 /// Curious fish lose interest once the cursor has been still this long.
@@ -1193,40 +1195,103 @@ impl Sim {
             None => self.rng.range(self.width * 0.15, self.width * 0.85),
         };
         let wt = self.water_top();
-        // A mix of pellet sizes for the fish that are here, at least one of
-        // each size someone eats
+        for size in self.pellet_mix() {
+            let food = Self::pellet(
+                cx + self.rng.range(-90.0, 90.0),
+                wt + self.rng.range(-10.0, 30.0),
+                size,
+                self.rng.range(0.0, TAU),
+            );
+            self.food.push(food);
+        }
+    }
+
+    /// Food right where it was dropped (x, y), not from the surface: it
+    /// starts sinking from there
+    pub fn feed_at(&mut self, x: f32, y: f32) {
+        if !self.has_size() {
+            return;
+        }
+        let (x, y) = (
+            x.clamp(0.0, self.width),
+            y.clamp(self.water_top(), self.sand_top()),
+        );
+        for size in self.pellet_mix() {
+            let food = Self::pellet(
+                x + self.rng.range(-40.0, 40.0),
+                y + self.rng.range(-20.0, 20.0),
+                size,
+                self.rng.range(0.0, TAU),
+            );
+            self.food.push(food);
+        }
+    }
+
+    /// Food along the whole surface, evenly spread (the automatic feeding)
+    pub fn feed_everywhere(&mut self) {
+        if !self.has_size() {
+            return;
+        }
+        let wt = self.water_top();
+        let mut sizes = self.pellet_mix();
+        // Twice the usual handful, so the whole width gets some
+        sizes.extend(self.pellet_mix());
+        let n = sizes.len().max(1) as f32;
+        for (k, size) in sizes.into_iter().enumerate() {
+            let slot = self.width / n;
+            let x = slot * (k as f32 + 0.5) + self.rng.range(-0.3, 0.3) * slot;
+            let food = Self::pellet(
+                x,
+                wt + self.rng.range(-10.0, 30.0),
+                size,
+                self.rng.range(0.0, TAU),
+            );
+            self.food.push(food);
+        }
+        // Mixed up, so neighbouring pellets aren't all the same size
+        let start = self.food.len() - n as usize;
+        for k in start..self.food.len() {
+            let other = start + (self.rng.unit() * n) as usize % n as usize;
+            let (a, b) = (self.food[k].size, self.food[other].size);
+            self.food[k].size = b;
+            self.food[other].size = a;
+        }
+    }
+
+    fn pellet(x: f32, y: f32, size: u8, seed: f32) -> Food {
+        Food {
+            x,
+            y,
+            size,
+            seed,
+            age: 0.0,
+            landed: false,
+            eaten: false,
+        }
+    }
+
+    /// A mix of pellet sizes for the fish that are here, at least one of each
+    /// size someone eats
+    fn pellet_mix(&self) -> Vec<u8> {
         let mut eaters = [0usize; 5];
         for f in &self.fish {
             eaters[f.bite() as usize] += 1;
         }
         let total = eaters.iter().sum::<usize>();
-        let sizes: Vec<u8> = if total == 0 {
-            vec![1; 8]
-        } else {
-            (0..5u8)
-                .flat_map(|c| {
-                    let n = eaters[c as usize];
-                    let k = if n == 0 {
-                        0
-                    } else {
-                        ((8 * n) as f32 / total as f32).round().max(1.0) as usize
-                    };
-                    std::iter::repeat_n(c, k)
-                })
-                .collect()
-        };
-        for size in sizes {
-            let food = Food {
-                x: cx + self.rng.range(-90.0, 90.0),
-                y: wt + self.rng.range(-10.0, 30.0),
-                size,
-                seed: self.rng.range(0.0, TAU),
-                age: 0.0,
-                landed: false,
-                eaten: false,
-            };
-            self.food.push(food);
+        if total == 0 {
+            return vec![1; 8];
         }
+        (0..5u8)
+            .flat_map(|c| {
+                let n = eaters[c as usize];
+                let k = if n == 0 {
+                    0
+                } else {
+                    ((8 * n) as f32 / total as f32).round().max(1.0) as usize
+                };
+                std::iter::repeat_n(c, k)
+            })
+            .collect()
     }
 
     fn update_pointer(&mut self, dt: f32, pointer: Option<(f32, f32)>) {
@@ -1251,7 +1316,7 @@ impl Sim {
         let (time, st) = (self.time, self.sand_top());
         for p in &mut self.food {
             if !p.landed {
-                p.y += 38.0 * dt;
+                p.y += FOOD_SINK * dt;
                 p.x += (time * 2.2 + p.seed).sin() * 10.0 * dt;
                 if p.y >= st + 4.0 {
                     p.y = st + 4.0;
@@ -3145,7 +3210,7 @@ mod tests {
         let mut s = sim();
         s.feed(Some(960.0));
         assert_eq!(s.food().len(), 8);
-        for _ in 0..30 * 40 {
+        for _ in 0..30 * 80 {
             s.step(DT, None);
         }
         assert!(s.food().is_empty());
@@ -3681,6 +3746,38 @@ mod tests {
         assert!(
             eaten.iter().all(|(bite, size)| bite == size),
             "someone ate the wrong size: {eaten:?}"
+        );
+    }
+
+    #[test]
+    fn food_drops_where_it_is_put_and_auto_feeding_covers_the_tank() {
+        let mut s = sim_with(2, 6, 2560.0, 1440.0);
+        s.feed_at(800.0, 700.0);
+        assert!(
+            s.food
+                .iter()
+                .all(|p| (p.x - 800.0).abs() < 50.0 && (p.y - 700.0).abs() < 25.0)
+        );
+        s.fish.clear(); // nobody eats it meanwhile
+        let y0 = s.food.iter().map(|p| p.y).sum::<f32>() / s.food.len() as f32;
+        for _ in 0..30 {
+            s.step(DT, None);
+        }
+        let y1 = s.food.iter().map(|p| p.y).sum::<f32>() / s.food.len() as f32;
+        assert!(
+            (y1 - y0 - FOOD_SINK).abs() < 3.0,
+            "sinks at FOOD_SINK: {:.1}",
+            y1 - y0
+        );
+        s.clear_food();
+        s.feed_everywhere();
+        let mut thirds = [0; 3];
+        for p in &s.food {
+            thirds[((p.x / 2560.0 * 3.0) as usize).min(2)] += 1;
+        }
+        assert!(
+            thirds.iter().all(|&n| n >= 3),
+            "spread over the whole width: {thirds:?}"
         );
     }
 

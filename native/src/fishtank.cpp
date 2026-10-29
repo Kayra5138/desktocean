@@ -1030,17 +1030,34 @@ void FishTank::maybeAutoFeed()
         return;
     if (m_lastFeed.isValid() && m_lastFeed.elapsed() < kGapMs)
         return;
-    feed(-1);   // somewhere random
+    feedEverywhere();   // all along the surface, so everyone gets some
 }
 
 void FishTank::feed(qreal x)
 {
-    m_lastFeed.start();
     dc_sim_feed(m_sim, float(x));
+    afterFeeding();
+}
+
+void FishTank::feedAt(QPointF at)
+{
+    dc_sim_feed_at(m_sim, float(at.x()), float(at.y()));
+    afterFeeding();
+}
+
+void FishTank::feedEverywhere()
+{
+    dc_sim_feed_everywhere(m_sim);
+    afterFeeding();
+}
+
+void FishTank::afterFeeding()
+{
+    m_lastFeed.start();
     pullState();
     m_lastFood = m_food.size();
     update();
-    // Pellets landing on the water, one after another
+    // Pellets landing in the water, one after another
     for (const int ms : {0, 140, 330})
         QTimer::singleShot(ms, this, [] { SoundBoard::instance().play(SoundBoard::Sound::Plop, 0.8); });
 }
@@ -1120,7 +1137,12 @@ void FishTank::playEventSounds()
 
 void FishTank::feedAtCursor()
 {
-    feed(cursorInItem().x());
+    // Right where the cursor is; somewhere random if it isn't over the tank
+    const QPointF at = cursorInItem();
+    if (at.x() >= 0)
+        feedAt(at);
+    else
+        feed(-1);
 }
 
 void FishTank::clearFood()

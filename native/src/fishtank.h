@@ -170,6 +170,10 @@ public:
     Q_INVOKABLE void feed(qreal x = -1);
     // Drops food above the cursor if it is over the tank, else somewhere random
     Q_INVOKABLE void feedAtCursor();
+    // Right at this point (item coordinates): it starts sinking from there
+    Q_INVOKABLE void feedAt(QPointF at);
+    // Evenly along the whole surface (the automatic feeding)
+    void feedEverywhere();
     Q_INVOKABLE void clearFood();
     // Something happened (a notification): a fish swims up and blows bubbles
     Q_INVOKABLE void announce();
@@ -293,6 +297,7 @@ private:
     bool m_soundsMuted = false;
     bool m_soundRunning = false;   // the tank is running (last updateTimer)
     void updateSoundActive();
+    void afterFeeding();
     // Last frame's counts, to hear what happened
     size_t m_lastBubbles = 0, m_lastFood = 0, m_lastHearts = 0;
     void playEventSounds();

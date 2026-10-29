@@ -162,6 +162,8 @@ void dc_sim_resize(DcSim *sim, float width, float height);
 // New fish drop in through the surface when animate_new is set
 void dc_sim_set_population(DcSim *sim, const DcFishSpec *specs, uint32_t count, bool animate_new);
 void dc_sim_feed(DcSim *sim, float x);                       // x < 0: random spot
+void dc_sim_feed_at(DcSim *sim, float x, float y);  // right there, sinking from there
+void dc_sim_feed_everywhere(DcSim *sim);             // evenly along the whole surface
 void dc_sim_clear_food(DcSim *sim);
 bool dc_sim_lure_active(DcSim *sim);                         // curious fish following the cursor
 void dc_sim_set_daylight(DcSim *sim, float daylight);        // 0 night .. 1 day

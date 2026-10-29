@@ -308,7 +308,11 @@ bool feedAtGlobal(FishTank *tank, QPointF p, bool anyHeight)
     const QPointF local = tank->mapFromGlobal(p);
     if (local.x() < 0 || local.x() >= tank->width() || local.y() < 0 || local.y() >= tank->height())
         return false;
-    tank->feed(local.x());
+    // A point in the water: right there; only a screen picked (a panel): from the top
+    if (anyHeight)
+        tank->feed(local.x());
+    else
+        tank->feedAt(local);
     return true;
 }
 
@@ -443,8 +447,8 @@ bool TankHub::feedBelow(QQuickItem *item)
     // A widget on the desktop shares the wallpaper's window: no global maths needed
     for (const QPointer<FishTank> &t : std::as_const(tanks())) {
         if (t && t->window() == item->window() && t->width() > 0) {
-            const qreal x = item->mapToItem(t, centre).x();
-            t->feed(std::clamp(x, 0.0, t->width() - 1));
+            // Right where the jar is
+            t->feedAt(item->mapToItem(t, centre));
             Q_EMIT stateChanged();
             return true;
         }

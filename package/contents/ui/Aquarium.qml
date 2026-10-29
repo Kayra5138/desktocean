@@ -58,6 +58,11 @@ Item {
     }
 
     // Drops food above the cursor when it is over the aquarium, otherwise somewhere random
+    // Right at (x, y), sinking from there
+    function feedAt(x, y) {
+        tank.feedAt(Qt.point(x, y));
+    }
+
     function feedAtCursor() {
         tank.feedAtCursor();
     }
