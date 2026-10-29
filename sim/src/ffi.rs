@@ -507,6 +507,91 @@ pub unsafe extern "C" fn dc_sim_set_ground(
     });
 }
 
+/// A clutch of eggs
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcEgg {
+    pub parent_a: u64,
+    pub parent_b: u64,
+    pub x: f32,
+    pub y: f32,
+    pub count: u32,
+    /// 0 just laid .. 1 hatching
+    pub progress: f32,
+}
+
+/// Same contract as `dc_sim_fish`, for eggs.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_eggs(handle: *mut DcSim, out: *mut DcEgg, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.eggs();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, e) in dst.iter_mut().zip(list) {
+                *d = DcEgg {
+                    parent_a: e.parent_a,
+                    parent_b: e.parent_b,
+                    x: e.x,
+                    y: e.y,
+                    count: e.count,
+                    progress: e.progress,
+                };
+            }
+        }
+        list.len() as u32
+    })
+}
+
+/// Restores eggs saved from an earlier run.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_eggs(handle: *mut DcSim, list: *const DcEgg, count: u32) {
+    with_sim(handle, (), |s| {
+        let items: Vec<crate::sim::Egg> = if list.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(list, count.min(1000) as usize) }
+                .iter()
+                .map(|e| crate::sim::Egg {
+                    parent_a: e.parent_a,
+                    parent_b: e.parent_b,
+                    x: e.x,
+                    y: e.y,
+                    count: e.count,
+                    progress: e.progress,
+                })
+                .collect()
+        };
+        s.set_eggs(&items)
+    });
+}
+
+/// Spots on plants where eggs are laid: `count` (x, y) pairs, scene pixels.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `xy` null or valid for `2 * count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_nests(handle: *mut DcSim, xy: *const f32, count: u32) {
+    with_sim(handle, (), |s| {
+        let items: Vec<(f32, f32)> = if xy.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `2 * count` readable floats.
+            unsafe { std::slice::from_raw_parts(xy, 2 * count.min(1000) as usize) }
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| (p[0], p[1]))
+                .collect()
+        };
+        s.set_nests(&items)
+    });
+}
+
 /// Replaces the caves fish can swim into.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.

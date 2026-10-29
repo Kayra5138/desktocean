@@ -51,6 +51,14 @@ typedef struct DcCrawler {
     uint32_t gait;
 } DcCrawler;
 
+// A clutch of eggs; hatching makes a DcBirth at (x, y)
+typedef struct DcEgg {
+    uint64_t parent_a, parent_b;
+    float x, y;
+    uint32_t count;    // babies inside
+    float progress;    // 0 just laid .. 1 hatching
+} DcEgg;
+
 // A cave opening, scene pixels (top-left corner and size)
 typedef struct DcShelter {
     float x, y, w, h;
@@ -134,6 +142,9 @@ uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
 uint32_t dc_sim_take_births(DcSim *sim, DcBirth *out, uint32_t cap);  // drains them
 bool dc_sim_place_fish(DcSim *sim, uint64_t id, float x, float y);
 void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  // replaces the caves
+uint32_t dc_sim_eggs(DcSim *sim, DcEgg *out, uint32_t cap);          // returns total count
+void dc_sim_set_eggs(DcSim *sim, const DcEgg *list, uint32_t count);  // restore saved eggs
+void dc_sim_set_nests(DcSim *sim, const float *xy, uint32_t count);   // count (x, y) pairs on plants
 void dc_sim_set_crawlers(DcSim *sim, const DcCrawlerSpec *list, uint32_t count);
 uint32_t dc_sim_crawlers(DcSim *sim, DcCrawler *out, uint32_t cap);  // returns total count
 void dc_sim_set_ground(DcSim *sim, const float *heights, uint32_t count, float step);  // scene y per step px

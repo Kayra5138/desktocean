@@ -273,6 +273,10 @@ private:
     std::vector<DcBubble> m_bubbles;
     std::vector<DcRipple> m_ripples;
     std::vector<DcCrawler> m_crawlers;
+    std::vector<DcEgg> m_eggs;
+    // Saved eggs (x, y as fractions of the tank) waiting for the tank to get a size
+    std::vector<DcEgg> m_savedEggs;
+    void restoreEggs();
 
     // One per library fish drawing, indexed by DcFish::sprite
     struct SpriteInfo {
@@ -307,6 +311,7 @@ private:
     // Sprite atlas: every fish drawing plus the food pellet
     QImage m_atlas;
     QRectF m_foodUv;
+    QRectF m_eggUv;
     QRectF m_bubbleUv;
     QRectF m_rippleUv;
     bool m_atlasDirty = false;

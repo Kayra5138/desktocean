@@ -194,6 +194,24 @@ QImage makeFoodSprite()
     return img;
 }
 
+// One egg: a pale, see-through pearl
+QImage makeEggSprite()
+{
+    QImage img(kFoodCell, kFoodCell, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(QColor(0xd8, 0x9a, 0x5c, 220), 2));
+    p.setBrush(QColor(0xff, 0xe4, 0xb8, 200));
+    p.drawEllipse(QRectF(3, 3, kFoodCell - 6, kFoodCell - 6));
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x5a, 0x3a, 0x22, 200));
+    p.drawEllipse(QRectF(kFoodCell * 0.42, kFoodCell * 0.45, 6, 6));
+    p.setBrush(QColor(255, 255, 255, 200));
+    p.drawEllipse(QRectF(9, 8, 6, 5));
+    return img;
+}
+
 } // namespace
 
 FishTank::FishTank(QQuickItem *parent)
@@ -495,13 +513,14 @@ QString FishTank::stats() const
 {
     const auto [friends, rivals] = relationCounts();
     const auto inCaves = std::count_if(m_fish.begin(), m_fish.end(), [](const DcFish &f) { return f.sheltered != 0; });
-    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4  Bubbles: %5\nIn caves: %6")
+    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4  Bubbles: %5\nIn caves: %6  Eggs: %7")
         .arg(qRound(averageHunger() * 100))
         .arg(qRound(m_daylight * 100))
         .arg(friends)
         .arg(rivals)
         .arg(m_bubbles.size())
-        .arg(inCaves);
+        .arg(inCaves)
+        .arg(m_eggs.size());
 }
 
 void FishTank::loadState()
@@ -510,7 +529,8 @@ void FishTank::loadState()
     if (!file.open(QIODevice::ReadOnly))
         return;
     std::vector<DcRelation> list;
-    const QJsonArray rel = QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("relations")).toArray();
+    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    const QJsonArray rel = root.value(QStringLiteral("relations")).toArray();
     for (const QJsonValue &v : rel) {
         const QJsonObject o = v.toObject();
         list.push_back({o.value(QStringLiteral("a")).toString().toULongLong(),
@@ -518,6 +538,33 @@ void FishTank::loadState()
                         float(o.value(QStringLiteral("affinity")).toDouble())});
     }
     dc_sim_set_relations(m_sim, list.data(), uint32_t(list.size()));
+
+    // Eggs belong to the tank that records babies
+    if (!TankHub::isPrimary(this))
+        return;
+    m_savedEggs.clear();
+    for (const QJsonValue &v : root.value(QStringLiteral("eggs")).toArray()) {
+        const QJsonObject o = v.toObject();
+        m_savedEggs.push_back({o.value(QStringLiteral("a")).toString().toULongLong(),
+                               o.value(QStringLiteral("b")).toString().toULongLong(),
+                               float(o.value(QStringLiteral("x")).toDouble()), float(o.value(QStringLiteral("y")).toDouble()),
+                               uint32_t(o.value(QStringLiteral("count")).toInt(1)),
+                               float(o.value(QStringLiteral("progress")).toDouble())});
+    }
+    restoreEggs();
+}
+
+void FishTank::restoreEggs()
+{
+    if (m_savedEggs.empty() || width() <= 0 || height() <= 0)
+        return;
+    std::vector<DcEgg> eggs = m_savedEggs;
+    for (DcEgg &e : eggs) {
+        e.x *= float(width());
+        e.y *= float(height());
+    }
+    dc_sim_set_eggs(m_sim, eggs.data(), uint32_t(eggs.size()));
+    m_savedEggs.clear();
 }
 
 void FishTank::saveState() const
@@ -554,11 +601,28 @@ void FishTank::saveState() const
     for (auto it = characters.cbegin(); it != characters.cend(); ++it)
         characterMap.insert(it.key(), QJsonArray::fromStringList(it.value()));
 
+    // Eggs, as fractions of the tank so another screen size still works; only
+    // the primary tank has them, the others keep what is saved
+    QJsonArray eggs;
+    if (TankHub::isPrimary(this) && width() > 0 && height() > 0) {
+        for (const DcEgg &e : m_eggs)
+            eggs.append(QJsonObject{{QStringLiteral("a"), QString::number(e.parent_a)},
+                                    {QStringLiteral("b"), QString::number(e.parent_b)},
+                                    {QStringLiteral("x"), e.x / width()},
+                                    {QStringLiteral("y"), e.y / height()},
+                                    {QStringLiteral("count"), int(e.count)},
+                                    {QStringLiteral("progress"), double(e.progress)}});
+    } else {
+        QFile old(FishLibrary::statePath());
+        if (old.open(QIODevice::ReadOnly))
+            eggs = QJsonDocument::fromJson(old.readAll()).object().value(QStringLiteral("eggs")).toArray();
+    }
     const QJsonObject root{{QStringLiteral("relations"), relations},
                            {QStringLiteral("friends"), friends},
                            {QStringLiteral("rivals"), rivals},
                            {QStringLiteral("characters"), characterMap},
-                           {QStringLiteral("theme"), m_theme}};
+                           {QStringLiteral("theme"), m_theme},
+                           {QStringLiteral("eggs"), eggs}};
     QSaveFile file(FishLibrary::statePath());
     if (file.open(QIODevice::WriteOnly)) {
         file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
@@ -750,6 +814,19 @@ void FishTank::updateShelters()
                             float(o.width() * box.width()), float(o.height() * box.height())});
     }
     dc_sim_set_shelters(m_sim, shelters.data(), uint32_t(shelters.size()));
+
+    // Eggs go on plants: a couple of spots up each one
+    std::vector<float> nests;
+    for (const DecorItem &d : m_decor) {
+        if (d.sway <= 0 || !d.opening.isNull())
+            continue;
+        const QRectF box = decorRect(d);
+        for (const float up : {0.3f, 0.55f}) {
+            nests.push_back(float(box.center().x() + (up - 0.4f) * box.width() * 0.3f));
+            nests.push_back(float(box.bottom() - up * box.height()));
+        }
+    }
+    dc_sim_set_nests(m_sim, nests.data(), uint32_t(nests.size() / 2));
     updateGround();
 }
 
@@ -790,6 +867,7 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
         return;
     dc_sim_resize(m_sim, float(newGeometry.width()), float(newGeometry.height()));
     updateShelters();
+    restoreEggs();
     pullState();
     update();
     updateTimer();
@@ -922,6 +1000,14 @@ void FishTank::pullState()
     n = dc_sim_ripples(m_sim, nullptr, 0);
     m_ripples.resize(n);
     m_ripples.resize(std::min(n, dc_sim_ripples(m_sim, m_ripples.data(), n)));
+
+    const size_t oldEggs = m_eggs.size();
+    n = dc_sim_eggs(m_sim, nullptr, 0);
+    m_eggs.resize(n);
+    m_eggs.resize(std::min(n, dc_sim_eggs(m_sim, m_eggs.data(), n)));
+    // Laid or hatched: keep the file up to date in case Plasma stops
+    if (m_eggs.size() != oldEggs && m_stateLoaded)
+        saveState();
 
     n = dc_sim_crawlers(m_sim, nullptr, 0);
     m_crawlers.resize(n);
@@ -1227,6 +1313,7 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
     };
     for (const QImage &img : images)
         place(img.size());
+    place(QSize(kFoodCell, kFoodCell));   // egg
     place(QSize(kFoodCell, kFoodCell));
     place(QSize(kFoodCell, kFoodCell));
     place(QSize(kFoodCell * 2, kFoodCell * 2));
@@ -1245,6 +1332,9 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
         painter.drawImage(placed[i].topLeft(), images[i]);
         m_sprites[i].uv = normalised(placed[i]);
     }
+    const QRect eggRect = placed[placed.size() - 4];
+    painter.drawImage(eggRect.topLeft(), makeEggSprite());
+    m_eggUv = normalised(eggRect);
     const QRect foodRect = placed[placed.size() - 3];
     const QRect bubbleRect = placed[placed.size() - 2];
     const QRect rippleRect = placed.back();
@@ -1294,6 +1384,9 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
                                                return n + (d.opening.isNull() ? 1 : 2);
                                            }))
                                          : 0;
+    // Each clutch is a little cluster of eggs
+    constexpr int kEggsPerClutch = 7;
+    const int nEggs = node->hasAtlas() ? int(m_eggs.size()) * kEggsPerClutch : 0;
     const int nCrawlers = node->hasAtlas() ? int(std::count_if(m_crawlers.begin(), m_crawlers.end(), [&](const DcCrawler &c) {
                                                  return c.sprite < m_sprites.size();
                                              }))
@@ -1301,8 +1394,9 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     quint32 *idx = nullptr;
     FishMesh::Vertex *v = node->reserve(
-        (nFish + nCrawlers) * FishMesh::kVertsPerFish + (nFood + nBubbles) * 4 + nDecor * FishMesh::kVertsPerDecor,
-        (nFish + nCrawlers) * FishMesh::kIndicesPerFish + (nFood + nBubbles) * 6 + nDecor * FishMesh::kIndicesPerDecor,
+        (nFish + nCrawlers) * FishMesh::kVertsPerFish + (nFood + nBubbles + nEggs) * 4 + nDecor * FishMesh::kVertsPerDecor,
+        (nFish + nCrawlers) * FishMesh::kIndicesPerFish + (nFood + nBubbles + nEggs) * 6
+            + nDecor * FishMesh::kIndicesPerDecor,
         &idx);
     quint32 base = 0;
 
@@ -1334,6 +1428,24 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         }
     };
     writeDecorLayer(Layer::Back);
+
+    // Eggs on the plants; they start to wobble just before they hatch
+    if (nEggs > 0) {
+        const float size = std::clamp(float(height()) / 1080.f, 0.7f, 2.f) * 12.f;
+        for (const DcEgg &e : m_eggs) {
+            const float wobble = e.progress > 0.85f ? std::sin(float(m_time) * 18.f + e.x) * 1.5f : 0.f;
+            for (int k = 0; k < kEggsPerClutch; ++k) {
+                // A rosette: one in the middle, the rest around it
+                const float a = float(k) * 2.4f + e.x * 0.1f;
+                const float r = k == 0 ? 0.f : size * (0.7f + 0.25f * float(k % 2));
+                const float ex = e.x + std::cos(a) * r + wobble, ey = e.y + std::sin(a) * r * 0.8f;
+                FishMesh::writeQuad(QRectF(ex - size / 2, ey - size / 2, size, size), m_eggUv, 0.95f, v, idx, base);
+                v += 4;
+                idx += 6;
+                base += 4;
+            }
+        }
+    }
 
     // Crawlers on the bottom (and on the rocks), behind the fish; ones walking
     // past a cave go behind its front

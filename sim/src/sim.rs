@@ -5,7 +5,9 @@ use crate::relations::{FRIEND, RIVAL, Relations};
 use crate::rng::Rng;
 
 mod crawl;
+mod eggs;
 pub use crawl::{Crawler, CrawlerSpec, Gait};
+pub use eggs::{Egg, HATCH_SECS};
 
 /// Fraction of the height where the sand starts.
 pub const SAND_TOP: f32 = 0.86;
@@ -288,6 +290,8 @@ enum Mode {
     Surface { left: f32 },
     /// Going into a shelter (a cave), then staying inside for `left` seconds
     Hide { shelter: usize, left: f32 },
+    /// Off to a plant to lay eggs with `partner`
+    Lay { partner: u64, count: u32, left: f32 },
 }
 
 /// The opening of a cave or hollow, in scene pixels: fish can swim in there.
@@ -537,6 +541,9 @@ pub struct Sim {
     ripples: Vec<Ripple>,
     births: Vec<Birth>,
     shelters: Vec<Shelter>,
+    /// Clutches waiting to hatch, and the spots on plants they are laid on
+    eggs: Vec<Egg>,
+    nests: Vec<(f32, f32)>,
     /// Bottom creatures, see crawl.rs
     crawlers: Vec<Crawler>,
     crawler_specs: Vec<CrawlerSpec>,
@@ -575,6 +582,8 @@ impl Sim {
             ripples: Vec::new(),
             births: Vec::new(),
             shelters: Vec::new(),
+            eggs: Vec::new(),
+            nests: Vec::new(),
             crawlers: Vec::new(),
             crawler_specs: Vec::new(),
             ground: Vec::new(),
@@ -917,6 +926,16 @@ impl Sim {
             _ => (0.15, 0.5),
         };
 
+        // Parents keep an eye on their eggs
+        if let Some((ex, ey)) = self.own_eggs(f.id)
+            && self.rng.chance(0.5)
+        {
+            f.tx = (ex + self.rng.range(-220.0, 220.0)).clamp(lo, hi);
+            f.ty = (ey - self.rng.range(0.0, 160.0)).clamp(top, bottom);
+            f.cruise = self.rng.range(0.4, 0.7) * f.max_speed;
+            f.mode = Mode::Wander;
+            return;
+        }
         let candidates = if character == Character::Explorer {
             8
         } else {
@@ -1186,6 +1205,7 @@ impl Sim {
         }
 
         self.update_relations(&others, dt);
+        self.update_eggs(dt * self.life_speed);
         self.update_crawlers(dt, pointer);
         self.food.retain(|p| !p.eaten && p.age < FOOD_LIFETIME);
     }
@@ -1392,6 +1412,32 @@ impl Sim {
             Mode::Surface { left } => Some(left),
             _ => None,
         };
+        // Off to lay eggs: swim to the nearest plant and leave them there
+        let laying = match f.mode {
+            Mode::Lay {
+                partner,
+                count,
+                left,
+            } => match self.nearest_nest(f.x, f.y) {
+                Some((nx, ny)) if left > 0.0 && (nx - f.x).hypot(ny - f.y) > 25.0 => {
+                    f.mode = Mode::Lay {
+                        partner,
+                        count,
+                        left: left - dt,
+                    };
+                    Some((nx, ny, f.cruise.max(f.max_speed * 0.6)))
+                }
+                nest => {
+                    // There (or took too long): lay them here
+                    let (x, y) = nest.filter(|_| left > 0.0).unwrap_or((f.x, f.y));
+                    self.lay_eggs(f.id, partner, x, y, count);
+                    f.mode = Mode::Wander;
+                    f.retarget = true;
+                    None
+                }
+            },
+            _ => None,
+        };
         // In a cave: drift slowly about inside; on the way: head for it
         let hiding = match f.mode {
             Mode::Hide { shelter, left } if shelter < self.shelters.len() => {
@@ -1437,6 +1483,8 @@ impl Sim {
                 self.water_top() + f.h * 2.0,
                 f.max_speed * 1.8,
             ))
+        } else if let Some((sx, sy, speed)) = laying {
+            Some((sx + (mx - f.x), sy + (my - f.y), speed))
         } else if let Some((sx, sy, speed)) =
             hiding.filter(|_| nearest_food.is_none() || f.hunger < 0.8)
         {
@@ -1541,7 +1589,8 @@ impl Sim {
                 | Mode::Chase { .. }
                 | Mode::Surface { .. }
                 | Mode::Eating { .. }
-                | Mode::Hide { .. } => {
+                | Mode::Hide { .. }
+                | Mode::Lay { .. } => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
@@ -1856,14 +1905,17 @@ impl Sim {
         } else {
             1
         };
-        let birth = Birth {
-            parent_a: a.id,
-            parent_b: b.id,
-            x: (a.x + b.x) * 0.5,
-            y: (a.y + b.y) * 0.5,
-            count,
-        };
-        self.births.push(birth);
+        // Eggs, laid on the nearest plant (or right here when there are none)
+        let (a_id, b_id, ax, ay) = (a.id, b.id, a.x, a.y);
+        if self.nests.is_empty() {
+            self.lay_eggs(a_id, b_id, ax, ay, count);
+        } else {
+            self.fish[i].mode = Mode::Lay {
+                partner: b_id,
+                count,
+                left: 45.0,
+            };
+        }
         for k in [i, j] {
             self.fish[k].birth_cooldown =
                 BIRTH_COOLDOWN * self.rng.range(1.0, 2.0) * (1.0 - 0.6 * small);
@@ -2699,6 +2751,58 @@ mod tests {
                 "a second baby before the parents rested"
             );
         }
+    }
+
+    #[test]
+    fn eggs_are_laid_on_a_plant_and_hatch_there() {
+        let mut s = happy_couple(true);
+        let nest = (300.0, 800.0);
+        s.set_nests(&[nest]);
+        s.set_life_speed(30.0);
+        let mut laid = None;
+        for _ in 0..30 * 600 {
+            // Keep them together until the mother sets off for the plant
+            if !s.fish.iter().any(|f| matches!(f.mode, Mode::Lay { .. })) && s.eggs().is_empty() {
+                keep_together(&mut s);
+            }
+            s.step(DT, None);
+            if let Some(e) = s.eggs().first() {
+                laid = Some(*e);
+                break;
+            }
+        }
+        let egg = laid.expect("no eggs were laid");
+        assert!(
+            (egg.x - nest.0).hypot(egg.y - nest.1) < 40.0,
+            "eggs should be on the plant: {egg:?}"
+        );
+        assert!(
+            s.take_births().is_empty(),
+            "babies come out of the eggs, not straight away"
+        );
+        // Hatching takes HATCH_SECS of life time; parents stay around meanwhile
+        let mut near = 0;
+        let mut born = Vec::new();
+        for n in 0..30 * 60 {
+            s.step(DT, None);
+            if n % 30 == 0
+                && s.fish()
+                    .iter()
+                    .any(|f| (f.x - egg.x).hypot(f.y - egg.y) < 600.0)
+            {
+                near += 1;
+            }
+            born.extend(s.take_births());
+            if !born.is_empty() {
+                break;
+            }
+        }
+        let b = born.first().expect("the eggs never hatched");
+        assert!(
+            (b.x - egg.x).abs() < 1.0 && (b.y - egg.y).abs() < 1.0,
+            "babies hatch where the eggs were"
+        );
+        assert!(near > 5, "the parents should stay near their eggs ({near})");
     }
 
     #[test]
