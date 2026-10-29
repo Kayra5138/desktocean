@@ -272,6 +272,7 @@ private:
     std::vector<DcFood> m_food;
     std::vector<DcBubble> m_bubbles;
     std::vector<DcRipple> m_ripples;
+    std::vector<DcCrawler> m_crawlers;
 
     // One per library fish drawing, indexed by DcFish::sprite
     struct SpriteInfo {
@@ -279,6 +280,9 @@ private:
         float aspect = 1.f;                         // height / width
         const FishMesh::Style *style = nullptr;
         std::vector<float> weights;                 // wiggle mask per vertex, or empty
+        // Decorations: top of the drawing per column (fraction of its height,
+        // < 0 where it is empty), for crawlers climbing over it
+        std::vector<float> top;
     };
     std::vector<SpriteInfo> m_sprites;
 
@@ -295,8 +299,9 @@ private:
     };
     // Where a decoration is drawn: bottom-centre anchored, sized by height
     QRectF decorRect(const DecorItem &d) const;
-    // Tells the sim where the cave openings are
+    // Tells the sim where the cave openings are and how high the rocks are
     void updateShelters();
+    void updateGround();
     std::vector<DecorItem> m_decor;
 
     // Sprite atlas: every fish drawing plus the food pellet

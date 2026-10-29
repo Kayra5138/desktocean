@@ -4,6 +4,9 @@ use std::f32::consts::TAU;
 use crate::relations::{FRIEND, RIVAL, Relations};
 use crate::rng::Rng;
 
+mod crawl;
+pub use crawl::{Crawler, CrawlerSpec, Gait};
+
 /// Fraction of the height where the sand starts.
 pub const SAND_TOP: f32 = 0.86;
 /// Fraction of the height where the water surface is.
@@ -480,6 +483,12 @@ pub struct Sim {
     ripples: Vec<Ripple>,
     births: Vec<Birth>,
     shelters: Vec<Shelter>,
+    /// Bottom creatures, see crawl.rs
+    crawlers: Vec<Crawler>,
+    crawler_specs: Vec<CrawlerSpec>,
+    /// Height of the ground every `ground_step` px (rocks crawlers climb)
+    ground: Vec<f32>,
+    ground_step: f32,
     schools: Vec<School>,
     next_school: u32,
     school_check: f32,
@@ -512,6 +521,10 @@ impl Sim {
             ripples: Vec::new(),
             births: Vec::new(),
             shelters: Vec::new(),
+            crawlers: Vec::new(),
+            crawler_specs: Vec::new(),
+            ground: Vec::new(),
+            ground_step: 8.0,
             schools: Vec::new(),
             next_school: 1,
             school_check: 0.0,
@@ -735,10 +748,19 @@ impl Sim {
         if width == self.width && height == self.height {
             return;
         }
+        let (old_w, old_h) = (self.width, self.height);
         self.width = width;
         self.height = height;
         if !self.has_size() {
             return;
+        }
+        if old_w > 0.0 && old_h > 0.0 {
+            self.resize_crawlers(width / old_w, height / old_h);
+        } else {
+            // Placed before the tank had a size: start them afresh
+            self.crawlers.clear();
+            let specs = self.crawler_specs.clone();
+            self.set_crawlers(&specs);
         }
         if self.fish.len() != self.population.len() {
             self.sync_population(false);
@@ -1095,6 +1117,7 @@ impl Sim {
         }
 
         self.update_relations(&others, dt);
+        self.update_crawlers(dt, pointer);
         self.food.retain(|p| !p.eaten && p.age < FOOD_LIFETIME);
     }
 

@@ -86,7 +86,7 @@ void LayoutModel::reload()
     beginResetModel();
     m_entries.clear();
     for (const FishEntry &e : all) {
-        if (e.kind == FishEntry::Kind::Fish)
+        if (e.kind == FishEntry::Kind::Fish || e.kind == FishEntry::Kind::Crawler)
             continue;
         m_entries << e;
         const QSize size = QImageReader(e.path()).size();

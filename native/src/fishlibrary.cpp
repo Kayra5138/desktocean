@@ -56,8 +56,9 @@ void resolveNames(QList<FishEntry> &entries)
     for (int i = 0; i < entries.size(); ++i) {
         FishEntry &e = entries[i];
         index.insert(e.id, i);
-        const QString kindDefault = e.kind == FishEntry::Kind::Fish    ? QStringLiteral("Fish")
-                                    : e.kind == FishEntry::Kind::Plant ? QStringLiteral("Plant")
+        const QString kindDefault = e.kind == FishEntry::Kind::Fish      ? QStringLiteral("Fish")
+                                    : e.kind == FishEntry::Kind::Crawler ? QStringLiteral("Crawler")
+                                    : e.kind == FishEntry::Kind::Plant   ? QStringLiteral("Plant")
                                                                        : QStringLiteral("Decoration");
         if (e.name == kindDefault || (e.bornAt > 0 && e.name.startsWith(QLatin1String("Baby "))))
             e.name.clear();
@@ -83,8 +84,9 @@ void resolveNames(QList<FishEntry> &entries)
                 return QStringLiteral("Baby of %1").arg(parents.join(QStringLiteral(" & ")));
         }
         const QString base = e.bornAt > 0                            ? QStringLiteral("Baby")
-                             : e.kind == FishEntry::Kind::Fish  ? QStringLiteral("Fish")
-                             : e.kind == FishEntry::Kind::Plant ? QStringLiteral("Plant")
+                             : e.kind == FishEntry::Kind::Fish    ? QStringLiteral("Fish")
+                             : e.kind == FishEntry::Kind::Crawler ? QStringLiteral("Crawler")
+                             : e.kind == FishEntry::Kind::Plant   ? QStringLiteral("Plant")
                                                                 : QStringLiteral("Decoration");
         return QStringLiteral("%1 %2").arg(base).arg(e.number);
     };
@@ -124,7 +126,7 @@ bool save(const QList<FishEntry> &entries, QString *error)
             o.insert(QStringLiteral("bornAt"), QString::number(e.bornAt));
             o.insert(QStringLiteral("parents"), QJsonArray::fromStringList(e.parents));
         }
-        if (e.kind != FishEntry::Kind::Fish) {
+        if (e.kind == FishEntry::Kind::Plant || e.kind == FishEntry::Kind::Decor) {
             o.insert(QStringLiteral("sway"), e.sway);
             QJsonArray places;
             for (const Placement &p : e.placements) {
@@ -313,6 +315,8 @@ QString kindName(FishEntry::Kind kind)
         return QStringLiteral("plant");
     case FishEntry::Kind::Decor:
         return QStringLiteral("decor");
+    case FishEntry::Kind::Crawler:
+        return QStringLiteral("crawler");
     case FishEntry::Kind::Fish:
         break;
     }
@@ -325,6 +329,8 @@ FishEntry::Kind kindFromName(const QString &name)
         return FishEntry::Kind::Plant;
     if (name == QLatin1String("decor"))
         return FishEntry::Kind::Decor;
+    if (name == QLatin1String("crawler"))
+        return FishEntry::Kind::Crawler;
     return FishEntry::Kind::Fish;
 }
 

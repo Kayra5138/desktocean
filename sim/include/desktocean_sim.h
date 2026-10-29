@@ -25,6 +25,32 @@ typedef struct DcFish {
     uint32_t sheltered; // non-zero while in (or partly in) a cave: draw behind the cave's front
 } DcFish;
 
+// Bottom creatures (crabs, snails, starfish, shrimp)
+#define DC_GAIT_CRAB   0u
+#define DC_GAIT_SNAIL  1u
+#define DC_GAIT_STAR   2u
+#define DC_GAIT_WALKER 3u
+
+typedef struct DcCrawlerSpec {
+    uint64_t id;
+    uint32_t sprite;
+    float aspect;      // sprite height / width
+    float scale;
+    uint32_t gait;     // DC_GAIT_*
+} DcCrawlerSpec;
+
+typedef struct DcCrawler {
+    uint64_t id;
+    float x, y;        // middle of the bottom edge, scene pixels
+    float w, h;
+    float facing;      // -1 left .. 1 right (crabs: always 1)
+    float phase;       // leg cycle
+    float tilt;        // degrees, follows the ground
+    float buried;      // 0 out .. 1 dug in / in its shell
+    uint32_t sprite;
+    uint32_t gait;
+} DcCrawler;
+
 // A cave opening, scene pixels (top-left corner and size)
 typedef struct DcShelter {
     float x, y, w, h;
@@ -101,6 +127,9 @@ uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
 uint32_t dc_sim_take_births(DcSim *sim, DcBirth *out, uint32_t cap);  // drains them
 bool dc_sim_place_fish(DcSim *sim, uint64_t id, float x, float y);
 void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  // replaces the caves
+void dc_sim_set_crawlers(DcSim *sim, const DcCrawlerSpec *list, uint32_t count);
+uint32_t dc_sim_crawlers(DcSim *sim, DcCrawler *out, uint32_t cap);  // returns total count
+void dc_sim_set_ground(DcSim *sim, const float *heights, uint32_t count, float step);  // scene y per step px
 void dc_sim_set_life_speed(DcSim *sim, float speed);                  // 0 = no babies
 uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
 void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);

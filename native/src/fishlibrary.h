@@ -31,7 +31,8 @@ struct Placement {
 //
 // The editor writes, the wallpaper watches the directory and reloads.
 struct FishEntry {
-    enum class Kind { Fish, Plant, Decor };
+    // Crawlers walk on the bottom (crabs, snails...); their gait is in `style`
+    enum class Kind { Fish, Plant, Decor, Crawler };
 
     QString id;
     Kind kind = Kind::Fish;

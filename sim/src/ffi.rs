@@ -386,6 +386,124 @@ pub unsafe extern "C" fn dc_sim_set_relations(
     });
 }
 
+/// A bottom creature to keep in the tank
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcCrawlerSpec {
+    pub id: u64,
+    pub sprite: u32,
+    pub aspect: f32,
+    pub scale: f32,
+    /// 0 crab, 1 snail, 2 starfish, 3 walker (shrimp)
+    pub gait: u32,
+}
+
+/// A bottom creature right now
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcCrawler {
+    pub id: u64,
+    /// Middle of the bottom edge, scene pixels
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub facing: f32,
+    pub phase: f32,
+    pub tilt: f32,
+    /// 0 out .. 1 dug in / in its shell
+    pub buried: f32,
+    pub sprite: u32,
+    pub gait: u32,
+}
+
+/// Replaces the bottom creatures (same ids keep their place).
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_crawlers(
+    handle: *mut DcSim,
+    list: *const DcCrawlerSpec,
+    count: u32,
+) {
+    with_sim(handle, (), |s| {
+        let items: Vec<crate::sim::CrawlerSpec> = if list.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(list, count.min(1000) as usize) }
+                .iter()
+                .filter(|c| {
+                    c.aspect.is_finite() && c.aspect > 0.0 && c.scale.is_finite() && c.scale > 0.0
+                })
+                .map(|c| crate::sim::CrawlerSpec {
+                    id: c.id,
+                    sprite: c.sprite,
+                    aspect: c.aspect,
+                    scale: c.scale,
+                    gait: crate::sim::Gait::from_index(c.gait),
+                })
+                .collect()
+        };
+        s.set_crawlers(&items)
+    });
+}
+
+/// Same contract as `dc_sim_fish`, for bottom creatures.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_crawlers(handle: *mut DcSim, out: *mut DcCrawler, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.crawlers();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, c) in dst.iter_mut().zip(list) {
+                *d = DcCrawler {
+                    id: c.id,
+                    x: c.x,
+                    y: c.y,
+                    w: c.w,
+                    h: c.h,
+                    facing: c.facing,
+                    phase: c.phase,
+                    tilt: c.tilt,
+                    buried: c.buried,
+                    sprite: c.sprite,
+                    gait: c.gait.index(),
+                };
+            }
+        }
+        list.len() as u32
+    })
+}
+
+/// Height of the ground (scene y) every `step` px from x = 0, for crawlers
+/// climbing rocks. `count` 0 = flat sand.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `heights` null or valid for `count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_ground(
+    handle: *mut DcSim,
+    heights: *const f32,
+    count: u32,
+    step: f32,
+) {
+    with_sim(handle, (), |s| {
+        let list: Vec<f32> = if heights.is_null() || count == 0 || !step.is_finite() {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(heights, count.min(100_000) as usize) }
+                .iter()
+                .map(|h| if h.is_finite() { *h } else { f32::INFINITY })
+                .collect()
+        };
+        s.set_ground(&list, step)
+    });
+}
+
 /// Replaces the caves fish can swim into.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.

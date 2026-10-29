@@ -79,6 +79,25 @@ struct DecorPose {
 
 void writeDecor(const DecorPose &pose, const QRectF &uv, float time, Vertex *v, quint32 *idx, quint32 base);
 
+// Bottom creatures: stand on (x, bottom), legs (the lowest quarter of the
+// drawing) step with `phase`, the body follows the ground's tilt and sinks
+// into the sand / its shell with `buried`. Same vertex layout as a fish.
+enum class Gait { Crab, Snail, Star, Walker };
+Gait gaitFromId(const QString &id);
+uint32_t gaitIndex(Gait gait);   // DC_GAIT_*
+
+struct CrawlerPose {
+    float x, bottom;
+    float w, h;
+    float facing;
+    float phase;
+    float tilt;     // degrees
+    float buried;   // 0 .. 1
+    Gait gait;
+};
+
+void writeCrawler(const CrawlerPose &pose, const QRectF &uv, Vertex *v, quint32 *idx, quint32 base);
+
 // Axis-aligned sprite, e.g. a food pellet
 void writeQuad(QRectF rect, const QRectF &uv, float alpha, Vertex *v, quint32 *idx, quint32 base);
 

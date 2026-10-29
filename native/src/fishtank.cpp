@@ -25,6 +25,7 @@
 #include <QDateTime>
 
 #include <algorithm>
+#include <limits>
 #include <numeric>
 #include <cmath>
 #include <iterator>
@@ -48,6 +49,8 @@ struct StarterDecor {
     FishEntry::Kind kind;
     QList<Placement> placements;
     QRectF opening = {};   // caves: fractions of the drawing, see scripts/make-starter-decor.py
+    const char *style = nullptr;   // crawlers: gait
+    int count = 1;                 // crawlers: how many
 };
 
 // A cave opening's shape inside its box: rounded top, straight sides down to
@@ -80,6 +83,8 @@ const QList<StarterDecor> &starterLayout()
         {"rock", K::Decor, {{0.2, 0.98, 0.55, true, false}, {0.82, 0.93, 0.4, false, true}}},
         {"coral", K::Decor, {{0.52, 0.93, 0.7, false, false}}},
         {"cave", K::Decor, {{0.64, 0.975, 0.75, false, false}}, {90 / 320.0, 85 / 200.0, 140 / 320.0, 100 / 200.0}},
+        {"crab", K::Crawler, {}, {}, "crab", 2},
+        {"snail", K::Crawler, {}, {}, "snail", 1},
     };
     return layout;
 }
@@ -745,6 +750,37 @@ void FishTank::updateShelters()
                             float(o.width() * box.width()), float(o.height() * box.height())});
     }
     dc_sim_set_shelters(m_sim, shelters.data(), uint32_t(shelters.size()));
+    updateGround();
+}
+
+void FishTank::updateGround()
+{
+    // Crawlers climb over decorations behind the fish; caves they walk into
+    // (behind the front), and things in front of the fish would hide them
+    constexpr float kStep = 8.f;
+    const int n = int(width() / kStep) + 2;
+    if (width() <= 0 || height() <= 0)
+        return;
+    std::vector<float> heights(size_t(n), std::numeric_limits<float>::infinity());
+    for (const DecorItem &d : m_decor) {
+        if (!d.opening.isNull() || d.placement.front || d.sway > 0 || d.sprite >= m_sprites.size())
+            continue;
+        const std::vector<float> &top = m_sprites[d.sprite].top;
+        if (top.empty())
+            continue;
+        const QRectF box = decorRect(d);
+        for (int i = std::max(0, int(box.left() / kStep)); i < n && i * kStep <= box.right(); ++i) {
+            double u = (i * kStep - box.left()) / box.width();
+            if (u < 0 || u > 1)
+                continue;
+            if (d.placement.flip)
+                u = 1 - u;
+            const float t = top[std::min(top.size() - 1, size_t(u * top.size()))];
+            if (t >= 0)
+                heights[size_t(i)] = std::min(heights[size_t(i)], float(box.top() + t * box.height()));
+        }
+    }
+    dc_sim_set_ground(m_sim, heights.data(), uint32_t(heights.size()), kStep);
 }
 
 void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
@@ -810,6 +846,15 @@ void FishTank::updateHover()
         if (hit) {
             name = m_specName.value(hit->id);
             point = QPointF(hit->x, hit->y - hit->h * 0.5);
+        } else {
+            // Crawlers are behind the fish: only when no fish is in the way
+            for (const DcCrawler &c : m_crawlers) {
+                if (std::abs(m_pointer.x() - c.x) < c.w * 0.45 && m_pointer.y() < c.y && m_pointer.y() > c.y - c.h) {
+                    name = m_specName.value(c.id);
+                    point = QPointF(c.x, c.y - c.h);
+                    break;
+                }
+            }
         }
     }
     if (name == m_hoveredName && (name.isEmpty() || point == m_hoveredPoint))
@@ -877,6 +922,10 @@ void FishTank::pullState()
     n = dc_sim_ripples(m_sim, nullptr, 0);
     m_ripples.resize(n);
     m_ripples.resize(std::min(n, dc_sim_ripples(m_sim, m_ripples.data(), n)));
+
+    n = dc_sim_crawlers(m_sim, nullptr, 0);
+    m_crawlers.resize(n);
+    m_crawlers.resize(std::min(n, dc_sim_crawlers(m_sim, m_crawlers.data(), n)));
 
     if (m_fish.size() != oldFish)
         Q_EMIT fishCountChanged();
@@ -949,6 +998,10 @@ void FishTank::seedDecor(const QString &only)
         meta.name = QString(base).replace(QLatin1Char('-'), QLatin1Char(' '));
         meta.name[0] = meta.name[0].toUpper();
         meta.placements = it->placements;
+        if (it->style) {
+            meta.style = QLatin1String(it->style);
+            meta.count = it->count;
+        }
         const QRectF opening = it->opening.isNull()
             ? QRectF()
             : QRectF(it->opening.x() * img.width(), it->opening.y() * img.height(), it->opening.width() * img.width(),
@@ -1006,9 +1059,16 @@ void FishTank::loadLibrary(bool animateNew)
         seedLibrary();
     if (!FishLibrary::decorSeeded())
         seedDecor();
-    // The cave came later: existing tanks get it once (deleting it is respected)
-    else if (!QFileInfo::exists(seededMarker(QStringLiteral("cave"))) && TankHub::isPrimary(this))
-        seedDecor(QStringLiteral("cave"));
+    else if (TankHub::isPrimary(this)) {
+        // Starters that came later (the cave, crawlers): existing tanks get
+        // each once, and deleting it afterwards is respected
+        for (const StarterDecor &d : starterLayout()) {
+            const QString name = QLatin1String(d.name);
+            if (!QFileInfo::exists(seededMarker(name)) && name != QLatin1String("rock") && name != QLatin1String("coral")
+                && !name.startsWith(QLatin1String("seaweed")))
+                seedDecor(name);
+        }
+    }
     watchLibrary();
 
     QString error;
@@ -1024,11 +1084,13 @@ void FishTank::loadLibrary(bool animateNew)
     std::vector<DcFishSpec> specs;
     std::vector<FishEntry> specEntry;
     std::vector<DecorItem> decor;
+    std::vector<DcCrawlerSpec> crawlers;
     QHash<quint64, QString> owners;
     QHash<quint64, QString> names;
     for (const FishEntry &e : entries) {
         const bool isFish = e.kind == FishEntry::Kind::Fish;
-        if (isFish ? e.count <= 0 : e.placements.isEmpty())
+        const bool counted = isFish || e.kind == FishEntry::Kind::Crawler;
+        if (counted ? e.count <= 0 : e.placements.isEmpty())
             continue;
         QImage img(e.path());
         if (img.isNull()) {
@@ -1048,8 +1110,38 @@ void FishTank::loadLibrary(bool animateNew)
 
         const float aspect = float(img.height()) / float(img.width());
         images << img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        if (e.kind == FishEntry::Kind::Crawler) {
+            const auto gait = FishMesh::gaitFromId(e.style);
+            for (int k = 0; k < e.count; ++k) {
+                const auto id = quint64(qHash(e.id, size_t(k)));
+                crawlers.push_back({id, sprite, aspect, float(e.scale), FishMesh::gaitIndex(gait)});
+                owners.insert(id, e.id);
+                names.insert(id, e.fishName(k));
+            }
+            continue;
+        }
         if (!isFish) {
             const float sway = e.kind == FishEntry::Kind::Plant ? float(e.sway) : 0.f;
+            if (e.kind == FishEntry::Kind::Decor) {
+                // The top edge of the drawing, for crawlers climbing it
+                const QImage &a = images.last();
+                std::vector<float> top(48, -1.f);
+                for (size_t c = 0; c < top.size(); ++c) {
+                    const int x = std::min(a.width() - 1, int((c + 0.5) * a.width() / top.size()));
+                    int first = -1, solid = 0;
+                    for (int y = 0; y < a.height(); ++y) {
+                        if (qAlpha(a.pixel(x, y)) > 128) {
+                            first = first < 0 ? y : first;
+                            ++solid;
+                        }
+                    }
+                    // Only solid ground: a column that is mostly filled from its
+                    // top down (a rock), not branches with water between (coral)
+                    if (first >= 0 && solid > 0.85 * (a.height() - first))
+                        top[c] = float(first) / a.height();
+                }
+                sprites.back().top = std::move(top);
+            }
             uint32_t front = sprite;
             if (!e.opening.isNull()) {
                 // The same drawing with the opening cut out, laid over fish inside
@@ -1093,6 +1185,7 @@ void FishTank::loadLibrary(bool animateNew)
     updateShelters();
     rebuildAtlas(images);
     dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
+    dc_sim_set_crawlers(m_sim, crawlers.data(), uint32_t(crawlers.size()));
     m_specs = std::move(specs);
     m_specEntry = std::move(specEntry);
     m_specOwner = owners;
@@ -1201,11 +1294,16 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
                                                return n + (d.opening.isNull() ? 1 : 2);
                                            }))
                                          : 0;
+    const int nCrawlers = node->hasAtlas() ? int(std::count_if(m_crawlers.begin(), m_crawlers.end(), [&](const DcCrawler &c) {
+                                                 return c.sprite < m_sprites.size();
+                                             }))
+                                           : 0;
 
     quint32 *idx = nullptr;
     FishMesh::Vertex *v = node->reserve(
-        nFish * FishMesh::kVertsPerFish + (nFood + nBubbles) * 4 + nDecor * FishMesh::kVertsPerDecor,
-        nFish * FishMesh::kIndicesPerFish + (nFood + nBubbles) * 6 + nDecor * FishMesh::kIndicesPerDecor, &idx);
+        (nFish + nCrawlers) * FishMesh::kVertsPerFish + (nFood + nBubbles) * 4 + nDecor * FishMesh::kVertsPerDecor,
+        (nFish + nCrawlers) * FishMesh::kIndicesPerFish + (nFood + nBubbles) * 6 + nDecor * FishMesh::kIndicesPerDecor,
+        &idx);
     quint32 base = 0;
 
     // Draw order: decorations behind the fish (caves whole), fish inside caves,
@@ -1236,6 +1334,21 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         }
     };
     writeDecorLayer(Layer::Back);
+
+    // Crawlers on the bottom (and on the rocks), behind the fish; ones walking
+    // past a cave go behind its front
+    if (nCrawlers > 0) {
+        for (const DcCrawler &c : m_crawlers) {
+            if (c.sprite >= m_sprites.size())
+                continue;
+            const FishMesh::CrawlerPose pose{c.x, c.y, c.w, c.h, c.facing, c.phase, c.tilt, c.buried,
+                                             FishMesh::Gait(c.gait)};
+            FishMesh::writeCrawler(pose, m_sprites[c.sprite].uv, v, idx, base);
+            v += FishMesh::kVertsPerFish;
+            idx += FishMesh::kIndicesPerFish;
+            base += FishMesh::kVertsPerFish;
+        }
+    }
 
     // Back to front: one draw call, blending order comes from vertex order
     std::sort(order.begin(), order.end(), [&](int a, int b) { return m_fish[a].depth > m_fish[b].depth; });

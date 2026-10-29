@@ -157,6 +157,69 @@ void writeDecor(const DecorPose &d, const QRectF &uv, float time, Vertex *v, qui
     }
 }
 
+Gait gaitFromId(const QString &id)
+{
+    if (id == QLatin1String("snail"))
+        return Gait::Snail;
+    if (id == QLatin1String("star"))
+        return Gait::Star;
+    if (id == QLatin1String("walker"))
+        return Gait::Walker;
+    return Gait::Crab;
+}
+
+uint32_t gaitIndex(Gait gait)
+{
+    return uint32_t(gait);
+}
+
+void writeCrawler(const CrawlerPose &p, const QRectF &uv, Vertex *v, quint32 *idx, quint32 base)
+{
+    const float rad = p.tilt * float(M_PI) / 180.f;
+    const float cs = std::cos(rad), sn = std::sin(rad);
+    const bool legged = p.gait == Gait::Crab || p.gait == Gait::Walker;
+    // Dug in: squashed down into the sand; a snail pulls in toward its shell
+    const float squash = p.gait == Gait::Snail ? 1.f - 0.35f * p.buried : 1.f - 0.7f * p.buried;
+    const float pinch = p.gait == Gait::Snail ? 1.f - 0.25f * p.buried : 1.f;
+    const float bob = legged ? std::abs(std::sin(p.phase * 6.f)) * 0.03f * p.h : 0.f;
+    const float stretch = p.gait == Gait::Snail ? 1.f + 0.05f * std::sin(p.phase * 3.f) : 1.f;
+    for (int r = 0; r <= kRows; ++r) {
+        const float vv = float(r) / kRows;   // 0 = top, 1 = feet
+        for (int c = 0; c <= kSegments; ++c) {
+            const float u = float(c) / kSegments;
+            float lx = (u - 0.5f) * p.w * stretch * pinch;
+            float ly = -(1.f - vv) * p.h * squash - bob * (1.f - vv);
+            if (legged && vv > 0.72f) {
+                // Legs: the lowest part of the drawing steps back and forth,
+                // the two sides out of step
+                const float leg = (vv - 0.72f) / 0.28f;
+                const float side = u < 0.5f ? 0.f : float(M_PI);
+                lx += std::sin(p.phase * 6.f + side + u * 9.f) * 0.05f * p.w * leg;
+                ly -= std::max(0.f, std::sin(p.phase * 6.f + side + u * 9.f)) * 0.04f * p.h * leg;
+            }
+            lx *= p.facing;
+            Vertex &out = *v++;
+            out.x = p.x + lx * cs - ly * sn;
+            out.y = p.bottom + lx * sn + ly * cs;
+            out.u = float(uv.x() + u * uv.width());
+            out.v = float(uv.y() + vv * uv.height());
+            out.fog = 0.1f;
+            out.alpha = 1.f - 0.25f * p.buried;
+        }
+    }
+    const quint32 stride = kSegments + 1;
+    for (int r = 0; r < kRows; ++r) {
+        for (int c = 0; c < kSegments; ++c) {
+            const quint32 i0 = base + r * stride + c;
+            const quint32 i1 = i0 + 1;
+            const quint32 i2 = i0 + stride;
+            const quint32 i3 = i2 + 1;
+            *idx++ = i0; *idx++ = i2; *idx++ = i1;
+            *idx++ = i1; *idx++ = i2; *idx++ = i3;
+        }
+    }
+}
+
 void writeQuad(QRectF rect, const QRectF &uv, float alpha, Vertex *v, quint32 *idx, quint32 base)
 {
     for (int r = 0; r < 2; ++r) {

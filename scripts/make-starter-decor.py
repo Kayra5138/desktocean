@@ -89,6 +89,44 @@ def cave():
     return svg(320, 200, body)
 
 
+def crab():
+    """Seen from the front: it walks sideways."""
+    legs = []
+    for side in (-1, 1):
+        for i, (dx, dy) in enumerate([(52, 0), (66, 6), (78, 14)]):
+            x0 = 120 + side * (30 + i * 8)
+            x1 = 120 + side * (dx + 20)
+            legs.append(f'<path d="M {x0} {92 + i * 3} Q {x1} {80 + dy} {x1 + side * 8} {128}" '
+                        'fill="none" stroke="#a8361f" stroke-width="7" stroke-linecap="round"/>')
+    body = f"""  {"".join(legs)}
+  <path d="M 70 70 Q 40 40 52 22 Q 70 30 66 48 Q 80 58 86 72 Z" fill="#e25a3a" stroke="#7a2412" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 170 70 Q 200 40 188 22 Q 170 30 174 48 Q 160 58 154 72 Z" fill="#e25a3a" stroke="#7a2412" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="120" cy="88" rx="58" ry="34" fill="#e8653f" stroke="#7a2412" stroke-width="4"/>
+  <path d="M 84 80 Q 120 64 156 80" fill="none" stroke="#f59a74" stroke-width="5" stroke-linecap="round"/>
+  <line x1="106" y1="58" x2="102" y2="40" stroke="#7a2412" stroke-width="4" stroke-linecap="round"/>
+  <line x1="134" y1="58" x2="138" y2="40" stroke="#7a2412" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="102" cy="36" r="7" fill="#fff" stroke="#7a2412" stroke-width="3"/>
+  <circle cx="138" cy="36" r="7" fill="#fff" stroke="#7a2412" stroke-width="3"/>
+  <circle cx="103" cy="37" r="3" fill="#222"/>
+  <circle cx="139" cy="37" r="3" fill="#222"/>"""
+    return svg(240, 134, body)
+
+
+def snail():
+    """Head to the right, like every drawing that moves."""
+    body = """  <path d="M 18 118 Q 20 100 60 100 L 170 100 Q 196 98 204 84 Q 214 70 222 84 Q 226 108 196 118 Z"
+        fill="#d9b48a" stroke="#6e5232" stroke-width="4" stroke-linejoin="round"/>
+  <line x1="206" y1="82" x2="214" y2="50" stroke="#6e5232" stroke-width="4" stroke-linecap="round"/>
+  <line x1="214" y1="86" x2="230" y2="60" stroke="#6e5232" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="214" cy="48" r="5" fill="#6e5232"/>
+  <circle cx="231" cy="58" r="5" fill="#6e5232"/>
+  <circle cx="110" cy="62" r="52" fill="#b5653a" stroke="#5c2f16" stroke-width="5"/>
+  <path d="M 110 62 m 0 -8 a 8 8 0 1 1 -8 8 a 16 16 0 1 1 16 16 a 26 26 0 1 1 -26 -26 a 38 38 0 1 1 38 38"
+        fill="none" stroke="#5c2f16" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 72 40 Q 96 18 132 22" fill="none" stroke="#e0956a" stroke-width="6" stroke-linecap="round"/>"""
+    return svg(240, 124, body)
+
+
 def coral():
     rng = random.Random(7)
     parts = []
@@ -116,6 +154,8 @@ ITEMS = {
     "decor-rock.svg": rock,
     "decor-coral.svg": coral,
     "decor-cave.svg": cave,
+    "crawler-crab.svg": crab,
+    "crawler-snail.svg": snail,
 }
 
 OUT.mkdir(parents=True, exist_ok=True)

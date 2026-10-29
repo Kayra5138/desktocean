@@ -139,7 +139,10 @@ void LibraryModel::reload()
     QList<FishEntry> entries;
     for (const FishEntry &e : std::as_const(all)) {
         const QString kind = FishLibrary::kindName(e.kind);
-        if (kind == m_kind || (m_kind == QLatin1String("scenery") && e.kind != FishEntry::Kind::Fish))
+        // Crawlers are listed with the fish: they live in the tank the same way
+        const bool creature = e.kind == FishEntry::Kind::Fish || e.kind == FishEntry::Kind::Crawler;
+        if (kind == m_kind || (m_kind == QLatin1String("fish") && creature)
+            || (m_kind == QLatin1String("scenery") && !creature))
             entries << e;
     }
     beginResetModel();
