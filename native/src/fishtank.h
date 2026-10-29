@@ -383,6 +383,7 @@ private:
     QRectF m_foodUv;
     QRectF m_eggUv;
     QRectF m_heartUv;
+    QRectF m_bigBubbleUv;   // the wand's bubble: drawn large, so its own sharp sprite
     QRectF m_bubbleUv;
     QRectF m_rippleUv;
     bool m_atlasDirty = false;

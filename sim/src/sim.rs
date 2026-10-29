@@ -1251,10 +1251,7 @@ impl Sim {
         }
         let dt = dt.clamp(0.0, 0.1);
         self.time += dt;
-        // While the bubble is out, the cursor is busy with it: nobody follows,
-        // flees from or gets petted by it
         self.update_carry(dt);
-        let pointer = pointer.filter(|_| self.carry.is_none());
         self.update_pointer(dt, pointer);
         self.update_petting(dt, pointer);
         self.update_food(dt);

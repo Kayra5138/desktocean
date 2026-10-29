@@ -81,9 +81,22 @@ def nom():
 
 
 def chime():
-    """A fish being petted: two gentle notes."""
-    return mix(sweep(0.45, 880, 880, 0.15, 0.01), [s * 0.7 for s in sweep(0.5, 1318, 1318, 0.18, 0.01)],
-               offsets=[0, 0.12])
+    """A fish being petted: a soft, warm hum that swells and fades, like a
+    contented sigh (no bell, no beep)."""
+    n = int(0.9 * RATE)
+    out = []
+    phase1 = phase2 = 0.0
+    for i in range(n):
+        t = i / RATE
+        # Slow swell in, long gentle fade
+        env = min(1.0, t / 0.25) * math.exp(-max(0.0, t - 0.25) / 0.28)
+        vibrato = 1 + 0.006 * math.sin(2 * math.pi * 5 * t)
+        phase1 += 2 * math.pi * 330 * (1 + 0.04 * t) * vibrato / RATE
+        phase2 += 2 * math.pi * 415 * (1 + 0.04 * t) * vibrato / RATE
+        # Rounded tone: the fundamental with a little of its octave
+        tone = math.sin(phase1) + 0.25 * math.sin(2 * phase1) + 0.6 * math.sin(phase2)
+        out.append(tone * env)
+    return lowpass(out, 0.18)
 
 
 def hatch():

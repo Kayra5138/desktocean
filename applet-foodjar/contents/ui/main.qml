@@ -5,9 +5,9 @@ import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import Desktocean.Core
 
-// A jar of fish food standing on the desktop. Press it to pick it up and carry
-// it around; shake it back and forth over a spot and after a moment food falls
-// into the aquarium right below. Let go and it stays there.
+// A jar of fish food standing on the desktop. Double-click it and food falls
+// into the aquarium right below. Press it to pick it up and carry it around
+// (shaking it over a spot pours some food too); let go and it stays there.
 PlasmoidItem {
     id: root
 
@@ -17,7 +17,7 @@ PlasmoidItem {
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
     preferredRepresentation: fullRepresentation
     toolTipMainText: "Fish food"
-    toolTipSubText: TankHub.available ? "Pick it up and shake it over the water to feed the fish" : "Desktocean is not your wallpaper"
+    toolTipSubText: TankHub.available ? "Double-click to feed the fish below; drag to move it" : "Desktocean is not your wallpaper"
 
     // The widget's own keyboard shortcut (its settings) shakes the jar too
     Connections {
@@ -109,9 +109,25 @@ PlasmoidItem {
             easing.type: Easing.OutBack
         }
 
+        // Carried: the jar is drawn at the cursor (lifted) while the desktop's
+        // box stays put; the box only moves when it is put down. (The desktop
+        // animates its boxes moving, which would make the jar lag behind.)
+        property bool lifted: false
+        property point dropAt     // where the box goes, in its parent's coordinates
+        Timer {
+            id: settle
+            // The desktop's own little move animation has finished by then
+            interval: 450
+            onTriggered: holder.lifted = false
+        }
+
         // Keeps the drawing's proportions inside whatever size the widget has
         Item {
             id: jarBox
+            transform: Translate {
+                x: holder.lifted && mouse.box ? holder.dropAt.x - mouse.box.x : 0
+                y: holder.lifted && mouse.box ? holder.dropAt.y - mouse.box.y : 0
+            }
             readonly property real aspect: 64 / 84
             height: Math.min(parent.height, parent.width / aspect)
             width: height * aspect
@@ -194,9 +210,12 @@ PlasmoidItem {
             function putDown() {
                 if (!holder.carrying)
                     return;
-                if (box) {
+                if (box && holder.lifted) {
+                    box.x = holder.dropAt.x;
+                    box.y = holder.dropAt.y;
                     box.layout.positionItem(box);
                     box.layout.save();
+                    settle.restart();
                 }
                 holder.carrying = false;
                 standUp.start();
@@ -206,11 +225,14 @@ PlasmoidItem {
                 // Picked up straight away
                 box = root.desktopBox();
                 standUp.stop();
+                settle.stop();
                 holder.carrying = true;
                 const at = box ? mapToItem(box.parent, mouseEvent.x, mouseEvent.y) : mapToGlobal(mouseEvent.x, mouseEvent.y);
                 anchor = last = at;
                 if (box) {
-                    grab = mapToItem(box, mouseEvent.x, mouseEvent.y);
+                    grab = Qt.point(at.x - box.x, at.y - box.y);
+                    holder.dropAt = Qt.point(box.x, box.y);
+                    holder.lifted = true;
                     box.layout.releaseSpace(box);
                 }
             }
@@ -220,10 +242,9 @@ PlasmoidItem {
                 const at = box ? mapToItem(box.parent, mouseEvent.x, mouseEvent.y) : mapToGlobal(mouseEvent.x, mouseEvent.y);
                 const dx = at.x - last.x, dy = at.y - last.y;
                 last = at;
-                if (box) {
-                    box.x = at.x - grab.x;
-                    box.y = at.y - grab.y;
-                }
+                // Exactly under the cursor
+                if (box)
+                    holder.dropAt = Qt.point(at.x - grab.x, at.y - grab.y);
                 // Back and forth near one spot is shaking; carrying it across
                 // the screen is not
                 if (Math.hypot(at.x - anchor.x, at.y - anchor.y) > 140) {
@@ -236,6 +257,10 @@ PlasmoidItem {
             }
             onReleased: putDown()
             onCanceled: putDown()
+            onDoubleClicked: {
+                putDown();
+                shaking.start();
+            }
         }
     }
 }

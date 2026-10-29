@@ -116,7 +116,9 @@ impl Sim {
                 f.trust = t;
             }
             f.trust = (f.trust - TRUST_FADE_PER_SEC * dt).max(0.0);
-            if f.entering {
+            // Riding in the bubble is its own treat: no petting in there
+            if f.entering || matches!(f.mode, Mode::Bubbled) {
+                f.pet = 0.0;
                 continue;
             }
             let stroking = pointer.is_some_and(|p| f.under_cursor(p))

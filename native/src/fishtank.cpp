@@ -196,6 +196,46 @@ QImage makeFoodSprite()
     return img;
 }
 
+// The bubble wand's bubble, large enough to stay sharp around a big fish:
+// a thin rim, a faint rainbow sheen and a window highlight
+constexpr int kBigBubble = 384;
+QImage makeBigBubbleSprite()
+{
+    QImage img(kBigBubble, kBigBubble, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF r(4, 4, kBigBubble - 8, kBigBubble - 8);
+    const QPointF c = r.center();
+    const qreal R = r.width() / 2;
+    // The film: clear in the middle, thicker and tinted toward the edge
+    QRadialGradient film(c, R);
+    film.setColorAt(0.0, QColor(255, 255, 255, 0));
+    film.setColorAt(0.72, QColor(200, 235, 255, 18));
+    film.setColorAt(0.9, QColor(210, 190, 255, 60));
+    film.setColorAt(0.97, QColor(170, 230, 255, 120));
+    film.setColorAt(1.0, QColor(255, 255, 255, 0));
+    p.setPen(Qt::NoPen);
+    p.setBrush(film);
+    p.drawEllipse(r);
+    // Rim
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(235, 250, 255, 200), kBigBubble * 0.008));
+    p.drawEllipse(r.adjusted(2, 2, -2, -2));
+    // A soft window reflection, top left, and a small one bottom right
+    QPainterPath shine;
+    shine.arcMoveTo(r.adjusted(R * 0.18, R * 0.18, -R * 0.18, -R * 0.18), 105);
+    shine.arcTo(r.adjusted(R * 0.18, R * 0.18, -R * 0.18, -R * 0.18), 105, 55);
+    p.setPen(QPen(QColor(255, 255, 255, 190), kBigBubble * 0.03, Qt::SolidLine, Qt::RoundCap));
+    p.drawPath(shine);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 210));
+    p.drawEllipse(QPointF(c.x() - R * 0.45, c.y() - R * 0.5), R * 0.07, R * 0.05);
+    p.setBrush(QColor(255, 255, 255, 110));
+    p.drawEllipse(QPointF(c.x() + R * 0.55, c.y() + R * 0.5), R * 0.05, R * 0.035);
+    return img;
+}
+
 // A heart for petted fish
 QImage makeHeartSprite()
 {
@@ -1607,6 +1647,7 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
     };
     for (const QImage &img : images)
         place(img.size());
+    place(QSize(kBigBubble, kBigBubble));   // the wand's bubble
     place(QSize(kFoodCell, kFoodCell));   // heart
     place(QSize(kFoodCell, kFoodCell));   // egg
     place(QSize(kFoodCell, kFoodCell));
@@ -1627,6 +1668,9 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
         painter.drawImage(placed[i].topLeft(), images[i]);
         m_sprites[i].uv = normalised(placed[i]);
     }
+    const QRect bigBubbleRect = placed[placed.size() - 6];
+    painter.drawImage(bigBubbleRect.topLeft(), makeBigBubbleSprite());
+    m_bigBubbleUv = normalised(bigBubbleRect);
     const QRect heartRect = placed[placed.size() - 5];
     painter.drawImage(heartRect.topLeft(), makeHeartSprite());
     m_heartUv = normalised(heartRect);
@@ -1799,8 +1843,8 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         // fish decides to come in
         if (m_carrying) {
             const DcBubble &b = m_carryBubble;
-            FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv,
-                                0.55f + 0.35f * b.alpha, v, idx, base);
+            FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bigBubbleUv,
+                                0.6f + 0.4f * b.alpha, v, idx, base);
             v += 4;
             idx += 6;
             base += 4;

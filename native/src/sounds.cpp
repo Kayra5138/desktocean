@@ -12,7 +12,7 @@ constexpr std::array<Info, size_t(SoundBoard::Sound::Count)> kSounds = {{
     {"bubble.wav", 0.25, 700},
     {"plop.wav", 0.6, 120},
     {"nom.wav", 0.35, 250},
-    {"chime.wav", 0.45, 1500},
+    {"chime.wav", 0.3, 2500},
     {"hatch.wav", 0.6, 2000},
 }};
 constexpr double kAmbientGain = 0.18;
