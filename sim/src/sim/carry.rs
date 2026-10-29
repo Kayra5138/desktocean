@@ -306,12 +306,13 @@ impl Sim {
         // Brought to the front of the tank, so nobody swims across it
         f.depth = (f.depth - dt * 0.8).max(0.0);
         if c.holding {
-            // Floats in the middle, swaying a little
-            let k = (dt * 8.0).min(1.0);
-            f.vx = dx * k / dt.max(1e-3);
-            f.vy = dy * k / dt.max(1e-3);
-            f.x += dx * k;
-            f.y += dy * k + (self.time * 1.3 + f.phase * 0.02).sin() * 4.0 * dt;
+            // Rides exactly in the middle (no lag, or a thrown bubble would
+            // seem to turn back before it reaches the edge), swaying a little
+            let sway = (self.time * 1.3 + f.phase * 0.02).sin() * 3.0;
+            f.vx = dx / dt.max(1e-3);
+            f.vy = dy / dt.max(1e-3);
+            f.x = tx;
+            f.y = ty + sway;
             f.phase = (f.phase + dt * 1.8) % (std::f32::consts::TAU * 64.0);
             f.heart_timer -= dt;
             if f.heart_timer <= 0.0 {
@@ -474,7 +475,10 @@ mod tests {
                     || c.x - r <= 1.0
                     || c.y + r >= 1079.0
                     || c.y - r * 0.6 <= s.water_top() + 1.0;
-                assert!(c.y - r * 0.6 >= s.water_top() - 1.0, "stays (mostly) under the surface");
+                assert!(
+                    c.y - r * 0.6 >= s.water_top() - 1.0,
+                    "stays (mostly) under the surface"
+                );
                 assert!(
                     c.x - r >= -1.0 && c.x + r <= 1921.0,
                     "stays inside the sides"
@@ -501,6 +505,37 @@ mod tests {
                 "flung {dx},{dy}: it should bounce back off the edge"
             );
         }
+    }
+
+    #[test]
+    fn a_bubble_with_a_fish_reaches_the_edge_too() {
+        let mut s = one_fish(Character::Explorer);
+        let (fx, fy) = (s.fish[0].x, s.fish[0].y);
+        let bx = if fx > 960.0 { fx - 120.0 } else { fx + 120.0 };
+        let id = s.carry_new(bx, fy);
+        for _ in 0..30 * 3 {
+            s.carry_to(id, bx, fy);
+            s.step(DT, None);
+        }
+        assert!(get(&s, id).unwrap().holding);
+        // Thrown hard to the right
+        for k in 0..8 {
+            s.carry_to(id, 900.0 + k as f32 * 45.0, 500.0);
+            s.step(DT, None);
+        }
+        s.carry_release(id);
+        let mut furthest = 0.0f32;
+        for _ in 0..30 * 2 {
+            s.step(DT, None);
+            if let Some(c) = get(&s, id) {
+                let (x, _, r) = s.bubble_of(&c);
+                furthest = furthest.max(x + r);
+            }
+        }
+        assert!(
+            furthest >= 1915.0,
+            "the bubble it is seen in turned back at {furthest:.0}px, not at the edge"
+        );
     }
 
     #[test]
