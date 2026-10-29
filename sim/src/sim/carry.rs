@@ -8,8 +8,8 @@ use super::{Fish, Mode, Sim};
 
 /// A fish this close to the bubble may come in.
 const INVITE_RADIUS: f32 = 220.0;
-/// Seconds the bubble has to wait by a fish before it comes (less if it trusts you).
-const INVITE_SECS: f32 = 0.8;
+/// Seconds the bubble has to wait by a fish before it comes (everyone comes, shy or not).
+const INVITE_SECS: f32 = 0.25;
 /// Radius of an empty bubble.
 const EMPTY_RADIUS: f32 = 45.0;
 
@@ -298,14 +298,14 @@ impl Sim {
                 .filter(|&(_, _, d, _)| d < INVITE_RADIUS)
                 .min_by(|a, b| a.2.total_cmp(&b.2));
             match nearest {
-                Some((crawler, id, _, trust)) => {
+                Some((crawler, id, _, _)) => {
                     if c.candidate == Some((crawler, id)) {
                         c.linger += dt;
                     } else {
                         c.candidate = Some((crawler, id));
                         c.linger = 0.0;
                     }
-                    if c.linger >= INVITE_SECS * (1.0 - 0.6 * trust) {
+                    if c.linger >= INVITE_SECS {
                         c.fish = Some(id);
                         c.crawler = crawler;
                         if crawler {
@@ -340,7 +340,7 @@ impl Sim {
                     k.x = tx;
                     k.y = ty + k.h * 0.5 + (self.time * 1.3 + k.phase).sin() * 3.0;
                 } else {
-                    let step = (150.0 * dt).min(dist);
+                    let step = (320.0 * dt).min(dist);
                     k.x += dx / dist * step;
                     k.y += dy / dist * step;
                 }
@@ -392,7 +392,8 @@ impl Sim {
             }
         } else {
             // Swims in, unhurried
-            let speed = (f.max_speed * 1.1).max(90.0).min(dist * 4.0);
+            // Swims in quickly, slowing only right at the end
+            let speed = (f.max_speed * 2.5).max(260.0).min(dist * 8.0);
             f.vx = dx / dist.max(1.0) * speed;
             f.vy = dy / dist.max(1.0) * speed;
             f.x += f.vx * dt;
