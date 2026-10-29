@@ -367,6 +367,21 @@ bool TankHub::carryAt(QQuickItem *item, qreal x, qreal y)
     return found;
 }
 
+void TankHub::carryRise()
+{
+    if (carryTank())
+        carryTank()->carryRise();
+    carryTank() = nullptr;
+}
+
+void TankHub::placeOnDesktop(QQuickItem *box, qreal x, qreal y)
+{
+    if (!box)
+        return;
+    // A plain C++ write skips the QML Behavior on x/y
+    box->setPosition(QPointF(x, y));
+}
+
 void TankHub::carryEnd()
 {
     if (carryTank())

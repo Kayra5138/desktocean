@@ -114,12 +114,6 @@ PlasmoidItem {
         // animates its boxes moving, which would make the jar lag behind.)
         property bool lifted: false
         property point dropAt     // where the box goes, in its parent's coordinates
-        Timer {
-            id: settle
-            // The desktop's own little move animation has finished by then
-            interval: 450
-            onTriggered: holder.lifted = false
-        }
 
         // Keeps the drawing's proportions inside whatever size the widget has
         Item {
@@ -211,11 +205,10 @@ PlasmoidItem {
                 if (!holder.carrying)
                     return;
                 if (box && holder.lifted) {
-                    box.x = holder.dropAt.x;
-                    box.y = holder.dropAt.y;
+                    TankHub.placeOnDesktop(box, holder.dropAt.x, holder.dropAt.y);
                     box.layout.positionItem(box);
                     box.layout.save();
-                    settle.restart();
+                    holder.lifted = false;
                 }
                 holder.carrying = false;
                 standUp.start();
@@ -225,7 +218,6 @@ PlasmoidItem {
                 // Picked up straight away
                 box = root.desktopBox();
                 standUp.stop();
-                settle.stop();
                 holder.carrying = true;
                 const at = box ? mapToItem(box.parent, mouseEvent.x, mouseEvent.y) : mapToGlobal(mouseEvent.x, mouseEvent.y);
                 anchor = last = at;

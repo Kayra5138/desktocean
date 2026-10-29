@@ -652,6 +652,14 @@ pub unsafe extern "C" fn dc_sim_carry_to(handle: *mut DcSim, x: f32, y: f32) {
     });
 }
 
+/// The bubble was left alone: it floats up and pops at the surface.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_rise(handle: *mut DcSim) {
+    with_sim(handle, (), |s| s.carry_rise());
+}
+
 /// Let go of the bubble: it pops and the fish inside swims out.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.

@@ -192,6 +192,7 @@ public:
     // (item coordinates); carryEnd lets go
     void carryTo(QPointF at);
     void carryEnd();
+    void carryRise();
     qreal averageHunger() const;
     // (friendships, rivalries)
     QPair<int, int> relationCounts() const;

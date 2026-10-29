@@ -77,6 +77,12 @@ public:
     // carryEnd() lets go.
     Q_INVOKABLE bool carryAt(QQuickItem *item, qreal x, qreal y);
     Q_INVOKABLE void carryEnd();
+    // Left alone for a while: the bubble floats up and pops at the surface
+    Q_INVOKABLE void carryRise();
+    // Puts a desktop widget's box (an ItemContainer) at (x, y) in its
+    // parent's coordinates right away. From C++, so the desktop's move
+    // animation doesn't hold it back and the layout saves the new place.
+    Q_INVOKABLE void placeOnDesktop(QQuickItem *box, qreal x, qreal y);
     // Drops food at global screen x (y picks the screen when screens are stacked; -1 = any)
     Q_INVOKABLE bool feedAtGlobalX(qreal x, qreal y = -1);
     // Drops food above the cursor in the tank under it ("Feed fish at cursor" shortcut)

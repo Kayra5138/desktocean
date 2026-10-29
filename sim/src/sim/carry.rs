@@ -23,6 +23,8 @@ pub struct Carry {
     /// The fish the bubble is waiting by, and for how long
     candidate: Option<u64>,
     linger: f32,
+    /// Let go of: floating up to pop at the surface
+    pub rising: bool,
 }
 
 impl Carry {
@@ -68,6 +70,7 @@ impl Sim {
             Some(c) => {
                 c.x = x;
                 c.y = y;
+                c.rising = false;
             }
             None => {
                 self.carry = Some(Carry {
@@ -77,8 +80,16 @@ impl Sim {
                     holding: false,
                     candidate: None,
                     linger: 0.0,
+                    rising: false,
                 })
             }
+        }
+    }
+
+    /// Left alone: the bubble floats up and pops at the surface
+    pub fn carry_rise(&mut self) {
+        if let Some(c) = &mut self.carry {
+            c.rising = true;
         }
     }
 
@@ -109,6 +120,17 @@ impl Sim {
 
     pub(super) fn update_carry(&mut self, dt: f32) {
         let Some(mut c) = self.carry else { return };
+        if c.rising {
+            // Up it goes, swaying a little, and pops just under the surface
+            c.y -= 70.0 * dt;
+            c.x += (self.time * 2.0).sin() * 12.0 * dt;
+            let r = c.radius(&self.fish);
+            if c.y - r <= self.water_top() + 4.0 || c.y < 0.0 {
+                self.carry = Some(c);
+                self.carry_end();
+                return;
+            }
+        }
         // The fish it held went away (to another screen, out of the library)
         if c.fish
             .is_some_and(|id| !self.fish.iter().any(|f| f.id == id))
@@ -274,6 +296,29 @@ mod tests {
             !matches!(s.fish()[0].mode, Mode::Bubbled),
             "it swims off again"
         );
+    }
+
+    #[test]
+    fn a_bubble_left_alone_rises_and_pops() {
+        let mut s = one_fish(Character::Explorer);
+        let (fx, fy) = (s.fish[0].x, s.fish[0].y);
+        let bx = if fx > 960.0 { fx - 120.0 } else { fx + 120.0 };
+        for _ in 0..30 * 3 {
+            s.carry_to(bx, fy);
+            s.step(DT, None);
+        }
+        assert!(s.carry().unwrap().holding);
+        s.carry_rise();
+        for _ in 0..30 * 20 {
+            s.step(DT, None);
+            if s.carry().is_none() {
+                break;
+            }
+        }
+        assert!(s.carry().is_none(), "it should have popped at the surface");
+        let f = &s.fish()[0];
+        assert!(f.y < 1080.0 * 0.3, "the fish rode up with it (y {})", f.y);
+        assert!(!matches!(f.mode, Mode::Bubbled));
     }
 
     #[test]

@@ -585,6 +585,11 @@ void FishTank::carryTo(QPointF at)
     update();
 }
 
+void FishTank::carryRise()
+{
+    dc_sim_carry_rise(m_sim);
+}
+
 void FishTank::carryEnd()
 {
     dc_sim_carry_end(m_sim);
