@@ -1311,6 +1311,36 @@ void FishTank::setShowNames(bool show)
     updateHover();
 }
 
+bool FishTank::controlFishAt(QPointF at)
+{
+    // The front-most fish whose body (a little generously) is under the point
+    const DcFish *hit = nullptr;
+    for (const DcFish &f : m_fish) {
+        const qreal dx = (at.x() - f.x) / (f.w * 0.6), dy = (at.y() - f.y) / (f.h * 0.7);
+        if (dx * dx + dy * dy <= 1.0 && (!hit || f.depth < hit->depth))
+            hit = &f;
+    }
+    if (!hit || !dc_sim_control_start(m_sim, hit->id))
+        return false;
+    m_controlledName = m_specName.value(hit->id);
+    Q_EMIT controlChanged();
+    return true;
+}
+
+void FishTank::controlInput(qreal dx, qreal dy, bool dash)
+{
+    dc_sim_control_input(m_sim, float(dx), float(dy), dash ? 1u : 0u);
+}
+
+void FishTank::controlEnd()
+{
+    dc_sim_control_end(m_sim);
+    if (!m_controlledName.isEmpty()) {
+        m_controlledName.clear();
+        Q_EMIT controlChanged();
+    }
+}
+
 void FishTank::updateHover()
 {
     QString name;
@@ -1371,6 +1401,11 @@ void FishTank::tick()
     for (uint32_t i = 0; i < departed; ++i)
         TankHub::handOver(this, gone[i].id, gone[i].side, gone[i].y);
     playEventSounds();
+    // The steered fish left (another screen, removed from the library)
+    if (!m_controlledName.isEmpty() && !dc_sim_controlled(m_sim, nullptr)) {
+        m_controlledName.clear();
+        Q_EMIT controlChanged();
+    }
     const qint64 stepped = t.nsecsElapsed();
     pullState();
     updateHover();

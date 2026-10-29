@@ -756,6 +756,52 @@ pub unsafe extern "C" fn dc_sim_carries(handle: *mut DcSim, out: *mut DcCarry, c
     })
 }
 
+/// Steer fish `id` with the keyboard from now on; false if it isn't here.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_control_start(handle: *mut DcSim, id: u64) -> bool {
+    with_sim(handle, false, |s| s.control_start(id))
+}
+
+/// The direction the keys point (x right, y down; each -1..1); non-zero
+/// `dash` asks for a burst of speed.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_control_input(handle: *mut DcSim, dx: f32, dy: f32, dash: u32) {
+    with_sim(handle, (), |s| {
+        if dx.is_finite() && dy.is_finite() {
+            s.control_input(dx, dy, dash != 0)
+        }
+    });
+}
+
+/// Lets go of the steered fish.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_control_end(handle: *mut DcSim) {
+    with_sim(handle, (), |s| s.control_end());
+}
+
+/// The steered fish's id in `out`; false when none is.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for one write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_controlled(handle: *mut DcSim, out: *mut u64) -> bool {
+    with_sim(handle, false, |s| match s.controlled() {
+        Some(id) => {
+            // SAFETY: caller provides room for one value.
+            if let Some(o) = unsafe { out.as_mut() } {
+                *o = id;
+            }
+            true
+        }
+        None => false,
+    })
+}
+
 /// A clutch of eggs
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]

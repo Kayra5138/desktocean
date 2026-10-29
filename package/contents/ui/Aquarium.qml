@@ -23,6 +23,11 @@ Item {
     property alias showNames: tank.showNames
     // The tank itself, for development aids in dev/preview.qml
     readonly property alias tank: tank
+    // Swimming a fish yourself (see main.qml)
+    readonly property alias controlledName: tank.controlledName
+    function controlFishAt(x, y) { return tank.controlFishAt(Qt.point(x, y)); }
+    function controlInput(dx, dy, dash) { tank.controlInput(dx, dy, dash); }
+    function controlEnd() { tank.controlEnd(); }
     property alias autoFeed: tank.autoFeed
     // Distant reef, kelp and wreck, sand details and the sky window
     property bool scenery: true

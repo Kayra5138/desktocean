@@ -117,7 +117,7 @@ impl Sim {
             }
             f.trust = (f.trust - TRUST_FADE_PER_SEC * dt).max(0.0);
             // Riding in the bubble is its own treat: no petting in there
-            if f.entering || matches!(f.mode, Mode::Bubbled) {
+            if f.entering || matches!(f.mode, Mode::Bubbled | Mode::Controlled) {
                 f.pet = 0.0;
                 continue;
             }

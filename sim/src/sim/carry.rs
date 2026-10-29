@@ -285,7 +285,10 @@ impl Sim {
                 .fish
                 .iter()
                 .filter(|f| {
-                    !f.entering && f.travel == 0 && !f.arriving && !matches!(f.mode, Mode::Bubbled)
+                    !f.entering
+                        && f.travel == 0
+                        && !f.arriving
+                        && !matches!(f.mode, Mode::Bubbled | Mode::Controlled)
                 })
                 .map(|f| (false, f.id, (f.x - c.x).hypot(f.y - c.y), f.trust));
             let crawlers = self

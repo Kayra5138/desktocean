@@ -152,11 +152,139 @@ WallpaperItem {
             onTriggered: TankHub.openEditor("layout")
         },
         PlasmaCore.Action {
+            text: aquarium.controlledName ? "Stop swimming " + aquarium.controlledName : "Swim a fish…"
+            icon.name: "input-gaming"
+            onTriggered: aquarium.controlledName ? root.stopSwimming() : root.startSwimming()
+        },
+        PlasmaCore.Action {
             text: aquarium.paused ? "Resume aquarium" : "Pause aquarium"
             icon.name: aquarium.paused ? "media-playback-start" : "media-playback-pause"
             onTriggered: aquarium.paused = !aquarium.paused
         }
     ]
+
+    // Swimming a fish yourself. Clicks and keys never reach the wallpaper, so a
+    // layer goes over the whole desktop (in its window) for a while: click a
+    // fish to take it, steer with WASD or the arrow keys, Space to dash; Esc,
+    // a right click or a click on empty water lets go.
+    property Item swimLayer: null
+
+    function startSwimming() {
+        if (swimLayer)
+            return;
+        const top = root.Window.window ? root.Window.window.contentItem : null;
+        if (top)
+            swimLayer = swimLayerComponent.createObject(top);
+    }
+
+    function stopSwimming() {
+        aquarium.controlEnd();
+        if (swimLayer) {
+            swimLayer.destroy();
+            swimLayer = null;
+        }
+    }
+
+    Component.onDestruction: stopSwimming()
+
+    Component {
+        id: swimLayerComponent
+        FocusScope {
+            id: layer
+            anchors.fill: parent
+            z: 1e6
+            focus: true
+
+            property bool steering: false
+            property bool up: false
+            property bool down: false
+            property bool left: false
+            property bool right: false
+
+            function send(dash) {
+                aquarium.controlInput((right ? 1 : 0) - (left ? 1 : 0), (down ? 1 : 0) - (up ? 1 : 0), dash);
+            }
+
+            function setKey(key, pressed) {
+                switch (key) {
+                case Qt.Key_W: case Qt.Key_Up: up = pressed; return true;
+                case Qt.Key_S: case Qt.Key_Down: down = pressed; return true;
+                case Qt.Key_A: case Qt.Key_Left: left = pressed; return true;
+                case Qt.Key_D: case Qt.Key_Right: right = pressed; return true;
+                }
+                return false;
+            }
+
+            Component.onCompleted: forceActiveFocus()
+
+            Keys.onPressed: event => {
+                event.accepted = true;
+                if (event.key === Qt.Key_Escape) {
+                    root.stopSwimming();
+                    return;
+                }
+                if (event.isAutoRepeat)
+                    return;
+                if (event.key === Qt.Key_Space)
+                    send(true);
+                else if (setKey(event.key, true))
+                    send(false);
+            }
+            Keys.onReleased: event => {
+                event.accepted = true;
+                if (!event.isAutoRepeat && setKey(event.key, false))
+                    send(false);
+            }
+
+            // The fish swam off to another screen or left the library
+            Connections {
+                target: aquarium
+                function onControlledNameChanged() {
+                    if (layer.steering && !aquarium.controlledName)
+                        root.stopSwimming();
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                cursorShape: layer.steering ? Qt.ArrowCursor : Qt.CrossCursor
+                onClicked: mouse => {
+                    layer.forceActiveFocus();
+                    if (mouse.button === Qt.RightButton) {
+                        root.stopSwimming();
+                        return;
+                    }
+                    const p = mapToItem(aquarium, mouse.x, mouse.y);
+                    if (aquarium.controlFishAt(p.x, p.y)) {
+                        layer.steering = true;
+                        layer.send(false);
+                    } else if (layer.steering) {
+                        root.stopSwimming();
+                    }
+                }
+            }
+
+            // What to do, at the top of the screen
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: parent.height * 0.08
+                width: hint.implicitWidth + 32
+                height: hint.implicitHeight + 16
+                radius: height / 2
+                color: "#b0000000"
+                Text {
+                    id: hint
+                    anchors.centerIn: parent
+                    color: "white"
+                    font.pixelSize: 15
+                    text: aquarium.controlledName
+                        ? "Swimming as " + aquarium.controlledName + "  ·  WASD or arrows to swim  ·  Space to dash  ·  Esc to stop"
+                        : "Click a fish to swim with it  ·  Esc or right-click to cancel"
+                }
+            }
+        }
+    }
 
     Component.onCompleted: {
         if (root.lockScreen)

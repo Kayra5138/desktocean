@@ -182,6 +182,10 @@ void dc_sim_carry_release(DcSim *sim, uint32_t id);  // let go: drifts on, bounc
 void dc_sim_carry_rise(DcSim *sim, uint32_t id);     // float up and pop at the surface
 void dc_sim_carry_end(DcSim *sim, uint32_t id);      // pop now; the fish swims out
 uint32_t dc_sim_carries(DcSim *sim, DcCarry *out, uint32_t cap);   // returns total count
+bool dc_sim_control_start(DcSim *sim, uint64_t id);               // steer this fish with the keyboard
+void dc_sim_control_input(DcSim *sim, float dx, float dy, uint32_t dash);  // key direction -1..1, dash != 0
+void dc_sim_control_end(DcSim *sim);                               // let it swim on by itself
+bool dc_sim_controlled(DcSim *sim, uint64_t *out);                 // the steered fish, if any
 uint32_t dc_sim_hearts(DcSim *sim, DcBubble *out, uint32_t cap);   // radius = half size
 uint32_t dc_sim_trust(DcSim *sim, DcTrust *out, uint32_t cap);      // returns total count
 void dc_sim_set_trust(DcSim *sim, const DcTrust *list, uint32_t count);

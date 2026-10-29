@@ -5,6 +5,7 @@ use crate::relations::{FRIEND, RIVAL, Relations};
 use crate::rng::Rng;
 
 mod carry;
+mod control;
 mod crawl;
 mod eggs;
 mod pet;
@@ -314,6 +315,8 @@ enum Mode {
     Petted { left: f32 },
     /// Swimming into, or riding in, the bubble (see carry.rs)
     Bubbled,
+    /// Steered with the keyboard (see control.rs)
+    Controlled,
 }
 
 /// The opening of a cave or hollow, in scene pixels: fish can swim in there.
@@ -598,6 +601,8 @@ pub struct Sim {
     departures: Vec<Departure>,
     /// Bubbles from the wand, each maybe carrying a fish (see carry.rs)
     carries: Vec<Carry>,
+    /// The fish being steered with the keyboard, if any
+    control: Option<control::Control>,
     next_carry: u32,
     /// Hearts floating up from petted fish
     hearts: Vec<Heart>,
@@ -649,6 +654,7 @@ impl Sim {
             exits: (false, false),
             departures: Vec::new(),
             carries: Vec::new(),
+            control: None,
             next_carry: 1,
             hearts: Vec::new(),
             last_pointer: None,
@@ -1450,6 +1456,10 @@ impl Sim {
             self.step_bubbled(f, dt);
             return;
         }
+        if let Mode::Controlled = f.mode {
+            self.step_controlled(f, dt);
+            return;
+        }
         let p = f.personality;
         let (mx, my) = f.mouth();
         let activity = self.activity();
@@ -1779,7 +1789,8 @@ impl Sim {
                 | Mode::Hide { .. }
                 | Mode::Lay { .. }
                 | Mode::Petted { .. }
-                | Mode::Bubbled => {
+                | Mode::Bubbled
+                | Mode::Controlled => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);

@@ -94,6 +94,8 @@ class FishTank : public QQuickItem
     Q_PROPERTY(bool soundsMuted READ soundsMuted WRITE setSoundsMuted NOTIFY soundsChanged)
     Q_PROPERTY(QString hoveredName READ hoveredName NOTIFY hoverChanged)
     Q_PROPERTY(QPointF hoveredPoint READ hoveredPoint NOTIFY hoverChanged)
+    // Swimming a fish yourself: its name while one is steered, empty otherwise
+    Q_PROPERTY(QString controlledName READ controlledName NOTIFY controlChanged)
     Q_PROPERTY(bool healthy READ healthy NOTIFY healthyChanged)
     Q_PROPERTY(QString coreVersion READ coreVersion CONSTANT)
     Q_PROPERTY(QString libraryPath READ libraryPath CONSTANT)
@@ -162,6 +164,12 @@ public:
     void setShowNames(bool show);
     QString hoveredName() const { return m_hoveredName; }
     QPointF hoveredPoint() const { return m_hoveredPoint; }
+    QString controlledName() const { return m_controlledName; }
+    // Takes over the front-most fish at this point (item coordinates); false if none is there
+    Q_INVOKABLE bool controlFishAt(QPointF at);
+    // The keys' direction (x right, y down; each -1..1) and a dash
+    Q_INVOKABLE void controlInput(qreal dx, qreal dy, bool dash);
+    Q_INVOKABLE void controlEnd();
     bool healthy() const { return m_healthy; }
     QString coreVersion() const;
     QString libraryPath() const;
@@ -234,6 +242,7 @@ Q_SIGNALS:
     void autoFeedChanged();
     void soundsChanged();
     void hoverChanged();
+    void controlChanged();
     void healthyChanged();
 
 protected:
@@ -302,6 +311,7 @@ private:
     size_t m_lastBubbles = 0, m_lastFood = 0, m_lastHearts = 0;
     void playEventSounds();
     QString m_hoveredName;
+    QString m_controlledName;
     QPointF m_hoveredPoint;
 
     bool m_running = true;
