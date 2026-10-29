@@ -55,7 +55,10 @@ PlasmoidItem {
         property point dropAt
 
         Component.onDestruction: {
+            // (when Plasma shuts down the handles may already be gone with the window)
             for (const h of handles) {
+                if (!h || typeof h.destroy !== "function")
+                    continue;
                 TankHub.carryEnd(h.bubbleId);
                 h.destroy();
             }
@@ -74,7 +77,8 @@ PlasmoidItem {
 
         function forget(h) {
             handles = handles.filter(other => other !== h);
-            h.destroy();
+            if (h && typeof h.destroy === "function")
+                h.destroy();
         }
 
 
