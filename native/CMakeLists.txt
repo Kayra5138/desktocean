@@ -7,7 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Multimedia Network Qml Quick QuickControls2 ShaderTools Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Network Qml Quick QuickControls2 ShaderTools Widgets)
 find_package(Threads REQUIRED)
 # Idle sleep: input idle time and screen power (both work on Wayland)
 find_package(KF6IdleTime REQUIRED)
@@ -76,7 +76,7 @@ add_dependencies(desktocean_core desktocean_sim_cargo)
 # The generated type-registration source includes our headers by bare name.
 target_include_directories(desktocean_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(desktocean_core PRIVATE
-    Qt6::Gui Qt6::Multimedia Qt6::Network Qt6::Qml Qt6::Quick Qt6::Widgets Qt6::DBus KF6::IdleTime KF6::ScreenDpms KF6::GlobalAccel
+    Qt6::Gui Qt6::Network Qt6::Qml Qt6::Quick Qt6::Widgets Qt6::DBus KF6::IdleTime KF6::ScreenDpms KF6::GlobalAccel
     desktocean_sim desktocean_render desktocean_library Threads::Threads ${CMAKE_DL_LIBS} m
 )
 # Keep Rust's std symbols private so they can't clash with other plugins in plasmashell.

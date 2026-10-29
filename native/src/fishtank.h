@@ -90,6 +90,8 @@ class FishTank : public QQuickItem
     Q_PROPERTY(qreal soundVolume READ soundVolume WRITE setSoundVolume NOTIFY soundsChanged)
     Q_PROPERTY(bool ambientSound READ ambientSound WRITE setAmbientSound NOTIFY soundsChanged)
     Q_PROPERTY(QUrl soundDirectory READ soundDirectory WRITE setSoundDirectory NOTIFY soundsChanged)
+    // Quiet for now (e.g. the desktop is covered), without pausing the tank
+    Q_PROPERTY(bool soundsMuted READ soundsMuted WRITE setSoundsMuted NOTIFY soundsChanged)
     Q_PROPERTY(QString hoveredName READ hoveredName NOTIFY hoverChanged)
     Q_PROPERTY(QPointF hoveredPoint READ hoveredPoint NOTIFY hoverChanged)
     Q_PROPERTY(bool healthy READ healthy NOTIFY healthyChanged)
@@ -155,6 +157,8 @@ public:
     void setAmbientSound(bool on);
     QUrl soundDirectory() const { return m_soundDir; }
     void setSoundDirectory(const QUrl &dir);
+    bool soundsMuted() const { return m_soundsMuted; }
+    void setSoundsMuted(bool muted);
     void setShowNames(bool show);
     QString hoveredName() const { return m_hoveredName; }
     QPointF hoveredPoint() const { return m_hoveredPoint; }
@@ -286,6 +290,9 @@ private:
     qreal m_soundVolume = 0.4;
     bool m_ambientSound = false;
     QUrl m_soundDir;
+    bool m_soundsMuted = false;
+    bool m_soundRunning = false;   // the tank is running (last updateTimer)
+    void updateSoundActive();
     // Last frame's counts, to hear what happened
     size_t m_lastBubbles = 0, m_lastFood = 0, m_lastHearts = 0;
     void playEventSounds();

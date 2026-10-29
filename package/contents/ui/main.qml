@@ -16,6 +16,8 @@ WallpaperItem {
 
     readonly property bool lockScreen: TankHub.lockScreen
     readonly property bool covered: root.configuration.PauseOnMaximized && (windows.item?.coveredExists ?? false)
+    // A window covers the desktop (whether or not that pauses the aquarium)
+    readonly property bool desktopHidden: windows.item?.coveredExists ?? false
 
     Loader {
         id: windows
@@ -46,6 +48,7 @@ WallpaperItem {
         sounds: root.configuration.Sounds
         soundVolume: root.configuration.SoundVolume / 100
         ambientSound: root.configuration.AmbientSound
+        soundsMuted: root.configuration.SoundsOnlyWhenVisible && root.desktopHidden
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu

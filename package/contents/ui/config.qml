@@ -24,6 +24,7 @@ Kirigami.FormLayout {
     property alias cfg_Sounds: sounds.checked
     property alias cfg_SoundVolume: soundVolume.value
     property alias cfg_AmbientSound: ambientSound.checked
+    property alias cfg_SoundsOnlyWhenVisible: soundsOnlyWhenVisible.checked
     property alias cfg_ShowDebug: showDebug.checked
 
     QQC2.SpinBox {
@@ -152,6 +153,12 @@ Kirigami.FormLayout {
         from: 0
         to: 100
         stepSize: 5
+    }
+
+    QQC2.CheckBox {
+        id: soundsOnlyWhenVisible
+        enabled: sounds.checked
+        text: "Only while the desktop can be seen (quiet when a window covers it)"
     }
 
     QQC2.CheckBox {

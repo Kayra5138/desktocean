@@ -1086,6 +1086,21 @@ void FishTank::setSoundDirectory(const QUrl &dir)
     Q_EMIT soundsChanged();
 }
 
+void FishTank::setSoundsMuted(bool muted)
+{
+    if (muted == m_soundsMuted)
+        return;
+    m_soundsMuted = muted;
+    updateSoundActive();
+    Q_EMIT soundsChanged();
+}
+
+void FishTank::updateSoundActive()
+{
+    // Quiet while nobody can see the tank, when muted, and always on the lock screen
+    SoundBoard::instance().setActive(this, m_soundRunning && !m_soundsMuted && !TankHub::isLockScreen());
+}
+
 void FishTank::playEventSounds()
 {
     auto &board = SoundBoard::instance();
@@ -1230,8 +1245,8 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
 void FishTank::updateTimer()
 {
     const bool shouldRun = m_running && !m_paused && m_healthy && isComponentComplete() && width() > 0 && height() > 0;
-    // Quiet while nobody can see the tank, and always on the lock screen
-    SoundBoard::instance().setActive(this, shouldRun && !TankHub::isLockScreen());
+    m_soundRunning = shouldRun;
+    updateSoundActive();
     if (m_matchRefresh) {
         m_timer.stop();
         if (shouldRun && !m_vsyncActive) {

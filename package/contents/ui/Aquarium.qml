@@ -28,6 +28,7 @@ Item {
     property alias sounds: tank.sounds
     property alias soundVolume: tank.soundVolume
     property alias ambientSound: tank.ambientSound
+    property alias soundsMuted: tank.soundsMuted
     // Theme id, see native/src/themes.cpp
     property alias theme: tank.theme
     // The editor asked for another theme
