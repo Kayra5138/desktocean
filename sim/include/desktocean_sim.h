@@ -51,6 +51,12 @@ typedef struct DcCrawler {
     uint32_t gait;
 } DcCrawler;
 
+// How much a fish trusts you (petting, eating food you dropped)
+typedef struct DcTrust {
+    uint64_t id;
+    float trust;       // 0 .. 1
+} DcTrust;
+
 // A clutch of eggs; hatching makes a DcBirth at (x, y)
 typedef struct DcEgg {
     uint64_t parent_a, parent_b;
@@ -142,6 +148,9 @@ uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
 uint32_t dc_sim_take_births(DcSim *sim, DcBirth *out, uint32_t cap);  // drains them
 bool dc_sim_place_fish(DcSim *sim, uint64_t id, float x, float y);
 void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  // replaces the caves
+uint32_t dc_sim_hearts(DcSim *sim, DcBubble *out, uint32_t cap);   // radius = half size
+uint32_t dc_sim_trust(DcSim *sim, DcTrust *out, uint32_t cap);      // returns total count
+void dc_sim_set_trust(DcSim *sim, const DcTrust *list, uint32_t count);
 uint32_t dc_sim_eggs(DcSim *sim, DcEgg *out, uint32_t cap);          // returns total count
 void dc_sim_set_eggs(DcSim *sim, const DcEgg *list, uint32_t count);  // restore saved eggs
 void dc_sim_set_nests(DcSim *sim, const float *xy, uint32_t count);   // count (x, y) pairs on plants

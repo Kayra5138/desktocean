@@ -274,6 +274,7 @@ private:
     std::vector<DcRipple> m_ripples;
     std::vector<DcCrawler> m_crawlers;
     std::vector<DcEgg> m_eggs;
+    std::vector<DcBubble> m_hearts;
     // Saved eggs (x, y as fractions of the tank) waiting for the tank to get a size
     std::vector<DcEgg> m_savedEggs;
     void restoreEggs();
@@ -312,6 +313,7 @@ private:
     QImage m_atlas;
     QRectF m_foodUv;
     QRectF m_eggUv;
+    QRectF m_heartUv;
     QRectF m_bubbleUv;
     QRectF m_rippleUv;
     bool m_atlasDirty = false;

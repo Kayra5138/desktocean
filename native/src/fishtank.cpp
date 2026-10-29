@@ -194,6 +194,29 @@ QImage makeFoodSprite()
     return img;
 }
 
+// A heart for petted fish
+QImage makeHeartSprite()
+{
+    QImage img(kFoodCell, kFoodCell, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal s = kFoodCell;
+    QPainterPath heart;
+    heart.moveTo(s * 0.5, s * 0.88);
+    heart.cubicTo(s * 0.05, s * 0.6, s * 0.02, s * 0.22, s * 0.28, s * 0.15);
+    heart.cubicTo(s * 0.42, s * 0.11, s * 0.5, s * 0.25, s * 0.5, s * 0.3);
+    heart.cubicTo(s * 0.5, s * 0.25, s * 0.58, s * 0.11, s * 0.72, s * 0.15);
+    heart.cubicTo(s * 0.98, s * 0.22, s * 0.95, s * 0.6, s * 0.5, s * 0.88);
+    p.setPen(QPen(QColor(0xa8, 0x1e, 0x4a), 2.5));
+    p.setBrush(QColor(0xff, 0x5c, 0x8a));
+    p.drawPath(heart);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 170));
+    p.drawEllipse(QRectF(s * 0.24, s * 0.24, s * 0.14, s * 0.1));
+    return img;
+}
+
 // One egg: a pale, see-through pearl
 QImage makeEggSprite()
 {
@@ -435,6 +458,9 @@ void FishTank::recordBaby(const DcBirth &birth)
 
 void FishTank::refreshGrowth()
 {
+    // Once a minute is also often enough to keep trust and eggs saved
+    if (m_stateLoaded && TankHub::isPrimary(this))
+        saveState();
     bool changed = false;
     for (size_t i = 0; i < m_specs.size(); ++i) {
         const FishEntry &e = m_specEntry[i];
@@ -539,6 +565,12 @@ void FishTank::loadState()
     }
     dc_sim_set_relations(m_sim, list.data(), uint32_t(list.size()));
 
+    std::vector<DcTrust> trust;
+    const QJsonObject trustMap = root.value(QStringLiteral("trust")).toObject();
+    for (auto it = trustMap.begin(); it != trustMap.end(); ++it)
+        trust.push_back({it.key().toULongLong(), float(it.value().toDouble())});
+    dc_sim_set_trust(m_sim, trust.data(), uint32_t(trust.size()));
+
     // Eggs belong to the tank that records babies
     if (!TankHub::isPrimary(this))
         return;
@@ -617,12 +649,26 @@ void FishTank::saveState() const
         if (old.open(QIODevice::ReadOnly))
             eggs = QJsonDocument::fromJson(old.readAll()).object().value(QStringLiteral("eggs")).toArray();
     }
+    // How much each fish trusts you; the primary tank's word counts
+    QJsonObject trust;
+    if (TankHub::isPrimary(this)) {
+        const uint32_t nt = dc_sim_trust(m_sim, nullptr, 0);
+        std::vector<DcTrust> list(nt);
+        list.resize(std::min(nt, dc_sim_trust(m_sim, list.data(), nt)));
+        for (const DcTrust &t : list)
+            trust.insert(QString::number(t.id), double(t.trust));
+    } else {
+        QFile old(FishLibrary::statePath());
+        if (old.open(QIODevice::ReadOnly))
+            trust = QJsonDocument::fromJson(old.readAll()).object().value(QStringLiteral("trust")).toObject();
+    }
     const QJsonObject root{{QStringLiteral("relations"), relations},
                            {QStringLiteral("friends"), friends},
                            {QStringLiteral("rivals"), rivals},
                            {QStringLiteral("characters"), characterMap},
                            {QStringLiteral("theme"), m_theme},
-                           {QStringLiteral("eggs"), eggs}};
+                           {QStringLiteral("eggs"), eggs},
+                           {QStringLiteral("trust"), trust}};
     QSaveFile file(FishLibrary::statePath());
     if (file.open(QIODevice::WriteOnly)) {
         file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
@@ -1001,6 +1047,10 @@ void FishTank::pullState()
     m_ripples.resize(n);
     m_ripples.resize(std::min(n, dc_sim_ripples(m_sim, m_ripples.data(), n)));
 
+    n = dc_sim_hearts(m_sim, nullptr, 0);
+    m_hearts.resize(n);
+    m_hearts.resize(std::min(n, dc_sim_hearts(m_sim, m_hearts.data(), n)));
+
     const size_t oldEggs = m_eggs.size();
     n = dc_sim_eggs(m_sim, nullptr, 0);
     m_eggs.resize(n);
@@ -1313,6 +1363,7 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
     };
     for (const QImage &img : images)
         place(img.size());
+    place(QSize(kFoodCell, kFoodCell));   // heart
     place(QSize(kFoodCell, kFoodCell));   // egg
     place(QSize(kFoodCell, kFoodCell));
     place(QSize(kFoodCell, kFoodCell));
@@ -1332,6 +1383,9 @@ void FishTank::rebuildAtlas(const QList<QImage> &images)
         painter.drawImage(placed[i].topLeft(), images[i]);
         m_sprites[i].uv = normalised(placed[i]);
     }
+    const QRect heartRect = placed[placed.size() - 5];
+    painter.drawImage(heartRect.topLeft(), makeHeartSprite());
+    m_heartUv = normalised(heartRect);
     const QRect eggRect = placed[placed.size() - 4];
     painter.drawImage(eggRect.topLeft(), makeEggSprite());
     m_eggUv = normalised(eggRect);
@@ -1376,7 +1430,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     const int nFish = int(order.size());
     const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
-    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size()) : 0;
+    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size() + m_hearts.size()) : 0;
     // Caves are drawn twice: whole behind the fish, and cut open over the fish inside
     const int nDecor = node->hasAtlas() ? int(std::accumulate(m_decor.begin(), m_decor.end(), 0, [&](int n, const DecorItem &d) {
                                                if (d.sprite >= m_sprites.size())
@@ -1492,6 +1546,13 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         for (const DcBubble &b : m_bubbles) {
             FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bubbleUv,
                                 b.alpha, v, idx, base);
+            v += 4;
+            idx += 6;
+            base += 4;
+        }
+        for (const DcBubble &h : m_hearts) {
+            FishMesh::writeQuad(QRectF(h.x - h.radius, h.y - h.radius, h.radius * 2, h.radius * 2), m_heartUv,
+                                h.alpha, v, idx, base);
             v += 4;
             idx += 6;
             base += 4;

@@ -507,6 +507,78 @@ pub unsafe extern "C" fn dc_sim_set_ground(
     });
 }
 
+/// Hearts floating up from petted fish (same layout as a bubble: centre,
+/// half size, opacity).
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_hearts(handle: *mut DcSim, out: *mut DcBubble, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.hearts();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, h) in dst.iter_mut().zip(list) {
+                *d = DcBubble {
+                    x: h.x,
+                    y: h.y,
+                    radius: h.size * 0.5,
+                    alpha: h.alpha(),
+                };
+            }
+        }
+        list.len() as u32
+    })
+}
+
+/// How much a fish trusts the person at the computer
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcTrust {
+    pub id: u64,
+    pub trust: f32,
+}
+
+/// Trust of every fish, for saving. Same contract as `dc_sim_fish`.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_trust(handle: *mut DcSim, out: *mut DcTrust, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.trust_list();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, (id, trust)) in dst.iter_mut().zip(&list) {
+                *d = DcTrust {
+                    id: *id,
+                    trust: *trust,
+                };
+            }
+        }
+        list.len() as u32
+    })
+}
+
+/// Restores saved trust.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_trust(handle: *mut DcSim, list: *const DcTrust, count: u32) {
+    with_sim(handle, (), |s| {
+        let items: Vec<(u64, f32)> = if list.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(list, count.min(10_000) as usize) }
+                .iter()
+                .map(|t| (t.id, t.trust))
+                .collect()
+        };
+        s.set_trust(&items)
+    });
+}
+
 /// A clutch of eggs
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]

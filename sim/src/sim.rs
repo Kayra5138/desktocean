@@ -6,8 +6,10 @@ use crate::rng::Rng;
 
 mod crawl;
 mod eggs;
+mod pet;
 pub use crawl::{Crawler, CrawlerSpec, Gait};
 pub use eggs::{Egg, HATCH_SECS};
+pub use pet::Heart;
 
 /// Fraction of the height where the sand starts.
 pub const SAND_TOP: f32 = 0.86;
@@ -292,6 +294,8 @@ enum Mode {
     Hide { shelter: usize, left: f32 },
     /// Off to a plant to lay eggs with `partner`
     Lay { partner: u64, count: u32, left: f32 },
+    /// Being stroked with the cursor: holds still and enjoys it
+    Petted { left: f32 },
 }
 
 /// The opening of a cave or hollow, in scene pixels: fish can swim in there.
@@ -390,6 +394,11 @@ pub struct Fish {
     /// In (or partly in) a cave: drawn behind the cave's front
     pub sheltered: bool,
     pub body: Body,
+    /// Cursor stroking so far (px), see pet.rs
+    pet: f32,
+    /// 0 .. 1: grows with petting and with eating food you dropped
+    trust: f32,
+    heart_timer: f32,
 }
 
 impl Fish {
@@ -541,6 +550,11 @@ pub struct Sim {
     ripples: Vec<Ripple>,
     births: Vec<Birth>,
     shelters: Vec<Shelter>,
+    /// Hearts floating up from petted fish
+    hearts: Vec<Heart>,
+    last_pointer: Option<(f32, f32)>,
+    /// Trust of fish that aren't in the tank (yet)
+    saved_trust: HashMap<u64, f32>,
     /// Clutches waiting to hatch, and the spots on plants they are laid on
     eggs: Vec<Egg>,
     nests: Vec<(f32, f32)>,
@@ -582,6 +596,9 @@ impl Sim {
             ripples: Vec::new(),
             births: Vec::new(),
             shelters: Vec::new(),
+            hearts: Vec::new(),
+            last_pointer: None,
+            saved_trust: HashMap::new(),
             eggs: Vec::new(),
             nests: Vec::new(),
             crawlers: Vec::new(),
@@ -1083,6 +1100,9 @@ impl Sim {
             scale: spec.scale,
             sheltered: false,
             body: spec.body,
+            pet: 0.0,
+            trust: 0.0,
+            heart_timer: 0.0,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -1162,6 +1182,7 @@ impl Sim {
         let dt = dt.clamp(0.0, 0.1);
         self.time += dt;
         self.update_pointer(dt, pointer);
+        self.update_petting(dt, pointer);
         self.update_food(dt);
         self.update_bubbles(dt);
         self.update_schools(dt);
@@ -1264,6 +1285,10 @@ impl Sim {
             self.step_eating(f, left, dt);
             return;
         }
+        if let Mode::Petted { left } = f.mode {
+            self.step_petted(f, left, dt);
+            return;
+        }
         let p = f.personality;
         let (mx, my) = f.mouth();
         let activity = self.activity();
@@ -1358,13 +1383,13 @@ impl Sim {
                 f.follow_cooldown = 8.0;
                 f.cursor_near = 0.0;
             }
-        } else if p.follows_cursor()
+        } else if (p.follows_cursor() || f.trust > 0.5)
             && matches!(f.body, Body::Fish | Body::Turtle | Body::Ray)
             && f.cursor_near >= CURSOR_DWELL_SECS
             && f.follow_cooldown == 0.0
         {
-            f.follow_left = 5.0 + 10.0 * p.curiosity;
-        } else if p.character == Character::Shy && f.cursor_near >= 0.6 {
+            f.follow_left = 5.0 + 10.0 * p.curiosity + 10.0 * f.trust;
+        } else if p.character == Character::Shy && f.cursor_near >= 0.6 && f.trust < 0.4 {
             f.cursor_near = 0.0;
             // Into a cave if there is one close by, otherwise just away
             match self.find_shelter(f, 900.0).filter(|_| f.school.is_none()) {
@@ -1530,6 +1555,7 @@ impl Sim {
             {
                 self.food[j].eaten = true;
                 f.hunger = (f.hunger - PELLET_NOURISHMENT).max(0.0);
+                Self::ate_your_food(f);
                 self.eaten_this_step.push((f.id, j));
                 // Stop for a moment to swallow, with a little bubble, so it
                 // reads as eating rather than bumping into the pellet
@@ -1590,7 +1616,8 @@ impl Sim {
                 | Mode::Surface { .. }
                 | Mode::Eating { .. }
                 | Mode::Hide { .. }
-                | Mode::Lay { .. } => {
+                | Mode::Lay { .. }
+                | Mode::Petted { .. } => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
