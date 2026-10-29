@@ -14,6 +14,7 @@
 #include <QTime>
 #include <QImageReader>
 #include <QPainter>
+#include <QPainterPath>
 #include <QProcess>
 #include <QQmlFile>
 #include <QQuickWindow>
@@ -24,6 +25,7 @@
 #include <QDateTime>
 
 #include <algorithm>
+#include <numeric>
 #include <cmath>
 #include <iterator>
 
@@ -45,7 +47,28 @@ struct StarterDecor {
     const char *name;
     FishEntry::Kind kind;
     QList<Placement> placements;
+    QRectF opening = {};   // caves: fractions of the drawing, see scripts/make-starter-decor.py
 };
+
+// A cave opening's shape inside its box: rounded top, straight sides down to
+// the bottom (matches scripts/make-starter-decor.py)
+QPainterPath caveArch(const QRectF &r)
+{
+    const qreal round = r.height() * 0.55;
+    QPainterPath path;
+    path.moveTo(r.left(), r.bottom());
+    path.lineTo(r.left(), r.top() + round);
+    path.arcTo(QRectF(r.left(), r.top(), r.width(), round * 2), 180, -180);
+    path.lineTo(r.right(), r.bottom());
+    path.closeSubpath();
+    return path;
+}
+
+// Marker files for starter decorations added after the first release
+QString seededMarker(const QString &name)
+{
+    return QDir(FishLibrary::directory()).filePath(QStringLiteral(".seeded-%1").arg(name));
+}
 
 // Where the starter plants and decorations go in a fresh tank
 const QList<StarterDecor> &starterLayout()
@@ -56,6 +79,7 @@ const QList<StarterDecor> &starterLayout()
         {"seaweed-bushy", K::Plant, {{0.33, 0.94, 0.9, false, false}, {0.93, 0.92, 0.7, false, true}}},
         {"rock", K::Decor, {{0.2, 0.98, 0.55, true, false}, {0.82, 0.93, 0.4, false, true}}},
         {"coral", K::Decor, {{0.52, 0.93, 0.7, false, false}}},
+        {"cave", K::Decor, {{0.64, 0.975, 0.75, false, false}}, {90 / 320.0, 85 / 200.0, 140 / 320.0, 100 / 200.0}},
     };
     return layout;
 }
@@ -465,12 +489,14 @@ QPair<int, int> FishTank::relationCounts() const
 QString FishTank::stats() const
 {
     const auto [friends, rivals] = relationCounts();
-    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4  Bubbles: %5")
+    const auto inCaves = std::count_if(m_fish.begin(), m_fish.end(), [](const DcFish &f) { return f.sheltered != 0; });
+    return QStringLiteral("Hunger: %1%  Daylight: %2%\nFriends: %3  Rivals: %4  Bubbles: %5\nIn caves: %6")
         .arg(qRound(averageHunger() * 100))
         .arg(qRound(m_daylight * 100))
         .arg(friends)
         .arg(rivals)
-        .arg(m_bubbles.size());
+        .arg(m_bubbles.size())
+        .arg(inCaves);
 }
 
 void FishTank::loadState()
@@ -697,12 +723,37 @@ void FishTank::componentComplete()
     updateTimer();
 }
 
+QRectF FishTank::decorRect(const DecorItem &d) const
+{
+    const float aspect = d.sprite < m_sprites.size() ? m_sprites[d.sprite].aspect : 1.f;
+    const float h = std::min(float(height()) * kDecorHeight, float(width()) * kDecorMaxWidth * aspect)
+                  * float(d.placement.scale);
+    const float w = h / aspect;
+    return QRectF(d.placement.x * width() - w / 2, d.placement.y * height() - h, w, h);
+}
+
+void FishTank::updateShelters()
+{
+    std::vector<DcShelter> shelters;
+    for (const DecorItem &d : m_decor) {
+        if (d.opening.isNull())
+            continue;
+        const QRectF box = decorRect(d);
+        const QRectF &o = d.opening;
+        const double left = d.placement.flip ? 1 - o.right() : o.left();
+        shelters.push_back({float(box.x() + left * box.width()), float(box.y() + o.y() * box.height()),
+                            float(o.width() * box.width()), float(o.height() * box.height())});
+    }
+    dc_sim_set_shelters(m_sim, shelters.data(), uint32_t(shelters.size()));
+}
+
 void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     QQuickItem::geometryChange(newGeometry, oldGeometry);
     if (newGeometry.size() == oldGeometry.size())
         return;
     dc_sim_resize(m_sim, float(newGeometry.width()), float(newGeometry.height()));
+    updateShelters();
     pullState();
     update();
     updateTimer();
@@ -872,13 +923,15 @@ void FishTank::seedLibrary()
     }
 }
 
-void FishTank::seedDecor()
+void FishTank::seedDecor(const QString &only)
 {
     if (m_starterDecor.isEmpty())
         return;
     for (const QUrl &url : std::as_const(m_starterDecor)) {
         // "decor-seaweed-tall.svg" -> "seaweed-tall"
         const QString base = QFileInfo(url.path()).baseName().section(QLatin1Char('-'), 1);
+        if (!only.isEmpty() && base != only)
+            continue;
         const auto &layout = starterLayout();
         const auto it = std::find_if(layout.begin(), layout.end(), [&](const StarterDecor &d) { return base == QLatin1String(d.name); });
         if (it == layout.end())
@@ -896,11 +949,27 @@ void FishTank::seedDecor()
         meta.name = QString(base).replace(QLatin1Char('-'), QLatin1Char(' '));
         meta.name[0] = meta.name[0].toUpper();
         meta.placements = it->placements;
+        const QRectF opening = it->opening.isNull()
+            ? QRectF()
+            : QRectF(it->opening.x() * img.width(), it->opening.y() * img.height(), it->opening.width() * img.width(),
+                     it->opening.height() * img.height());
         QString error;
-        if (!FishLibrary::add({img, {}}, meta, &error))
+        if (!FishLibrary::add({img, {}, {-1, -1}, opening}, meta, &error))
             qWarning("Desktocean: cannot seed decorations: %s", qPrintable(error));
     }
-    FishLibrary::markDecorSeeded();
+    const auto mark = [](const QString &name) {
+        QFile marker(seededMarker(name));
+        if (!marker.open(QIODevice::WriteOnly))
+            qWarning("Desktocean: cannot write %s", qPrintable(marker.fileName()));
+    };
+    if (only.isEmpty()) {
+        FishLibrary::markDecorSeeded();
+        // A fresh tank already has everything
+        for (const StarterDecor &d : starterLayout())
+            mark(QLatin1String(d.name));
+    } else {
+        mark(only);
+    }
 }
 
 void FishTank::watchLibrary()
@@ -937,6 +1006,9 @@ void FishTank::loadLibrary(bool animateNew)
         seedLibrary();
     if (!FishLibrary::decorSeeded())
         seedDecor();
+    // The cave came later: existing tanks get it once (deleting it is respected)
+    else if (!QFileInfo::exists(seededMarker(QStringLiteral("cave"))) && TankHub::isPrimary(this))
+        seedDecor(QStringLiteral("cave"));
     watchLibrary();
 
     QString error;
@@ -978,8 +1050,26 @@ void FishTank::loadLibrary(bool animateNew)
         images << img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
         if (!isFish) {
             const float sway = e.kind == FishEntry::Kind::Plant ? float(e.sway) : 0.f;
+            uint32_t front = sprite;
+            if (!e.opening.isNull()) {
+                // The same drawing with the opening cut out, laid over fish inside
+                QImage cut = images.last();
+                const QRectF r(e.opening.x() * cut.width(), e.opening.y() * cut.height(),
+                               e.opening.width() * cut.width(), e.opening.height() * cut.height());
+                QPainter painter(&cut);
+                painter.setRenderHint(QPainter::Antialiasing);
+                painter.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+                painter.fillPath(caveArch(r), Qt::black);
+                painter.end();
+                front = uint32_t(sprites.size());
+                SpriteInfo cutInfo;
+                cutInfo.aspect = aspect;
+                cutInfo.style = &FishMesh::style(e.style);
+                sprites.push_back(std::move(cutInfo));
+                images << cut;
+            }
             for (const Placement &p : e.placements)
-                decor.push_back({sprite, sway, float(p.x * 17.0 + p.y * 5.0), p});
+                decor.push_back({sprite, sway, float(p.x * 17.0 + p.y * 5.0), p, e.opening, front});
             continue;
         }
         // Babies start small and grow up over a couple of hours
@@ -1000,6 +1090,7 @@ void FishTank::loadLibrary(bool animateNew)
     // Back to front by where they stand: lower on the screen is closer
     std::sort(decor.begin(), decor.end(), [](const DecorItem &a, const DecorItem &b) { return a.placement.y < b.placement.y; });
     m_decor = std::move(decor);
+    updateShelters();
     rebuildAtlas(images);
     dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
     m_specs = std::move(specs);
@@ -1103,8 +1194,11 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     const int nFish = int(order.size());
     const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
     const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size()) : 0;
-    const int nDecor = node->hasAtlas() ? int(std::count_if(m_decor.begin(), m_decor.end(), [&](const DecorItem &d) {
-                                               return d.sprite < m_sprites.size();
+    // Caves are drawn twice: whole behind the fish, and cut open over the fish inside
+    const int nDecor = node->hasAtlas() ? int(std::accumulate(m_decor.begin(), m_decor.end(), 0, [&](int n, const DecorItem &d) {
+                                               if (d.sprite >= m_sprites.size())
+                                                   return n;
+                                               return n + (d.opening.isNull() ? 1 : 2);
                                            }))
                                          : 0;
 
@@ -1114,40 +1208,53 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         nFish * FishMesh::kIndicesPerFish + (nFood + nBubbles) * 6 + nDecor * FishMesh::kIndicesPerDecor, &idx);
     quint32 base = 0;
 
-    // Draw order: decorations behind the fish, fish back to front, food,
-    // then decorations in front of the fish
-    auto writeDecorLayer = [&](bool front) {
+    // Draw order: decorations behind the fish (caves whole), fish inside caves,
+    // the caves' fronts, the other fish back to front, food, then decorations
+    // in front of the fish
+    enum class Layer { Back, CaveFront, Front };
+    auto writeDecorLayer = [&](Layer layer) {
         if (nDecor == 0)
             return;
         for (const DecorItem &d : m_decor) {
-            if (d.placement.front != front || d.sprite >= m_sprites.size())
+            const bool cave = !d.opening.isNull();
+            const bool wanted = layer == Layer::Back        ? cave || !d.placement.front
+                                : layer == Layer::CaveFront ? cave
+                                                            : !cave && d.placement.front;
+            if (!wanted || d.sprite >= m_sprites.size())
                 continue;
-            const float aspect = m_sprites[d.sprite].aspect;
-            const float scale = float(d.placement.scale);
-            const float h = std::min(float(height()) * kDecorHeight, float(width()) * kDecorMaxWidth * aspect) * scale;
+            const uint32_t sprite = layer == Layer::CaveFront ? d.frontSprite : d.sprite;
+            const QRectF box = decorRect(d);
             // A busy computer stirs the current
             const float sway = d.sway * float(1 + 1.5 * agitation());
-            const FishMesh::DecorPose pose{float(d.placement.x * width()), float(d.placement.y * height()), h / aspect, h,
-                                           sway, d.phase, d.placement.flip, front ? 0.f : 0.15f};
-            FishMesh::writeDecor(pose, m_sprites[d.sprite].uv, float(m_flow), v, idx, base);
+            const FishMesh::DecorPose pose{float(box.center().x()), float(box.bottom()), float(box.width()),
+                                           float(box.height()), sway, d.phase, d.placement.flip,
+                                           layer == Layer::Front ? 0.f : 0.15f};
+            FishMesh::writeDecor(pose, m_sprites[sprite].uv, float(m_flow), v, idx, base);
             v += FishMesh::kVertsPerDecor;
             idx += FishMesh::kIndicesPerDecor;
             base += FishMesh::kVertsPerDecor;
         }
     };
-    writeDecorLayer(false);
+    writeDecorLayer(Layer::Back);
 
     // Back to front: one draw call, blending order comes from vertex order
     std::sort(order.begin(), order.end(), [&](int a, int b) { return m_fish[a].depth > m_fish[b].depth; });
-    for (int i : order) {
-        const DcFish &f = m_fish[i];
-        const SpriteInfo &sprite = m_sprites[f.sprite];
-        const FishMesh::Pose pose{f.x, f.y, f.w, f.h, f.facing, f.phase, f.amplitude, f.tilt, f.depth};
-        FishMesh::writeFish(pose, sprite.uv, *sprite.style, sprite.weights, v, idx, base);
-        v += FishMesh::kVertsPerFish;
-        idx += FishMesh::kIndicesPerFish;
-        base += FishMesh::kVertsPerFish;
-    }
+    auto writeFishLayer = [&](bool sheltered) {
+        for (int i : order) {
+            const DcFish &f = m_fish[i];
+            if ((f.sheltered != 0) != sheltered)
+                continue;
+            const SpriteInfo &sprite = m_sprites[f.sprite];
+            const FishMesh::Pose pose{f.x, f.y, f.w, f.h, f.facing, f.phase, f.amplitude, f.tilt, f.depth};
+            FishMesh::writeFish(pose, sprite.uv, *sprite.style, sprite.weights, v, idx, base);
+            v += FishMesh::kVertsPerFish;
+            idx += FishMesh::kIndicesPerFish;
+            base += FishMesh::kVertsPerFish;
+        }
+    };
+    writeFishLayer(true);
+    writeDecorLayer(Layer::CaveFront);
+    writeFishLayer(false);
     const float half = kFoodSize * 0.5f;
     for (int i = 0; i < nFood; ++i) {
         const DcFood &p = m_food[i];
@@ -1175,7 +1282,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             base += 4;
         }
     }
-    writeDecorLayer(true);
+    writeDecorLayer(Layer::Front);
 
     node->commit();
     if (m_profile.enabled) {

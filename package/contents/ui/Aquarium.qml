@@ -86,7 +86,7 @@ Item {
         // Seeds an empty fish library on first run; after that the library is the source of truth
         starterFish: ["fish-orange.svg", "fish-blue.svg", "fish-pink.svg", "fish-lime.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
-        starterDecor: ["decor-seaweed-tall.svg", "decor-seaweed-bushy.svg", "decor-rock.svg", "decor-coral.svg"]
+        starterDecor: ["decor-seaweed-tall.svg", "decor-seaweed-bushy.svg", "decor-rock.svg", "decor-coral.svg", "decor-cave.svg"]
             .map(name => Qt.resolvedUrl("../images/" + name))
     }
 

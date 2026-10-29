@@ -117,6 +117,9 @@ bool save(const QList<FishEntry> &entries, QString *error)
             o.insert(QStringLiteral("wiggle"), e.wiggle);
         if (e.mouth.x() >= 0)
             o.insert(QStringLiteral("mouth"), QJsonArray{e.mouth.x(), e.mouth.y()});
+        if (!e.opening.isNull())
+            o.insert(QStringLiteral("opening"),
+                     QJsonArray{e.opening.x(), e.opening.y(), e.opening.width(), e.opening.height()});
         if (e.bornAt > 0) {
             o.insert(QStringLiteral("bornAt"), QString::number(e.bornAt));
             o.insert(QStringLiteral("parents"), QJsonArray::fromStringList(e.parents));
@@ -179,7 +182,8 @@ void applyMeta(FishEntry &e, const FishEntry &meta, int minCount)
 
 // Crops sprite and mask with the same box, and turns the mouth into fractions
 // of the cropped sprite; false if the drawing is empty
-bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QPointF *mouth, QString *error)
+bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QPointF *mouth, QRectF *opening,
+                 QString *error)
 {
     const QRect box = FishLibrary::contentBox(in.sprite);
     if (box.isNull()) {
@@ -192,6 +196,13 @@ bool cropDrawing(const FishDrawing &in, QImage *sprite, QImage *wiggle, QPointF 
         ? QPointF(std::clamp((in.mouth.x() - box.x()) / box.width(), 0.0, 1.0),
                   std::clamp((in.mouth.y() - box.y()) / box.height(), 0.0, 1.0))
         : QPointF(-1, -1);
+    *opening = QRectF();
+    if (!in.opening.isNull()) {
+        const QRectF r = in.opening.translated(-box.topLeft()).intersected(QRectF(QPointF(), box.size()));
+        if (r.width() > 1 && r.height() > 1)
+            *opening = QRectF(r.x() / box.width(), r.y() / box.height(), r.width() / box.width(),
+                              r.height() / box.height());
+    }
     return true;
 }
 
@@ -361,6 +372,13 @@ QList<FishEntry> load(QString *error)
         e.kind = kindFromName(o.value(QStringLiteral("kind")).toString());
         e.sway = std::clamp(o.value(QStringLiteral("sway")).toDouble(1.0), 0.0, 3.0);
         e.bornAt = o.value(QStringLiteral("bornAt")).toString().toLongLong();
+        const QJsonArray opening = o.value(QStringLiteral("opening")).toArray();
+        if (opening.size() == 4) {
+            const QRectF r(opening[0].toDouble(), opening[1].toDouble(), opening[2].toDouble(), opening[3].toDouble());
+            e.opening = r.intersected(QRectF(0, 0, 1, 1));
+            if (e.opening.width() < 0.02 || e.opening.height() < 0.02)
+                e.opening = QRectF();
+        }
         const QJsonArray mouth = o.value(QStringLiteral("mouth")).toArray();
         if (mouth.size() == 2)
             e.mouth = QPointF(std::clamp(mouth[0].toDouble(), 0.0, 1.0), std::clamp(mouth[1].toDouble(), 0.0, 1.0));
@@ -388,7 +406,8 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
 {
     QImage sprite, wiggle;
     QPointF mouth;
-    if (!cropDrawing(drawing, &sprite, &wiggle, &mouth, error))
+    QRectF opening;
+    if (!cropDrawing(drawing, &sprite, &wiggle, &mouth, &opening, error))
         return std::nullopt;
 
     WriteLock lock;
@@ -404,6 +423,7 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
     e.bornAt = meta.bornAt;
     e.parents = meta.parents;
     e.mouth = mouth;
+    e.opening = opening;
 
     // Files first, manifest second: readers never see an entry without its files
     if (!writeDrawing(e, sprite, wiggle, error))
@@ -494,7 +514,8 @@ bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *
 {
     QImage sprite, wiggle;
     QPointF mouth;
-    if (!cropDrawing(drawing, &sprite, &wiggle, &mouth, error))
+    QRectF opening;
+    if (!cropDrawing(drawing, &sprite, &wiggle, &mouth, &opening, error))
         return false;
 
     WriteLock lock;
@@ -517,6 +538,9 @@ bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *
         merged.placements = old.placements;
     applyMeta(updated, merged, 0);
     updated.mouth = mouth;
+    // A redrawing without a marked opening keeps the old one
+    if (!opening.isNull())
+        updated.opening = opening;
     if (!writeDrawing(updated, sprite, wiggle, error))
         return false;
     *it = updated;
@@ -543,8 +567,13 @@ bool flip(const QString &id, QString *error)
         // The mouth goes to the other side too
         const QPointF mouth = e.mouth.x() >= 0 ? QPointF((1 - e.mouth.x()) * sprite.width(), e.mouth.y() * sprite.height())
                                                : QPointF(-1, -1);
+        // ...and so does a cave's opening
+        const QRectF opening = e.opening.isNull()
+            ? QRectF()
+            : QRectF((1 - e.opening.right()) * sprite.width(), e.opening.y() * sprite.height(),
+                     e.opening.width() * sprite.width(), e.opening.height() * sprite.height());
         const FishDrawing flipped{sprite.flipped(Qt::Horizontal),
-                                  wiggle.isNull() ? QImage() : wiggle.flipped(Qt::Horizontal), mouth};
+                                  wiggle.isNull() ? QImage() : wiggle.flipped(Qt::Horizontal), mouth, opening};
         return replaceDrawing(e, flipped, error);
     }
     setError(error, QStringLiteral("No such fish"));

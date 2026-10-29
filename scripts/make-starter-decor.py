@@ -58,6 +58,37 @@ def rock():
     return svg(300, 160, body)
 
 
+# The cave's opening as fractions of the drawing (x, y, w, h); kept in sync with
+# starterLayout() in native/src/fishtank.cpp. The cut is an arch: the top half
+# of an ellipse over a rectangle down to the bottom of the box.
+CAVE_OPENING = (90, 85, 140, 100)
+
+
+def arch(x, y, w, h):
+    r = h * 0.55
+    return (f"M {x} {y + h} L {x} {y + r} A {w / 2} {r} 0 0 1 {x + w} {y + r} "
+            f"L {x + w} {y + h} Z")
+
+
+def cave():
+    x, y, w, h = CAVE_OPENING
+    body = f"""  <defs>
+    <radialGradient id="inside" cx="0.5" cy="0.75" r="0.7">
+      <stop offset="0" stop-color="#2c3440"/>
+      <stop offset="1" stop-color="#141a22"/>
+    </radialGradient>
+  </defs>
+  <path d="M 8 196 C 4 140, 30 70, 95 40 C 140 18, 200 16, 245 42 C 295 72, 318 140, 312 196 Z"
+        fill="#868b94" stroke="#4c5058" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 70 60 C 110 34, 170 28, 215 44 C 170 46, 115 56, 82 76 Z" fill="#b4b9c2" opacity="0.8"/>
+  <path d="{arch(x, y, w, h)}" fill="url(#inside)" stroke="#4c5058" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M 240 150 C 265 140, 290 150, 300 170 C 280 162, 262 160, 244 166 Z" fill="#6c717a" opacity="0.8"/>
+  <circle cx="58" cy="140" r="7" fill="#6c717a"/>
+  <circle cx="262" cy="96" r="5" fill="#6c717a"/>
+  <circle cx="45" cy="168" r="4" fill="#9ea3ac"/>"""
+    return svg(320, 200, body)
+
+
 def coral():
     rng = random.Random(7)
     parts = []
@@ -84,6 +115,7 @@ ITEMS = {
     "decor-seaweed-bushy.svg": seaweed_bushy,
     "decor-rock.svg": rock,
     "decor-coral.svg": coral,
+    "decor-cave.svg": cave,
 }
 
 OUT.mkdir(parents=True, exist_ok=True)

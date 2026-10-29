@@ -53,6 +53,9 @@ struct FishEntry {
     // Fish: mouth on the sprite as fractions of its width and height (head
     // right); negative = not marked, guess it from the drawing
     QPointF mouth{-1, -1};
+    // Decorations: a cave opening fish can swim into, as fractions of the
+    // sprite (an arch: rounded top, straight sides down to the bottom); null = none
+    QRectF opening;
 
     QString path() const;
     QString wigglePath() const;            // empty when there is no mask
@@ -68,6 +71,7 @@ struct FishDrawing {
     QImage sprite;
     QImage wiggle;
     QPointF mouth{-1, -1};   // in sprite pixels; negative = not marked
+    QRectF opening;          // decorations: cave opening in sprite pixels; null = none
 };
 
 namespace FishLibrary {

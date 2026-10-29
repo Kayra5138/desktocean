@@ -236,6 +236,34 @@ enum Mode {
     Eating { left: f32 },
     /// Swimming up to blow bubbles at the surface (a notification arrived)
     Surface { left: f32 },
+    /// Going into a shelter (a cave), then staying inside for `left` seconds
+    Hide { shelter: usize, left: f32 },
+}
+
+/// The opening of a cave or hollow, in scene pixels: fish can swim in there.
+/// The host draws the decoration's front over fish that are `sheltered`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shelter {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl Shelter {
+    fn centre(&self) -> (f32, f32) {
+        (self.x + self.w * 0.5, self.y + self.h * 0.5)
+    }
+
+    /// The fish's body overlaps the opening
+    fn overlaps(&self, f: &Fish) -> bool {
+        (f.x - self.centre().0).abs() < (self.w + f.w) * 0.5
+            && (f.y - self.centre().1).abs() < (self.h + f.h) * 0.5
+    }
+
+    fn fits(&self, f: &Fish) -> bool {
+        f.w < self.w && f.h < self.h * 0.9
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -305,6 +333,8 @@ pub struct Fish {
     mouth: (f32, f32),
     /// Size multiplier from the spec (1 = medium)
     scale: f32,
+    /// In (or partly in) a cave: drawn behind the cave's front
+    pub sheltered: bool,
 }
 
 impl Fish {
@@ -449,6 +479,7 @@ pub struct Sim {
     bubbles: Vec<Bubble>,
     ripples: Vec<Ripple>,
     births: Vec<Birth>,
+    shelters: Vec<Shelter>,
     schools: Vec<School>,
     next_school: u32,
     school_check: f32,
@@ -480,6 +511,7 @@ impl Sim {
             bubbles: Vec::new(),
             ripples: Vec::new(),
             births: Vec::new(),
+            shelters: Vec::new(),
             schools: Vec::new(),
             next_school: 1,
             school_check: 0.0,
@@ -548,6 +580,45 @@ impl Sim {
     }
 
     /// Babies born since the last call.
+    /// Caves and hollows fish can swim into; replaces the previous list
+    pub fn set_shelters(&mut self, shelters: &[Shelter]) {
+        if shelters == self.shelters.as_slice() {
+            return;
+        }
+        self.shelters = shelters.to_vec();
+        for f in &mut self.fish {
+            if matches!(f.mode, Mode::Hide { .. }) {
+                f.mode = Mode::Wander;
+                f.retarget = true;
+            }
+            f.sheltered = false;
+        }
+    }
+
+    /// The nearest shelter within `radius` that `f` fits in and that has room
+    fn find_shelter(&self, f: &Fish, radius: f32) -> Option<usize> {
+        self.shelters
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.fits(f))
+            .filter(|(k, s)| {
+                let taken: f32 = self
+                    .fish
+                    .iter()
+                    .filter(|g| {
+                        g.id != f.id
+                            && matches!(g.mode, Mode::Hide { shelter, .. } if shelter == *k)
+                    })
+                    .map(|g| g.w)
+                    .sum();
+                taken + f.w < s.w * 1.3
+            })
+            .map(|(k, s)| (k, (s.centre().0 - f.x).hypot(s.centre().1 - f.y)))
+            .filter(|&(_, d)| d < radius)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(k, _)| k)
+    }
+
     pub fn take_births(&mut self) -> Vec<Birth> {
         std::mem::take(&mut self.births)
     }
@@ -839,7 +910,14 @@ impl Sim {
         } else {
             self.water_top() + f.h * 0.5
         };
-        f.y = f.y.clamp(top, (self.sand_top() - f.h * 0.3).max(top));
+        let bottom = match f.mode {
+            Mode::Hide { shelter, .. } if shelter < self.shelters.len() => {
+                let s = self.shelters[shelter];
+                (self.sand_top() - f.h * 0.3).max(s.y + s.h - f.h * 0.4)
+            }
+            _ => self.sand_top() - f.h * 0.3,
+        };
+        f.y = f.y.clamp(top, bottom.max(top));
     }
 
     fn spawn(&mut self, spec: &FishSpec, entering: bool) -> Fish {
@@ -894,6 +972,7 @@ impl Sim {
             dash_left: 0.0,
             mouth: spec.mouth,
             scale: spec.scale,
+            sheltered: false,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -1173,8 +1252,17 @@ impl Sim {
         {
             f.follow_left = 5.0 + 10.0 * p.curiosity;
         } else if p.character == Character::Shy && f.cursor_near >= 0.6 {
-            f.flee_left = 2.0;
             f.cursor_near = 0.0;
+            // Into a cave if there is one close by, otherwise just away
+            match self.find_shelter(f, 900.0).filter(|_| f.school.is_none()) {
+                Some(shelter) => {
+                    f.mode = Mode::Hide {
+                        shelter,
+                        left: self.rng.range(6.0, 15.0),
+                    }
+                }
+                None => f.flee_left = 2.0,
+            }
         }
 
         self.food_targets[index] = nearest_food;
@@ -1211,6 +1299,44 @@ impl Sim {
             Mode::Surface { left } => Some(left),
             _ => None,
         };
+        // In a cave: drift slowly about inside; on the way: head for it
+        let hiding = match f.mode {
+            Mode::Hide { shelter, left } if shelter < self.shelters.len() => {
+                let s = self.shelters[shelter];
+                let (cx, cy) = s.centre();
+                let inside = (f.x - cx).abs() < (s.w - f.w).max(0.0) * 0.5 + 4.0
+                    && (f.y - cy).abs() < (s.h - f.h).max(0.0) * 0.5 + 4.0;
+                if inside {
+                    let left = left - dt;
+                    f.mode = if left > 0.0 {
+                        Mode::Hide { shelter, left }
+                    } else {
+                        f.retarget = true;
+                        Mode::Wander
+                    };
+                    let room = ((s.w - f.w) * 0.5).max(0.0);
+                    let drift = (self.time * 0.25 + f.phase * 0.05).sin();
+                    Some((
+                        cx + drift * room,
+                        cy + (s.h - f.h).max(0.0) * 0.15,
+                        f.max_speed * 0.2,
+                    ))
+                } else {
+                    // A frightened fish dashes for cover
+                    let speed = if p.character == Character::Shy {
+                        f.max_speed * 1.6
+                    } else {
+                        f.cruise * 1.2
+                    };
+                    Some((cx, cy, speed))
+                }
+            }
+            Mode::Hide { .. } => {
+                f.mode = Mode::Wander;
+                None
+            }
+            _ => None,
+        };
         let chase = if surface.is_some() {
             Some((
                 f.x + f.dir * 30.0,
@@ -1218,6 +1344,11 @@ impl Sim {
                 self.water_top() + f.h * 2.0,
                 f.max_speed * 1.8,
             ))
+        } else if let Some((sx, sy, speed)) =
+            hiding.filter(|_| nearest_food.is_none() || f.hunger < 0.8)
+        {
+            // Steer the body (not the mouth) to the spot in the cave
+            Some((sx + (mx - f.x), sy + (my - f.y), speed))
         } else if let Some(j) = nearest_food {
             let eager = 1.0 + 0.5 * p.appetite + 0.4 * f.hunger;
             Some((
@@ -1308,7 +1439,11 @@ impl Sim {
                         f.mode = Mode::Idle { left };
                     }
                 }
-                Mode::Wander | Mode::Chase { .. } | Mode::Surface { .. } | Mode::Eating { .. } => {
+                Mode::Wander
+                | Mode::Chase { .. }
+                | Mode::Surface { .. }
+                | Mode::Eating { .. }
+                | Mode::Hide { .. } => {
                     // (a chase whose rival vanished just falls back to wandering)
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
@@ -1319,7 +1454,32 @@ impl Sim {
                         let rest = 0.6 * (1.0 - p.restlessness)
                             + 0.35 * night
                             + if f.hunger < FULL { 0.15 } else { 0.0 };
-                        if self.rng.chance(rest.min(0.95)) {
+                        // Some fish spend the night in a cave; curious ones and
+                        // youngsters pop in for a look now and then
+                        let cave_chance = if night > 0.5 {
+                            match p.character {
+                                Character::Homebody | Character::Shy | Character::Lazy => 0.4,
+                                _ if !f.adult => 0.4,
+                                _ => 0.1,
+                            }
+                        } else {
+                            match p.character {
+                                Character::Explorer | Character::Playful => 0.06,
+                                _ if !f.adult => 0.1,
+                                _ => 0.02,
+                            }
+                        };
+                        let shelter = (f.school.is_none() && self.rng.chance(cave_chance))
+                            .then(|| self.find_shelter(f, self.width * 0.5))
+                            .flatten();
+                        if let Some(shelter) = shelter {
+                            let left = if night > 0.5 {
+                                self.rng.range(40.0, 150.0)
+                            } else {
+                                self.rng.range(3.0, 9.0)
+                            };
+                            f.mode = Mode::Hide { shelter, left };
+                        } else if self.rng.chance(rest.min(0.95)) {
                             f.mode = Mode::Idle {
                                 left: self.rng.range(1.5, 5.0) * (1.0 + 2.0 * night),
                             };
@@ -1537,6 +1697,10 @@ impl Sim {
         f.x += f.vx * dt;
         f.y += f.vy * dt;
         self.clamp_to_water(f);
+        // Behind the cave's front while going in, inside, and until it is
+        // clear of the opening again on the way out
+        f.sheltered = (f.sheltered || matches!(f.mode, Mode::Hide { .. }))
+            && self.shelters.iter().any(|s| s.overlaps(f));
 
         let step = TURN_RATE * dt;
         f.facing = if (f.dir - f.facing).abs() <= step {
@@ -1648,6 +1812,7 @@ impl Sim {
         let willing = |f: &Fish| {
             f.school.is_none()
                 && !f.entering
+                && !matches!(f.mode, Mode::Hide { .. })
                 && f.personality.character != Character::Shy
                 && f.school_appetite() > 0.35
         };
@@ -2739,6 +2904,106 @@ mod tests {
         assert!(
             (f.x - 900.0).hypot(f.y - 500.0) > 150.0,
             "shy fish should have moved off"
+        );
+    }
+
+    /// A cave on the sand, big enough for medium fish
+    const CAVE: Shelter = Shelter {
+        x: 1300.0,
+        y: 800.0,
+        w: 320.0,
+        h: 170.0,
+    };
+
+    #[test]
+    fn a_shy_fish_hides_in_a_cave_close_by() {
+        let mut s = sim_with(6, 1, 1920.0, 1080.0);
+        s.set_shelters(&[CAVE]);
+        make(&mut s, 1, Character::Shy, 0.9);
+        s.fish[0].x = 900.0;
+        s.fish[0].y = 600.0;
+        let mut inside = 0;
+        for n in 0..30 * 12 {
+            s.step(DT, (n < 30 * 2).then(|| wiggle(n, 900.0, 600.0)).flatten());
+            let f = &s.fish()[0];
+            if f.sheltered && CAVE.overlaps(f) && (f.x - 1460.0).abs() < 160.0 {
+                inside += 1;
+            }
+        }
+        assert!(
+            inside > 30 * 4,
+            "the shy fish should spend a while in the cave ({inside} frames)"
+        );
+    }
+
+    #[test]
+    fn caves_are_used_at_night_and_fish_come_back_out() {
+        let mut s = sim_with(12, 10, 2560.0, 1440.0);
+        let cave = Shelter {
+            x: 1100.0,
+            y: 1080.0,
+            w: 360.0,
+            h: 200.0,
+        };
+        s.set_shelters(&[cave]);
+        s.set_daylight(0.0);
+        let (mut most_inside, mut too_big_inside) = (0, false);
+        for _ in 0..30 * 300 {
+            s.step(DT, None);
+            let inside: Vec<&Fish> = s.fish().iter().filter(|f| f.sheltered).collect();
+            most_inside = most_inside.max(inside.len());
+            too_big_inside |= inside
+                .iter()
+                .any(|f| matches!(f.mode, Mode::Hide { .. }) && !cave.fits(f));
+        }
+        assert!(most_inside >= 1, "nobody went into the cave at night");
+        assert!(!too_big_inside, "a fish too big for the opening went in");
+        // Morning: everyone comes out within a few minutes
+        s.set_daylight(1.0);
+        for _ in 0..30 * 200 {
+            s.step(DT, None);
+        }
+        let still = s
+            .fish()
+            .iter()
+            .filter(|f| matches!(f.mode, Mode::Hide { left, .. } if left > 10.0))
+            .count();
+        assert!(
+            still <= 2,
+            "{still} fish stayed in for a long time after the night"
+        );
+    }
+
+    #[test]
+    fn a_full_cave_turns_fish_away() {
+        let mut s = sim_with(3, 6, 1920.0, 1080.0);
+        let small = Shelter {
+            x: 800.0,
+            y: 800.0,
+            w: 200.0,
+            h: 150.0,
+        };
+        s.set_shelters(&[small]);
+        let mut fits = 0;
+        for i in 0..s.fish.len() {
+            let f = s.fish[i].clone();
+            if let Some(k) = s.find_shelter(&f, 5000.0) {
+                s.fish[i].mode = Mode::Hide {
+                    shelter: k,
+                    left: 100.0,
+                };
+                fits += 1;
+            }
+        }
+        let taken: f32 = s
+            .fish
+            .iter()
+            .filter(|f| matches!(f.mode, Mode::Hide { .. }))
+            .map(|f| f.w)
+            .sum();
+        assert!(
+            fits >= 1 && taken < small.w * 1.3 + 1.0,
+            "{fits} fish, {taken:.0}px of fish in a 200px cave"
         );
     }
 

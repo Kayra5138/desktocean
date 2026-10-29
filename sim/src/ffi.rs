@@ -33,6 +33,18 @@ pub struct DcFish {
     pub hunger: f32,
     /// Character::index(): 0 explorer, 1 homebody, 2 bottom, 3 skimmer, 4 lazy, 5 playful, 6 shy
     pub character: u32,
+    /// Non-zero while in (or partly in) a cave: draw it behind the cave's front
+    pub sheltered: u32,
+}
+
+/// A cave opening in scene pixels (top-left corner and size)
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcShelter {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
 }
 
 #[repr(C)]
@@ -374,6 +386,37 @@ pub unsafe extern "C" fn dc_sim_set_relations(
     });
 }
 
+/// Replaces the caves fish can swim into.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `list` null or valid for `count` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_shelters(
+    handle: *mut DcSim,
+    list: *const DcShelter,
+    count: u32,
+) {
+    with_sim(handle, (), |s| {
+        let items: Vec<crate::sim::Shelter> = if list.is_null() || count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller provides `count` readable elements.
+            unsafe { std::slice::from_raw_parts(list, count.min(1000) as usize) }
+                .iter()
+                .filter(|r| {
+                    [r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite()) && r.w > 0.0 && r.h > 0.0
+                })
+                .map(|r| crate::sim::Shelter {
+                    x: r.x,
+                    y: r.y,
+                    w: r.w,
+                    h: r.h,
+                })
+                .collect()
+        };
+        s.set_shelters(&items)
+    });
+}
+
 /// Pointer coordinates `< 0` mean the cursor is not over the aquarium.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
@@ -410,6 +453,7 @@ pub unsafe extern "C" fn dc_sim_fish(handle: *mut DcSim, out: *mut DcFish, cap: 
                     sprite: f.sprite,
                     hunger: f.hunger,
                     character: f.personality.character.index(),
+                    sheltered: f.sheltered as u32,
                 };
             }
         }

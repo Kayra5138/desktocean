@@ -22,7 +22,13 @@ typedef struct DcFish {
     uint32_t sprite;   // from DcFishSpec
     float hunger;      // 0 full .. 1 starving
     uint32_t character; // DC_CHARACTER_*
+    uint32_t sheltered; // non-zero while in (or partly in) a cave: draw behind the cave's front
 } DcFish;
+
+// A cave opening, scene pixels (top-left corner and size)
+typedef struct DcShelter {
+    float x, y, w, h;
+} DcShelter;
 
 // What kind of fish it is at heart
 #define DC_CHARACTER_EXPLORER 0u
@@ -94,6 +100,7 @@ uint32_t dc_sim_bubbles(DcSim *sim, DcBubble *out, uint32_t cap);
 uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
 uint32_t dc_sim_take_births(DcSim *sim, DcBirth *out, uint32_t cap);  // drains them
 bool dc_sim_place_fish(DcSim *sim, uint64_t id, float x, float y);
+void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  // replaces the caves
 void dc_sim_set_life_speed(DcSim *sim, float speed);                  // 0 = no babies
 uint32_t dc_sim_relations(DcSim *sim, DcRelation *out, uint32_t cap); // returns total count
 void dc_sim_set_relations(DcSim *sim, const DcRelation *list, uint32_t count);

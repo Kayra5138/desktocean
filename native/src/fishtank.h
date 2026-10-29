@@ -187,7 +187,9 @@ private:
     void updateTimer();
     void loadLibrary(bool animateNew);
     void seedLibrary();
-    void seedDecor();
+    // Adds the starter plants and decorations; `only` limits it to one of them
+    // (used to bring decorations added in later versions to existing tanks)
+    void seedDecor(const QString &only = {});
     void watchLibrary();
     void checkRequests();
     void rebuildAtlas(const QList<QImage> &images);
@@ -286,7 +288,15 @@ private:
         float sway;          // 0 for decorations
         float phase;
         Placement placement;
+        // Caves: the opening (fractions of the sprite) and the sprite with the
+        // opening cut out, drawn over the fish inside
+        QRectF opening;
+        uint32_t frontSprite = 0;
     };
+    // Where a decoration is drawn: bottom-centre anchored, sized by height
+    QRectF decorRect(const DecorItem &d) const;
+    // Tells the sim where the cave openings are
+    void updateShelters();
     std::vector<DecorItem> m_decor;
 
     // Sprite atlas: every fish drawing plus the food pellet
