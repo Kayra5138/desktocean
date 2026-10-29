@@ -578,34 +578,39 @@ void FishTank::setExits(bool left, bool right)
     dc_sim_set_exits(m_sim, left, right);
 }
 
-void FishTank::carryTo(QPointF at)
+uint32_t FishTank::carryNew(QPointF at)
 {
-    dc_sim_carry_to(m_sim, float(at.x()), float(at.y()));
+    const uint32_t id = dc_sim_carry_new(m_sim, float(at.x()), float(at.y()));
     pullState();
     update();
+    return id;
 }
 
-void FishTank::carryRelease()
+bool FishTank::carryTo(uint32_t id, QPointF at)
 {
-    dc_sim_carry_release(m_sim);
+    const bool ok = dc_sim_carry_to(m_sim, id, float(at.x()), float(at.y()));
+    pullState();
+    update();
+    return ok;
 }
 
-QRectF FishTank::carryBubbleRect() const
+void FishTank::carryRelease(uint32_t id)
 {
-    if (!m_carrying)
-        return {};
-    const DcBubble &b = m_carryBubble;
-    return QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2);
+    dc_sim_carry_release(m_sim, id);
 }
 
-void FishTank::carryRise()
+QRectF FishTank::carryRect(uint32_t id) const
 {
-    dc_sim_carry_rise(m_sim);
+    for (const DcCarry &c : m_carries) {
+        if (c.id == id)
+            return QRectF(c.x - c.radius, c.y - c.radius, c.radius * 2, c.radius * 2);
+    }
+    return {};
 }
 
-void FishTank::carryEnd()
+void FishTank::carryEnd(uint32_t id)
 {
-    dc_sim_carry_end(m_sim);
+    dc_sim_carry_end(m_sim, id);
     pullState();
     update();
 }
@@ -1358,7 +1363,9 @@ void FishTank::pullState()
     m_ripples.resize(n);
     m_ripples.resize(std::min(n, dc_sim_ripples(m_sim, m_ripples.data(), n)));
 
-    m_carrying = dc_sim_carry_bubble(m_sim, &m_carryBubble);
+    n = dc_sim_carries(m_sim, nullptr, 0);
+    m_carries.resize(n);
+    m_carries.resize(std::min(n, dc_sim_carries(m_sim, m_carries.data(), n)));
 
     n = dc_sim_hearts(m_sim, nullptr, 0);
     m_hearts.resize(n);
@@ -1750,7 +1757,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     const int nFish = int(order.size());
     const int nFood = node->hasAtlas() ? int(m_food.size()) : 0;
-    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size() + m_hearts.size()) + (m_carrying ? 1 : 0) : 0;
+    const int nBubbles = node->hasAtlas() ? int(m_bubbles.size() + m_ripples.size() + m_hearts.size() + m_carries.size()) : 0;
     // Caves are drawn twice: whole behind the fish, and cut open over the fish inside
     const int nDecor = node->hasAtlas() ? int(std::accumulate(m_decor.begin(), m_decor.end(), 0, [&](int n, const DecorItem &d) {
                                                if (d.sprite >= m_sprites.size())
@@ -1872,10 +1879,9 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             idx += 6;
             base += 4;
         }
-        // The wand's bubble, around the fish it carries; it firms up as a
+        // The wand's bubbles, around the fish they carry; each firms up as a
         // fish decides to come in
-        if (m_carrying) {
-            const DcBubble &b = m_carryBubble;
+        for (const DcCarry &b : m_carries) {
             FishMesh::writeQuad(QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2), m_bigBubbleUv,
                                 0.6f + 0.4f * b.alpha, v, idx, base);
             v += 4;

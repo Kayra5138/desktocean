@@ -188,14 +188,14 @@ public:
     std::vector<DcRelation> relationsOf(quint64 id) const;
     void setExits(bool left, bool right);
 
-    // The bubble wand (see TankHub::carryAt): the bubble is at this point
-    // (item coordinates); carryEnd lets go
-    void carryTo(QPointF at);
-    void carryEnd();
-    void carryRise();
-    void carryRelease();
-    // The wand's bubble on screen (item coordinates), or null when there is none
-    QRectF carryBubbleRect() const;
+    // The bubble wand's bubbles (see TankHub::carryNew), by the sim's ids;
+    // points in item coordinates
+    uint32_t carryNew(QPointF at);
+    bool carryTo(uint32_t id, QPointF at);
+    void carryRelease(uint32_t id);
+    void carryEnd(uint32_t id);
+    // A bubble on screen (item coordinates), or null once it has popped
+    QRectF carryRect(uint32_t id) const;
     qreal averageHunger() const;
     // (friendships, rivalries)
     QPair<int, int> relationCounts() const;
@@ -349,8 +349,7 @@ private:
     std::vector<DcCrawler> m_crawlers;
     std::vector<DcEgg> m_eggs;
     std::vector<DcBubble> m_hearts;
-    bool m_carrying = false;
-    DcBubble m_carryBubble{};
+    std::vector<DcCarry> m_carries;
     // Saved eggs (x, y as fractions of the tank) waiting for the tank to get a size
     std::vector<DcEgg> m_savedEggs;
     void restoreEggs();

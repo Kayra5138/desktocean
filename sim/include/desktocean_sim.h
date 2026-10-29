@@ -65,6 +65,14 @@ typedef struct DcTrust {
     float trust;       // 0 .. 1
 } DcTrust;
 
+// A bubble from the wand, as drawn
+typedef struct DcCarry {
+    uint32_t id;
+    float x, y;        // centre, scene pixels (around its fish once one is in)
+    float radius;
+    float alpha;       // 0..1: how close a fish is to coming in
+} DcCarry;
+
 // A clutch of eggs; hatching makes a DcBirth at (x, y)
 typedef struct DcEgg {
     uint64_t parent_a, parent_b;
@@ -160,11 +168,12 @@ void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  //
 void dc_sim_set_exits(DcSim *sim, uint32_t left, uint32_t right);  // side edges with a screen next to them
 uint32_t dc_sim_take_departures(DcSim *sim, DcDeparture *out, uint32_t cap);  // drains them
 bool dc_sim_arrive(DcSim *sim, uint64_t id, int32_t side, float y);  // swim in through a side edge
-void dc_sim_carry_to(DcSim *sim, float x, float y);   // bubble wand: the bubble is here
-void dc_sim_carry_end(DcSim *sim);                     // let go: it pops, the fish swims out
-void dc_sim_carry_release(DcSim *sim);                 // let go: drifts on, pops at a side, rises when idle
-void dc_sim_carry_rise(DcSim *sim);                    // left alone: floats up and pops at the surface
-bool dc_sim_carry_bubble(DcSim *sim, DcBubble *out);   // alpha = how close a fish is to coming in
+uint32_t dc_sim_carry_new(DcSim *sim, float x, float y);            // the wand blows a bubble; its id
+bool dc_sim_carry_to(DcSim *sim, uint32_t id, float x, float y);    // lead it; false once it has popped
+void dc_sim_carry_release(DcSim *sim, uint32_t id);  // let go: drifts on, bounces, rises after 3 s alone
+void dc_sim_carry_rise(DcSim *sim, uint32_t id);     // float up and pop at the surface
+void dc_sim_carry_end(DcSim *sim, uint32_t id);      // pop now; the fish swims out
+uint32_t dc_sim_carries(DcSim *sim, DcCarry *out, uint32_t cap);   // returns total count
 uint32_t dc_sim_hearts(DcSim *sim, DcBubble *out, uint32_t cap);   // radius = half size
 uint32_t dc_sim_trust(DcSim *sim, DcTrust *out, uint32_t cap);      // returns total count
 void dc_sim_set_trust(DcSim *sim, const DcTrust *list, uint32_t count);

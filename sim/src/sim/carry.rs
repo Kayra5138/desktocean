@@ -1,7 +1,8 @@
-//! Carrying a fish in a bubble. The bubble wand widget blows a bubble at the
-//! cursor; held next to a fish for a moment, the fish swims into it on its own
-//! and floats along calmly inside while you move it. Let go and the bubble
-//! pops softly; the fish swims out where you put it.
+//! Carrying fish in bubbles. The bubble wand widget blows bubbles (as many as
+//! you like); a bubble led next to a fish for a moment gets the fish to swim
+//! in on its own, and it floats along calmly inside. Flung, a bubble sails on
+//! and bounces off the sides; left alone for a few seconds it floats up and
+//! pops at the surface, and the fish swims out.
 
 use super::{Fish, Mode, Sim};
 
@@ -14,6 +15,7 @@ const EMPTY_RADIUS: f32 = 45.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Carry {
+    pub id: u32,
     pub x: f32,
     pub y: f32,
     /// The fish inside, or on its way in
@@ -58,89 +60,99 @@ impl Carry {
 }
 
 impl Sim {
-    pub fn carry(&self) -> Option<&Carry> {
-        self.carry.as_ref()
+    pub fn carries(&self) -> &[Carry] {
+        &self.carries
     }
 
-    /// Where to draw the bubble: around the fish once it is inside (it can't
-    /// leave the water), at the cursor otherwise. (x, y, radius)
-    pub fn carry_bubble(&self) -> Option<(f32, f32, f32)> {
-        let c = self.carry.as_ref()?;
+    fn carry_index(&self, id: u32) -> Option<usize> {
+        self.carries.iter().position(|c| c.id == id)
+    }
+
+    /// Where to draw a bubble: around its fish once it is inside (the fish
+    /// can't leave the water), where it was led otherwise. (x, y, radius)
+    pub fn bubble_of(&self, c: &Carry) -> (f32, f32, f32) {
         let held = c
             .fish
             .filter(|_| c.holding)
             .and_then(|id| self.fish.iter().find(|f| f.id == id));
-        Some(match held {
+        match held {
             Some(f) => (f.x, f.y, c.radius(&self.fish)),
             None => (c.x, c.y, c.radius(&self.fish)),
-        })
-    }
-
-    /// The bubble is at (x, y) (scene pixels); starts one if there is none
-    pub fn carry_to(&mut self, x: f32, y: f32) {
-        match &mut self.carry {
-            Some(c) => {
-                c.x = x;
-                c.y = y;
-                c.rising = false;
-                c.held = true;
-                c.idle = 0.0;
-                c.moved_at = self.time;
-            }
-            None => {
-                self.carry = Some(Carry {
-                    x,
-                    y,
-                    fish: None,
-                    holding: false,
-                    candidate: None,
-                    linger: 0.0,
-                    rising: false,
-                    held: false,
-                    vx: 0.0,
-                    vy: 0.0,
-                    idle: 0.0,
-                    moved_at: self.time,
-                    last: (x, y),
-                })
-            }
         }
     }
 
-    /// Let go of the bubble: it carries on with the speed it had
-    pub fn carry_release(&mut self) {
-        if let Some(c) = &mut self.carry {
+    /// A new bubble at (x, y), scene pixels; it floats there on its own
+    pub fn carry_new(&mut self, x: f32, y: f32) -> u32 {
+        let id = self.next_carry;
+        self.next_carry = self.next_carry.wrapping_add(1).max(1);
+        self.carries.push(Carry {
+            id,
+            x,
+            y,
+            fish: None,
+            holding: false,
+            candidate: None,
+            linger: 0.0,
+            rising: false,
+            held: false,
+            vx: 0.0,
+            vy: 0.0,
+            idle: 0.0,
+            moved_at: self.time,
+            last: (x, y),
+        });
+        id
+    }
+
+    /// Leads bubble `id` to (x, y); false if it has popped
+    pub fn carry_to(&mut self, id: u32, x: f32, y: f32) -> bool {
+        let time = self.time;
+        let Some(c) = self.carries.iter_mut().find(|c| c.id == id) else {
+            return false;
+        };
+        c.x = x;
+        c.y = y;
+        c.rising = false;
+        c.held = true;
+        c.idle = 0.0;
+        c.moved_at = time;
+        true
+    }
+
+    /// Let go of a bubble: it carries on with the speed it had
+    pub fn carry_release(&mut self, id: u32) {
+        let time = self.time;
+        if let Some(c) = self.carries.iter_mut().find(|c| c.id == id) {
             c.held = false;
             c.idle = 0.0;
             // Held still before letting go: no fling
-            if self.time - c.moved_at > 0.1 {
+            if time - c.moved_at > 0.1 {
                 c.vx = 0.0;
                 c.vy = 0.0;
             }
         }
     }
 
-    /// Left alone: the bubble floats up and pops at the surface
-    pub fn carry_rise(&mut self) {
-        if let Some(c) = &mut self.carry {
+    /// Up it goes, to pop at the surface
+    pub fn carry_rise(&mut self, id: u32) {
+        if let Some(c) = self.carries.iter_mut().find(|c| c.id == id) {
             c.rising = true;
         }
     }
 
-    /// Let go: the bubble pops and the fish swims out
-    pub fn carry_end(&mut self) {
-        // Pops where it is seen (around its fish)
-        let Some((bx, by, r)) = self.carry_bubble() else {
+    /// Pops a bubble; the fish inside swims out
+    pub fn carry_end(&mut self, id: u32) {
+        let Some(i) = self.carry_index(id) else {
             return;
         };
-        let Some(c) = self.carry.take() else { return };
-        let (c_x, c_y) = (bx, by);
-        // The pop: a ring of small bubbles
+        let (bx, by, r) = self.bubble_of(&self.carries[i]);
+        let c = self.carries.remove(i);
+        // The pop: a ring of small bubbles where it was seen
         for k in 0..8 {
             let a = k as f32 * std::f32::consts::TAU / 8.0;
             self.blow_bubbles(
-                c_x + a.cos() * r * 0.8,
-                c_y + a.sin() * r * 0.8,
+                bx + a.cos() * r * 0.8,
+                by + a.sin() * r * 0.8,
                 1,
                 (2.5, 4.0),
                 0.3,
@@ -157,13 +169,28 @@ impl Sim {
     }
 
     pub(super) fn update_carry(&mut self, dt: f32) {
-        let Some(mut c) = self.carry else { return };
+        let mut popped = Vec::new();
+        for i in 0..self.carries.len() {
+            let mut c = self.carries[i];
+            if self.step_carry(&mut c, dt) {
+                popped.push(c.id);
+            }
+            self.carries[i] = c;
+        }
+        for id in popped {
+            self.carry_end(id);
+        }
+    }
+
+    /// One bubble's step; true when it pops
+    fn step_carry(&mut self, c: &mut Carry, dt: f32) -> bool {
         if c.held && dt > 0.0 {
             // Its speed while being led, smoothed: it keeps it when let go
             c.vx = 0.6 * c.vx + 0.4 * (c.x - c.last.0) / dt;
             c.vy = 0.6 * c.vy + 0.4 * (c.y - c.last.1) / dt;
         }
         c.last = (c.x, c.y);
+        let r = c.radius(&self.fish);
         if !c.held && !c.rising {
             // Drifting on after a fling, slowing down in the water
             c.x += c.vx * dt;
@@ -171,16 +198,19 @@ impl Sim {
             let drag = (-1.6 * dt).exp();
             c.vx *= drag;
             c.vy *= drag;
-            // Flung into a side, the sand or the surface: pop
-            let r = c.radius(&self.fish);
-            if c.x - r < 0.0
-                || c.x + r > self.width
-                || c.y - r < self.water_top()
-                || c.y + r > self.height
-            {
-                self.carry = Some(c);
-                self.carry_end();
-                return;
+            // Bounces off the sides, the surface and the sand, losing a little
+            // speed each time
+            let (left, right) = (r, (self.width - r).max(r));
+            let top = self.water_top() + r;
+            let bottom = (self.sand_top() + r * 0.3).min(self.height - r).max(top);
+            const BOUNCE: f32 = 0.75;
+            if c.x < left || c.x > right {
+                c.x = c.x.clamp(left, right);
+                c.vx = -c.vx * BOUNCE;
+            }
+            if c.y < top || c.y > bottom {
+                c.y = c.y.clamp(top, bottom);
+                c.vy = -c.vy * BOUNCE;
             }
             // Settled and left alone a while: up it goes
             if c.vx.hypot(c.vy) < 40.0 {
@@ -193,12 +223,9 @@ impl Sim {
         if c.rising {
             // Up it goes, swaying a little, and pops just under the surface
             c.y -= 70.0 * dt;
-            c.x += (self.time * 2.0).sin() * 12.0 * dt;
-            let r = c.radius(&self.fish);
+            c.x += (self.time * 2.0 + c.id as f32).sin() * 12.0 * dt;
             if c.y - r <= self.water_top() + 4.0 || c.y < 0.0 {
-                self.carry = Some(c);
-                self.carry_end();
-                return;
+                return true;
             }
         }
         // The fish it held went away (to another screen, out of the library)
@@ -209,11 +236,13 @@ impl Sim {
             c.holding = false;
         }
         if c.fish.is_none() {
-            // Waiting by the nearest fish that could come
+            // Waiting by the nearest fish that could come (and isn't in another bubble)
             let nearest = self
                 .fish
                 .iter()
-                .filter(|f| !f.entering && f.travel == 0 && !f.arriving)
+                .filter(|f| {
+                    !f.entering && f.travel == 0 && !f.arriving && !matches!(f.mode, Mode::Bubbled)
+                })
                 .map(|f| (f.id, (f.x - c.x).hypot(f.y - c.y), f.trust))
                 .filter(|&(_, d, _)| d < INVITE_RADIUS)
                 .min_by(|a, b| a.1.total_cmp(&b.1));
@@ -240,16 +269,17 @@ impl Sim {
                 }
             }
         }
-        self.carry = Some(c);
+        false
     }
 
-    /// In (or swimming into) the bubble: calm, follows it, now and then a heart
+    /// In (or swimming into) a bubble: calm, follows it, now and then a heart
     pub(super) fn step_bubbled(&mut self, f: &mut Fish, dt: f32) {
-        let Some(mut c) = self.carry.filter(|c| c.fish == Some(f.id)) else {
+        let Some(i) = self.carries.iter().position(|c| c.fish == Some(f.id)) else {
             f.mode = Mode::Wander;
             f.retarget = true;
             return;
         };
+        let c = self.carries[i];
         // Where it can get to: the bubble, kept inside the water
         let tx =
             c.x.clamp(f.w * 0.5, (self.width - f.w * 0.5).max(f.w * 0.5));
@@ -286,8 +316,7 @@ impl Sim {
             f.y += f.vy * dt;
             f.phase = (f.phase + dt * (2.5 + speed * 0.07)) % (std::f32::consts::TAU * 64.0);
             if dist < 15.0 {
-                c.holding = true;
-                self.carry = Some(c);
+                self.carries[i].holding = true;
             }
         }
         // Face the way it is going; inside, keep facing
@@ -329,6 +358,10 @@ mod tests {
         s
     }
 
+    fn get(s: &Sim, id: u32) -> Option<Carry> {
+        s.carries().iter().find(|c| c.id == id).copied()
+    }
+
     #[test]
     fn a_fish_swims_into_the_bubble_and_is_carried() {
         // Even a shy fish comes along (it just takes a moment)
@@ -336,29 +369,29 @@ mod tests {
         let (fx, fy) = (s.fish[0].x, s.fish[0].y);
         // Beside it, on the side with room
         let (bx, by) = (if fx > 960.0 { fx - 120.0 } else { fx + 120.0 }, fy);
+        let id = s.carry_new(bx, by);
         for _ in 0..30 * 3 {
-            s.carry_to(bx, by);
+            s.carry_to(id, bx, by);
             s.step(DT, Some((bx, by)));
         }
-        let c = *s.carry().unwrap();
+        let c = get(&s, id).unwrap();
         assert_eq!(c.fish, Some(5), "the fish should have come into the bubble");
         assert!(c.holding, "it should be inside by now");
         // Carry it across the tank
         for k in 0..30 * 4 {
             let x = 1500.0 - k as f32 * 6.0;
-            s.carry_to(x, 400.0);
+            s.carry_to(id, x, 400.0);
             s.step(DT, Some((x, 400.0)));
         }
         let f = &s.fish()[0];
-        let c = *s.carry().unwrap();
+        let c = get(&s, id).unwrap();
         assert!(
             (f.x - c.x).hypot(f.y - c.y) < 20.0,
             "the fish should float in the bubble"
         );
         assert!(f.flee_left == 0.0, "nobody is frightened");
-        // Let go
-        s.carry_end();
-        assert!(s.carry().is_none());
+        s.carry_end(id);
+        assert!(get(&s, id).is_none());
         for _ in 0..30 * 2 {
             s.step(DT, None);
         }
@@ -373,49 +406,102 @@ mod tests {
         let mut s = one_fish(Character::Explorer);
         let (fx, fy) = (s.fish[0].x, s.fish[0].y);
         let bx = if fx > 960.0 { fx - 120.0 } else { fx + 120.0 };
+        let id = s.carry_new(bx, fy);
         for _ in 0..30 * 3 {
-            s.carry_to(bx, fy);
+            s.carry_to(id, bx, fy);
             s.step(DT, None);
         }
-        assert!(s.carry().unwrap().holding);
-        s.carry_release();
+        assert!(get(&s, id).unwrap().holding);
+        s.carry_release(id);
         for _ in 0..30 * 25 {
             s.step(DT, None);
-            if s.carry().is_none() {
+            if get(&s, id).is_none() {
                 break;
             }
         }
-        assert!(s.carry().is_none(), "it should have popped at the surface");
+        assert!(
+            get(&s, id).is_none(),
+            "it should have popped at the surface"
+        );
         let f = &s.fish()[0];
         assert!(f.y < 1080.0 * 0.3, "the fish rode up with it (y {})", f.y);
         assert!(!matches!(f.mode, Mode::Bubbled));
     }
 
     #[test]
-    fn a_flung_bubble_keeps_going_and_pops_at_the_side() {
-        let mut s = one_fish(Character::Explorer);
-        // Led quickly to the right, then let go mid-tank
-        for k in 0..10 {
-            s.carry_to(1100.0 + k as f32 * 40.0, 500.0);
+    fn a_flung_bubble_keeps_going_and_bounces_in_every_direction() {
+        for (dx, dy) in [(40.0f32, 0.0f32), (0.0, -40.0), (0.0, 40.0), (-30.0, 30.0)] {
+            let mut s = one_fish(Character::Explorer);
+            // Keep the fish out of the way: an empty bubble
+            s.fish[0].x = 100.0;
+            s.fish[0].y = 1000.0;
+            let id = s.carry_new(960.0, 520.0);
+            for k in 0..8 {
+                s.carry_to(id, 960.0 + k as f32 * dx, 520.0 + k as f32 * dy);
+                s.step(DT, None);
+            }
+            s.carry_release(id);
+            let start = get(&s, id).unwrap();
+            let (mut bounced, mut travelled) = (false, 0.0f32);
+            let mut last = (start.x, start.y);
+            for _ in 0..30 * 2 {
+                s.step(DT, None);
+                let c = get(&s, id).expect("a fling must not pop it");
+                travelled += (c.x - last.0).hypot(c.y - last.1);
+                // Coming back along either axis it was flung along
+                bounced |= (c.x - last.0) * dx < -1.0 || (c.y - last.1) * dy < -1.0;
+                last = (c.x, c.y);
+                let r = c.radius(s.fish());
+                assert!(c.y - r >= s.water_top() - 1.0, "stays under the surface");
+                assert!(
+                    c.x - r >= -1.0 && c.x + r <= 1921.0,
+                    "stays inside the sides"
+                );
+            }
+            assert!(
+                travelled > 200.0,
+                "flung {dx},{dy}: it should sail on ({travelled:.0}px)"
+            );
+            assert!(
+                bounced,
+                "flung {dx},{dy}: it should bounce back off the edge"
+            );
+        }
+    }
+
+    #[test]
+    fn several_bubbles_each_carry_their_own_fish() {
+        let mut s = Sim::new(9);
+        let specs: Vec<FishSpec> = (0..2u64)
+            .map(|k| FishSpec {
+                id: 20 + k,
+                sprite: 0,
+                aspect: 0.6,
+                scale: 1.0,
+                adult: true,
+                mouth: DEFAULT_MOUTH,
+                body: Body::Fish,
+            })
+            .collect();
+        s.set_population(&specs, false);
+        s.resize(1920.0, 1080.0);
+        s.fish[0].x = 400.0;
+        s.fish[0].y = 500.0;
+        s.fish[1].x = 1500.0;
+        s.fish[1].y = 500.0;
+        let a = s.carry_new(500.0, 500.0);
+        let b = s.carry_new(1400.0, 500.0);
+        for _ in 0..30 * 3 {
+            s.carry_to(a, 500.0, 500.0);
+            s.carry_to(b, 1400.0, 500.0);
             s.step(DT, None);
         }
-        s.carry_release();
-        let x0 = s.carry().unwrap().x;
-        for _ in 0..10 {
-            s.step(DT, None);
-        }
-        let c = s.carry().copied();
+        let (ca, cb) = (get(&s, a).unwrap(), get(&s, b).unwrap());
         assert!(
-            c.is_none_or(|c| c.x > x0 + 100.0),
-            "it should carry on to the right"
+            ca.fish.is_some() && cb.fish.is_some(),
+            "both bubbles have a fish"
         );
-        for _ in 0..30 * 4 {
-            s.step(DT, None);
-        }
-        assert!(
-            s.carry().is_none(),
-            "it should have popped against the side"
-        );
+        assert_ne!(ca.fish, cb.fish, "each its own");
     }
 
     #[test]
@@ -423,10 +509,11 @@ mod tests {
         let mut s = one_fish(Character::Explorer);
         let (fx, fy) = (s.fish[0].x, s.fish[0].y);
         let (bx, by) = (if fx > 960.0 { 100.0 } else { 1800.0 }, fy);
+        let id = s.carry_new(bx, by);
         for _ in 0..30 * 3 {
-            s.carry_to(bx, by);
+            s.carry_to(id, bx, by);
             s.step(DT, Some((bx, by)));
         }
-        assert_eq!(s.carry().unwrap().fish, None);
+        assert_eq!(get(&s, id).unwrap().fish, None);
     }
 }

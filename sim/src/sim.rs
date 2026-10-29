@@ -584,8 +584,9 @@ pub struct Sim {
     /// Side edges that lead to another screen, and fish that left through them
     exits: (bool, bool),
     departures: Vec<Departure>,
-    /// The bubble carrying a fish around, while the wand is in use
-    carry: Option<Carry>,
+    /// Bubbles from the wand, each maybe carrying a fish (see carry.rs)
+    carries: Vec<Carry>,
+    next_carry: u32,
     /// Hearts floating up from petted fish
     hearts: Vec<Heart>,
     last_pointer: Option<(f32, f32)>,
@@ -634,7 +635,8 @@ impl Sim {
             shelters: Vec::new(),
             exits: (false, false),
             departures: Vec::new(),
-            carry: None,
+            carries: Vec::new(),
+            next_carry: 1,
             hearts: Vec::new(),
             last_pointer: None,
             saved_trust: HashMap::new(),

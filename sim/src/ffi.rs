@@ -640,63 +640,89 @@ pub unsafe extern "C" fn dc_sim_arrive(handle: *mut DcSim, id: u64, side: i32, y
     with_sim(handle, false, |s| y.is_finite() && s.arrive(id, side, y))
 }
 
-/// The bubble wand: the bubble is at (x, y) (scene pixels); starts one if needed.
+/// A bubble from the wand, as drawn
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcCarry {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    /// 0..1: how close a fish is to coming in (1 once one has)
+    pub alpha: f32,
+}
+
+/// The bubble wand blows a new bubble at (x, y), scene pixels; returns its id.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_carry_to(handle: *mut DcSim, x: f32, y: f32) {
-    with_sim(handle, (), |s| {
+pub unsafe extern "C" fn dc_sim_carry_new(handle: *mut DcSim, x: f32, y: f32) -> u32 {
+    with_sim(handle, 0, |s| {
         if x.is_finite() && y.is_finite() {
-            s.carry_to(x, y)
+            s.carry_new(x, y)
+        } else {
+            0
         }
-    });
+    })
 }
 
-/// Let go of the bubble: it drifts on with its momentum, pops if it hits a
-/// side, and floats up after a few seconds alone.
+/// Leads bubble `id` to (x, y); false if it has popped.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_carry_release(handle: *mut DcSim) {
-    with_sim(handle, (), |s| s.carry_release());
-}
-
-/// The bubble was left alone: it floats up and pops at the surface.
-/// # Safety
-/// `handle` must be null or a live pointer from `dc_sim_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_carry_rise(handle: *mut DcSim) {
-    with_sim(handle, (), |s| s.carry_rise());
-}
-
-/// Let go of the bubble: it pops and the fish inside swims out.
-/// # Safety
-/// `handle` must be null or a live pointer from `dc_sim_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_carry_end(handle: *mut DcSim) {
-    with_sim(handle, (), |s| s.carry_end());
-}
-
-/// The bubble to draw, if one is out (alpha: 0..1, how close a fish is to coming in).
-/// # Safety
-/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for one write.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_carry_bubble(handle: *mut DcSim, out: *mut DcBubble) -> bool {
+pub unsafe extern "C" fn dc_sim_carry_to(handle: *mut DcSim, id: u32, x: f32, y: f32) -> bool {
     with_sim(handle, false, |s| {
-        let (Some((x, y, radius)), Some(c)) = (s.carry_bubble(), s.carry()) else {
-            return false;
-        };
-        let progress = c.invite_progress();
-        // SAFETY: caller provides room for one element.
-        if let Some(o) = unsafe { out.as_mut() } {
-            *o = DcBubble {
-                x,
-                y,
-                radius,
-                alpha: progress,
-            };
+        x.is_finite() && y.is_finite() && s.carry_to(id, x, y)
+    })
+}
+
+/// Lets go of bubble `id`: it drifts on, bounces off the sides, and floats
+/// up to pop after a few seconds alone.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_release(handle: *mut DcSim, id: u32) {
+    with_sim(handle, (), |s| s.carry_release(id));
+}
+
+/// Bubble `id` floats up and pops at the surface.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_rise(handle: *mut DcSim, id: u32) {
+    with_sim(handle, (), |s| s.carry_rise(id));
+}
+
+/// Pops bubble `id` right away; the fish inside swims out.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_end(handle: *mut DcSim, id: u32) {
+    with_sim(handle, (), |s| s.carry_end(id));
+}
+
+/// Same contract as `dc_sim_fish`, for the wand's bubbles.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carries(handle: *mut DcSim, out: *mut DcCarry, cap: u32) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.carries();
+        if !out.is_null() {
+            // SAFETY: caller provides room for `cap` elements.
+            let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (d, c) in dst.iter_mut().zip(list) {
+                let (x, y, radius) = s.bubble_of(c);
+                *d = DcCarry {
+                    id: c.id,
+                    x,
+                    y,
+                    radius,
+                    alpha: c.invite_progress(),
+                };
+            }
         }
-        true
+        list.len() as u32
     })
 }
 

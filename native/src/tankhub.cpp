@@ -324,71 +324,107 @@ bool feedUnderCursor()
 } // namespace
 
 namespace {
-QPointer<FishTank> &carryTank()
+// The wand's bubbles: our id -> the tank it is in and the sim's id there
+struct CarryRef {
+    QPointer<FishTank> tank;
+    uint32_t simId = 0;
+};
+QHash<int, CarryRef> &carries()
 {
-    static QPointer<FishTank> tank;
-    return tank;
+    static QHash<int, CarryRef> map;
+    return map;
 }
-} // namespace
+int nextCarry = 1;
 
-bool TankHub::carryAt(QQuickItem *item, qreal x, qreal y)
+// The tank under (x, y) in `item`, and the point in its coordinates
+FishTank *tankAt(QQuickItem *item, qreal x, qreal y, QPointF *local)
 {
     if (!item || !item->window())
-        return false;
-    FishTank *found = nullptr;
-    QPointF local;
+        return nullptr;
     // A widget on the desktop shares the wallpaper's window
     for (const QPointer<FishTank> &t : std::as_const(tanks())) {
         if (t && t->window() == item->window() && t->width() > 0) {
-            found = t;
-            local = item->mapToItem(t, QPointF(x, y));
-            break;
+            *local = item->mapToItem(t, QPointF(x, y));
+            return t;
         }
     }
-    if (!found) {
-        const QPointF global = item->mapToGlobal(QPointF(x, y));
-        for (const QPointer<FishTank> &t : std::as_const(tanks())) {
-            if (!t || t->width() <= 0)
-                continue;
-            const QPointF p = t->mapFromGlobal(global);
-            if (p.x() >= 0 && p.y() >= 0 && p.x() < t->width() && p.y() < t->height()) {
-                found = t;
-                local = p;
-                break;
-            }
+    const QPointF global = item->mapToGlobal(QPointF(x, y));
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (!t || t->width() <= 0)
+            continue;
+        const QPointF p = t->mapFromGlobal(global);
+        if (p.x() >= 0 && p.y() >= 0 && p.x() < t->width() && p.y() < t->height()) {
+            *local = p;
+            return t;
         }
     }
-    // Moved over to another screen: the old bubble pops
-    if (carryTank() && carryTank() != found)
-        carryTank()->carryEnd();
-    carryTank() = found;
-    if (found)
-        found->carryTo(local);
-    return found;
+    return nullptr;
+}
+} // namespace
+
+int TankHub::carryNew(QQuickItem *item, qreal x, qreal y)
+{
+    QPointF local;
+    FishTank *tank = tankAt(item, x, y, &local);
+    if (!tank)
+        return 0;
+    const uint32_t simId = tank->carryNew(local);
+    if (!simId)
+        return 0;
+    const int id = nextCarry++;
+    carries().insert(id, {tank, simId});
+    return id;
 }
 
-void TankHub::carryRelease()
+bool TankHub::carryAt(int id, QQuickItem *item, qreal x, qreal y)
 {
-    if (carryTank())
-        carryTank()->carryRelease();
+    auto it = carries().find(id);
+    if (it == carries().end() || !it->tank)
+        return false;
+    QPointF local;
+    FishTank *tank = tankAt(item, x, y, &local);
+    if (!tank)
+        return true;   // off the aquarium for a moment: it stays where it was
+    if (tank != it->tank) {
+        // Led over to another screen: it pops there and a new one goes on here
+        it->tank->carryEnd(it->simId);
+        it->tank = tank;
+        it->simId = tank->carryNew(local);
+        return it->simId != 0;
+    }
+    if (!tank->carryTo(it->simId, local)) {
+        carries().erase(it);
+        return false;
+    }
+    return true;
 }
 
-QRectF TankHub::carryBubbleRect(QQuickItem *item) const
+void TankHub::carryRelease(int id)
 {
-    FishTank *tank = carryTank();
-    if (!tank || !item)
+    const auto it = carries().constFind(id);
+    if (it != carries().cend() && it->tank)
+        it->tank->carryRelease(it->simId);
+}
+
+void TankHub::carryEnd(int id)
+{
+    const CarryRef ref = carries().take(id);
+    if (ref.tank)
+        ref.tank->carryEnd(ref.simId);
+}
+
+QRectF TankHub::carryBubbleRect(int id, QQuickItem *item) const
+{
+    auto it = carries().find(id);
+    if (it == carries().end() || !it->tank || !item)
         return {};
-    const QRectF r = tank->carryBubbleRect();
-    if (r.isNull())
+    const QRectF r = it->tank->carryRect(it->simId);
+    if (r.isNull()) {
+        // Popped on its own (floated up)
+        carries().erase(it);
         return {};
-    return QRectF(tank->mapToItem(item, r.topLeft()), tank->mapToItem(item, r.bottomRight()));
-}
-
-void TankHub::carryRise()
-{
-    if (carryTank())
-        carryTank()->carryRise();
-    carryTank() = nullptr;
+    }
+    return QRectF(it->tank->mapToItem(item, r.topLeft()), it->tank->mapToItem(item, r.bottomRight()));
 }
 
 void TankHub::placeOnDesktop(QQuickItem *box, qreal x, qreal y)
@@ -397,13 +433,6 @@ void TankHub::placeOnDesktop(QQuickItem *box, qreal x, qreal y)
         return;
     // A plain C++ write skips the QML Behavior on x/y
     box->setPosition(QPointF(x, y));
-}
-
-void TankHub::carryEnd()
-{
-    if (carryTank())
-        carryTank()->carryEnd();
-    carryTank() = nullptr;
 }
 
 bool TankHub::feedBelow(QQuickItem *item)

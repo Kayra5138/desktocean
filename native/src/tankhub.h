@@ -72,18 +72,19 @@ public:
     // Drops food right below `item` (the food jar widget) into the tank on its
     // screen; false if no tank is there
     Q_INVOKABLE bool feedBelow(QQuickItem *item);
-    // The bubble wand: the bubble is at (x, y) in `item` (the wand's mouse
-    // area); a fish next to it for a moment swims in and rides along.
-    // carryEnd() lets go.
-    Q_INVOKABLE bool carryAt(QQuickItem *item, qreal x, qreal y);
-    Q_INVOKABLE void carryEnd();
-    // Left alone for a while: the bubble floats up and pops at the surface
-    Q_INVOKABLE void carryRise();
-    // Let go of the bubble: it drifts on with its momentum and pops at a side,
-    // or floats up after a few seconds alone
-    Q_INVOKABLE void carryRelease();
-    // Where the bubble is, in `item`'s coordinates; an empty rect when there is none
-    Q_INVOKABLE QRectF carryBubbleRect(QQuickItem *item) const;
+    // The bubble wand. carryNew blows a bubble at (x, y) in `item` and returns
+    // its id (0 if there is no aquarium there); there can be many. A bubble
+    // led next to a fish for a moment gets the fish to swim in.
+    Q_INVOKABLE int carryNew(QQuickItem *item, qreal x, qreal y);
+    // Leads bubble `id` to (x, y) in `item`; false once it has popped
+    Q_INVOKABLE bool carryAt(int id, QQuickItem *item, qreal x, qreal y);
+    // Let go: it drifts on with its momentum, bounces off the sides, and
+    // floats up to pop after a few seconds alone
+    Q_INVOKABLE void carryRelease(int id);
+    // Pops it now; the fish inside swims out
+    Q_INVOKABLE void carryEnd(int id);
+    // Where bubble `id` is, in `item`'s coordinates; empty once it has popped
+    Q_INVOKABLE QRectF carryBubbleRect(int id, QQuickItem *item) const;
     // Puts a desktop widget's box (an ItemContainer) at (x, y) in its
     // parent's coordinates right away. From C++, so the desktop's move
     // animation doesn't hold it back and the layout saves the new place.

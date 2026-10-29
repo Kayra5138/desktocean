@@ -93,6 +93,7 @@ Window {
     Timer {
         readonly property bool on: Qt.application.arguments.indexOf("--bubble") >= 0
         property real t: 0
+        property int bubble: 0
         interval: 33
         repeat: true
         running: on
@@ -100,8 +101,10 @@ Window {
             t += interval / 1000;
             // Waits in the middle first, so someone can come in, then goes round
             const go = Math.max(0, t - 8);
-            TankHub.carryAt(aquarium, aquarium.width / 2 + Math.sin(go * 0.25) * aquarium.width * 0.25,
-                            aquarium.height * 0.45 + Math.sin(go * 0.5) * aquarium.height * 0.15);
+            const x = aquarium.width / 2 + Math.sin(go * 0.25) * aquarium.width * 0.25;
+            const y = aquarium.height * 0.45 + Math.sin(go * 0.5) * aquarium.height * 0.15;
+            if (!bubble || !TankHub.carryAt(bubble, aquarium, x, y))
+                bubble = TankHub.carryNew(aquarium, x, y);
         }
     }
 
