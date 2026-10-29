@@ -15,7 +15,11 @@ Kirigami.Page {
     // What is being drawn: "fish", "plant" or "decor"
     property string kind: "fish"
     readonly property bool isFish: kind === "fish"
-    readonly property string kindLabel: kind === "plant" ? "plant" : kind === "decor" ? "decoration" : "fish"
+    // Crawlers live in the tank like fish (copies, size) but walk on the bottom
+    readonly property bool isCrawler: kind === "crawler"
+    readonly property bool isCreature: isFish || isCrawler
+    readonly property string kindLabel: kind === "plant" ? "plant" : kind === "decor" ? "decoration"
+                                      : kind === "crawler" ? "crawler" : "fish"
 
     // Set while a fish from the library is open for editing
     property string editingId: ""
@@ -51,7 +55,7 @@ Kirigami.Page {
             kind: kind,
             name: name,
             scale: sizeBox.currentValue,
-            count: isFish ? (editing ? copiesBox.value : Math.max(1, copiesBox.value)) : 1,
+            count: isCreature ? (editing ? copiesBox.value : Math.max(1, copiesBox.value)) : 1,
             swimStyle: styleBox.currentValue,
             sway: swaySlider.value
         };
@@ -92,7 +96,7 @@ Kirigami.Page {
 
     // `fish` is a LibraryModel row: {fishId, kind, name, image, wiggle, swimStyle, sway, scale, copies}
     function startEditing(fish) {
-        const error = canvas.loadImage(fish.image, fish.wiggle, fish.mouth);
+        const error = canvas.loadImage(fish.image, fish.wiggle, fish.mouth, fish.opening);
         if (error) {
             showMessage(Kirigami.MessageType.Error, error);
             return;
@@ -220,8 +224,9 @@ Kirigami.Page {
                         Repeater {
                             model: [
                                 { kind: "fish", text: "Fish" },
+                                { kind: "crawler", text: "Crawler" },
                                 { kind: "plant", text: "Plant" },
-                                { kind: "decor", text: "Decoration" }
+                                { kind: "decor", text: "Decor" }
                             ]
                             QQC2.Button {
                                 required property var modelData
@@ -232,7 +237,8 @@ Kirigami.Page {
                                 onClicked: {
                                     page.kind = modelData.kind;
                                     canvas.motionMode = false;
-                                    if (modelData.kind !== "fish" && canvas.tool === DrawingCanvas.Mouth)
+                                    if ((modelData.kind !== "fish" && canvas.tool === DrawingCanvas.Mouth)
+                                        || (modelData.kind !== "decor" && canvas.tool === DrawingCanvas.Opening))
                                         canvas.tool = DrawingCanvas.Brush;
                                 }
                             }
@@ -255,11 +261,12 @@ Kirigami.Page {
                                 { tool: DrawingCanvas.Rectangle, text: "Box", icon: "draw-rectangle" },
                                 { tool: DrawingCanvas.Ellipse, text: "Ellipse", icon: "draw-ellipse" },
                                 { tool: DrawingCanvas.Select, text: "Select", icon: "select-rectangular" },
-                                { tool: DrawingCanvas.Mouth, text: "Mouth", icon: "crosshairs", fishOnly: true }
+                                { tool: DrawingCanvas.Mouth, text: "Mouth", icon: "crosshairs", fishOnly: true },
+                                { tool: DrawingCanvas.Opening, text: "Opening", icon: "draw-arrow-down", decorOnly: true }
                             ]
                             QQC2.ToolButton {
                                 required property var modelData
-                                visible: !modelData.fishOnly || page.isFish
+                                visible: (!modelData.fishOnly || page.isFish) && (!modelData.decorOnly || page.kind === "decor")
                                 Layout.fillWidth: true
                                 text: modelData.text
                                 icon.name: modelData.icon
@@ -287,6 +294,22 @@ Kirigami.Page {
                         text: canvas.mouthMarked
                             ? "Click to move the mouth. The fish eats food only with this spot."
                             : "Click where the mouth is. The dashed circle is a guess from the drawing."
+                    }
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        visible: canvas.tool === DrawingCanvas.Opening
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        text: canvas.hasOpening
+                            ? "Fish can swim into this cave. Drag again to change it, click once to remove it."
+                            : "Drag a box over the dark hole of a cave or hollow: fish will swim in and hide there."
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        visible: canvas.tool === DrawingCanvas.Opening && canvas.hasOpening
+                        text: "Remove the opening"
+                        icon.name: "edit-delete"
+                        onClicked: canvas.clearOpening()
                     }
                     QQC2.Button {
                         Layout.fillWidth: true
@@ -426,8 +449,14 @@ Kirigami.Page {
                     QQC2.ComboBox {
                         id: styleBox
                         Layout.fillWidth: true
-                        visible: page.isFish
-                        model: preview.styles
+                        visible: page.isCreature
+                        // How crawlers walk (the same `style` field as a fish's swim style)
+                        model: page.isCrawler ? [
+                            { id: "crab", label: "Crab – sideways dashes" },
+                            { id: "snail", label: "Snail – slow, climbs rocks" },
+                            { id: "star", label: "Starfish – barely moves" },
+                            { id: "walker", label: "Shrimp – walks on little legs" }
+                        ] : preview.styles
                         textRole: "label"
                         valueRole: "id"
                     }
@@ -555,7 +584,7 @@ Kirigami.Page {
                 RowLayout {
                     Layout.fillWidth: true
                     // Plants and decorations are sized in the tank layout
-                    visible: page.isFish
+                    visible: page.isCreature
                     QQC2.Label { text: "Size:" }
                     QQC2.ComboBox {
                         id: sizeBox
@@ -575,7 +604,7 @@ Kirigami.Page {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: page.isFish
+                    visible: page.isCreature
                     QQC2.Label { text: "Copies:" }
                     QQC2.SpinBox {
                         id: copiesBox
@@ -589,7 +618,7 @@ Kirigami.Page {
                 QQC2.Button {
                     Layout.fillWidth: true
                     Layout.bottomMargin: page.editing ? 0 : Kirigami.Units.largeSpacing
-                    text: page.editing ? "Save changes" : page.isFish ? "Add to aquarium" : "Add to the tank"
+                    text: page.editing ? "Save changes" : page.isCreature ? "Add to aquarium" : "Add to the tank"
                     icon.name: page.editing ? "document-save" : "list-add"
                     highlighted: true
                     enabled: !canvas.empty
@@ -686,7 +715,7 @@ Kirigami.Page {
                 QQC2.Label {
                     x: canvas.x + canvas.viewRect.right - width - Kirigami.Units.largeSpacing
                     y: canvas.y + canvas.viewRect.y + Kirigami.Units.largeSpacing
-                    text: page.isFish ? "head this way  →" : "bottom stands on the sand  ↓"
+                    text: page.isFish ? "head this way  →" : page.isCrawler ? "feet on the bottom, head right  →" : "bottom stands on the sand  ↓"
                     color: "#555566"
                     opacity: 0.8
                     font.italic: true
@@ -697,10 +726,14 @@ Kirigami.Page {
                     width: parent.width * 0.6
                     visible: canvas.empty
                     icon.name: "draw-brush"
-                    text: page.isFish ? "Draw a fish facing right" : "Draw a " + page.kindLabel + " standing upright"
+                    text: page.isFish ? "Draw a fish facing right"
+                        : page.isCrawler ? "Draw a crab, snail or starfish from the side"
+                        : "Draw a " + page.kindLabel + " standing upright"
                     explanation: page.isFish
                         ? "Or start from a template, or import a picture. Everything transparent becomes water."
-                        : (page.kind === "plant" ? "Its bottom stays put and the top sways in the current." : "It stands still on the sand.")
+                        : (page.kind === "plant" ? "Its bottom stays put and the top sways in the current."
+                           : page.isCrawler ? "It walks along the bottom on whatever is lowest in the drawing (legs move there). Crabs can face you."
+                           : "It stands still on the sand.")
                           + " Everything transparent becomes water."
                     // Let strokes through to the canvas
                     enabled: false

@@ -248,9 +248,9 @@ FishDrawing DrawingCanvas::drawing() const
         p.setRenderHint(QPainter::SmoothPixmapTransform);
         p.drawImage(m_floatRect, m_floating);
         p.end();
-        return {composed, m_hasWiggle ? m_mask : QImage(), m_mouth};
+        return {composed, m_hasWiggle ? m_mask : QImage(), m_mouth, m_opening};
     }
-    return {m_image, m_hasWiggle ? m_mask : QImage(), m_mouth};
+    return {m_image, m_hasWiggle ? m_mask : QImage(), m_mouth, m_opening};
 }
 
 void DrawingCanvas::setShowMouth(bool show)
@@ -260,6 +260,20 @@ void DrawingCanvas::setShowMouth(bool show)
     m_showMouth = show;
     update();
     Q_EMIT showMouthChanged();
+}
+
+void DrawingCanvas::clearOpening()
+{
+    if (m_opening.isNull())
+        return;
+    m_opening = QRectF();
+    contentModified();
+}
+
+void DrawingCanvas::markOpening(qreal x, qreal y, qreal w, qreal h)
+{
+    m_opening = QRectF(x, y, w, h).intersected(QRectF(QPointF(), QSizeF(kCanvasSize)));
+    contentModified();
 }
 
 void DrawingCanvas::resetMouth()
@@ -419,6 +433,7 @@ void DrawingCanvas::clear()
     m_image.fill(Qt::transparent);
     m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
     m_mouth = QPointF(-1, -1);
+    m_opening = QRectF();
     contentModified();
 }
 
@@ -434,6 +449,8 @@ void DrawingCanvas::flipHorizontal()
     m_mask = m_mask.flipped(Qt::Horizontal);
     if (m_mouth.x() >= 0)
         m_mouth.setX(kCanvasSize.width() - m_mouth.x());
+    if (!m_opening.isNull())
+        m_opening.moveLeft(kCanvasSize.width() - m_opening.right());
     contentModified();
 }
 
@@ -473,6 +490,7 @@ QRect DrawingCanvas::replaceImage(const QImage &source, const QImage &wiggle, bo
         mp.drawImage(placed, wiggle.convertToFormat(QImage::Format_ARGB32));
     }
     m_mouth = QPointF(-1, -1);
+    m_opening = QRectF();
     contentModified();
     return placed;
 }
@@ -503,7 +521,7 @@ QString DrawingCanvas::importImage(const QUrl &url, bool removeBackground)
     return {};
 }
 
-QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle, QPointF mouth)
+QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle, QPointF mouth, QRectF opening)
 {
     QImageReader reader(QQmlFile::urlToLocalFileOrQrc(url));
     const QImage img = reader.read();
@@ -515,6 +533,9 @@ QString DrawingCanvas::loadImage(const QUrl &url, const QUrl &wiggle, QPointF mo
     // The saved mouth is a fraction of the sprite, which now sits at `placed`
     if (mouth.x() >= 0)
         m_mouth = QPointF(placed.x() + mouth.x() * placed.width(), placed.y() + mouth.y() * placed.height());
+    m_opening = opening.isNull() ? QRectF()
+                                 : QRectF(placed.x() + opening.x() * placed.width(), placed.y() + opening.y() * placed.height(),
+                                          opening.width() * placed.width(), opening.height() * placed.height());
     // Freshly opened: nothing to lose yet
     m_dirty = false;
     resetView();
@@ -529,6 +550,7 @@ void DrawingCanvas::loadTemplate(int index)
     m_image.fill(Qt::transparent);
     m_mask.fill(qRgb(kWiggleNeutral, kWiggleNeutral, kWiggleNeutral));
     m_mouth = QPointF(-1, -1);
+    m_opening = QRectF();
     QPainter p(&m_image);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(QPen(QColor(0x2a, 0x2a, 0x35), 7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -556,7 +578,7 @@ QString DrawingCanvas::saveToLibrary(const QVariantMap &meta)
 {
     commitSelection();
     FishEntry entry = entryFromMap(meta);
-    if (entry.kind != FishEntry::Kind::Fish) {
+    if (entry.kind == FishEntry::Kind::Plant || entry.kind == FishEntry::Kind::Decor) {
         // Somewhere on the sand, behind the fish; the layout page moves it
         Placement p;
         p.x = 0.15 + 0.7 * QRandomGenerator::global()->generateDouble();
@@ -899,6 +921,11 @@ void DrawingCanvas::mousePressEvent(QMouseEvent *event)
     case Fill:
         floodFill(p.toPoint());
         return;
+    case Opening:
+        m_drag = Drag::Opening;
+        m_opening = QRectF(p, p);
+        update();
+        return;
     case Mouth:
         if (m_image.rect().contains(p.toPoint())) {
             pushUndo();
@@ -968,6 +995,9 @@ void DrawingCanvas::mouseMoveEvent(QMouseEvent *event)
     case Drag::Rubber:
         m_rubber = QRectF(m_start, p).normalized();
         break;
+    case Drag::Opening:
+        m_opening = QRectF(m_start, p).normalized().intersected(QRectF(QPointF(), QSizeF(kCanvasSize)));
+        break;
     case Drag::Move:
         m_floatRect.moveTopLeft(m_dragOrigin.topLeft() + (p - m_start));
         break;
@@ -1002,6 +1032,12 @@ void DrawingCanvas::mouseReleaseEvent(QMouseEvent *)
     case Drag::Rubber:
         liftSelection(m_rubber.toAlignedRect());
         m_rubber = {};
+        break;
+    case Drag::Opening:
+        // A click (or a sliver) clears it
+        if (m_opening.width() < 20 || m_opening.height() < 20)
+            m_opening = QRectF();
+        contentModified();
         break;
     default:
         update();
@@ -1113,6 +1149,24 @@ void DrawingCanvas::paint(QPainter *painter)
             painter->setPen(QColor(220, 40, 40));
             painter->drawText(at + QPointF(r + 4, 4), QStringLiteral("mouth"));
         }
+    }
+
+    // The cave opening: an arch, like the cut the tank makes in the drawing
+    if (!m_opening.isNull() && !m_motionMode) {
+        const QRectF r = toView(m_opening);
+        const qreal round = r.height() * 0.55;
+        QPainterPath arch;
+        arch.moveTo(r.left(), r.bottom());
+        arch.lineTo(r.left(), r.top() + round);
+        arch.arcTo(QRectF(r.left(), r.top(), r.width(), round * 2), 180, -180);
+        arch.lineTo(r.right(), r.bottom());
+        arch.closeSubpath();
+        painter->setBrush(QColor(0x30, 0x80, 0xe0, 40));
+        painter->setPen(QPen(Qt::white, 3));
+        painter->drawPath(arch);
+        painter->setPen(QPen(QColor(0x30, 0x80, 0xe0), 1.6, Qt::DashLine));
+        painter->drawPath(arch);
+        painter->drawText(r.topLeft() + QPointF(4, -6), QStringLiteral("cave opening"));
     }
 
     // The mirror line, faint and dashed, with a round handle to drag it by

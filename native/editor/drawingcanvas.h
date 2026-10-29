@@ -46,6 +46,8 @@ class DrawingCanvas : public QQuickPaintedItem
     Q_PROPERTY(bool dirty READ dirty NOTIFY contentChanged)
     // Show where the mouth is (fish only); the Mouth tool moves it
     Q_PROPERTY(bool showMouth READ showMouth WRITE setShowMouth NOTIFY showMouthChanged)
+    // Decorations: a cave opening fish can swim into, dragged out with the Opening tool
+    Q_PROPERTY(bool hasOpening READ hasOpening NOTIFY contentChanged)
     // The user placed the mouth (otherwise it is guessed from the drawing)
     Q_PROPERTY(bool mouthMarked READ mouthMarked NOTIFY contentChanged)
     // Mirror drawing: brush, eraser, shapes, fill and the wiggle brush paint on
@@ -55,7 +57,7 @@ class DrawingCanvas : public QQuickPaintedItem
     Q_PROPERTY(bool symmetryCentred READ symmetryCentred NOTIFY symmetryChanged)
 
 public:
-    enum Tool { Brush, Eraser, Fill, Picker, Line, Rectangle, Ellipse, Select, Mouth };
+    enum Tool { Brush, Eraser, Fill, Picker, Line, Rectangle, Ellipse, Select, Mouth, Opening };
     Q_ENUM(Tool)
     enum Wiggle { More, Less, Normal };
     Q_ENUM(Wiggle)
@@ -95,6 +97,10 @@ public:
     bool showMouth() const { return m_showMouth; }
     void setShowMouth(bool show);
     bool mouthMarked() const { return m_mouth.x() >= 0; }
+    bool hasOpening() const { return !m_opening.isNull(); }
+    Q_INVOKABLE void clearOpening();
+    // Development aid (--opening): a cave opening in canvas pixels
+    Q_INVOKABLE void markOpening(qreal x, qreal y, qreal w, qreal h);
     Symmetry symmetry() const { return m_symmetry; }
     void setSymmetry(Symmetry symmetry);
     bool symmetryCentred() const;
@@ -124,7 +130,8 @@ public:
     // Replaces the drawing with the image, scaled to fit; returns an error message or ""
     Q_INVOKABLE QString importImage(const QUrl &url, bool removeBackground);
     // Starts over with a library fish (and its wiggle mask and mouth, if any) and empty history
-    Q_INVOKABLE QString loadImage(const QUrl &url, const QUrl &wiggle = {}, QPointF mouth = QPointF(-1, -1));
+    Q_INVOKABLE QString loadImage(const QUrl &url, const QUrl &wiggle = {}, QPointF mouth = QPointF(-1, -1),
+                                  QRectF opening = {});
     Q_INVOKABLE void resetWiggle();
     // Development aid: paints "more wiggle" over the left third (the tail) and shows it
     Q_INVOKABLE void paintTailWiggleForTest();
@@ -167,7 +174,7 @@ protected:
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
 private:
-    enum class Drag { None, Stroke, Shape, Rubber, Move, Resize, Pan, Axis };
+    enum class Drag { None, Stroke, Shape, Rubber, Move, Resize, Pan, Axis, Opening };
 
     QPointF toImage(QPointF itemPos) const;
     QRectF toView(const QRectF &imageRect) const;
@@ -235,6 +242,7 @@ private:
     bool m_dirty = false;
     bool m_showMouth = true;
     QPointF m_mouth{-1, -1};       // canvas pixels; negative = not marked
+    QRectF m_opening;              // canvas pixels; null = no cave opening
     QPointF m_guessedMouth{-1, -1};
     Symmetry m_symmetry = NoSymmetry;
     QPointF m_axis{450, 270};      // canvas pixels: y for TopBottom, x for LeftRight

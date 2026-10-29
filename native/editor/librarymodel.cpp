@@ -44,6 +44,8 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return e.displayName;
     case CustomNameRole:
         return e.name;
+    case OpeningRole:
+        return e.opening;
     case FishNamesRole: {
         QStringList own;
         for (int k = 0; k < e.count; ++k)
@@ -99,7 +101,8 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
             {FriendsRole, "friends"}, {RivalsRole, "rivals"}, {KindRole, "kind"},
             {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"},
             {CharactersRole, "characters"}, {MouthRole, "mouth"},
-            {CustomNameRole, "customName"}, {FishNamesRole, "fishNames"}, {DefaultFishNamesRole, "defaultFishNames"}};
+            {CustomNameRole, "customName"}, {FishNamesRole, "fishNames"}, {DefaultFishNamesRole, "defaultFishNames"},
+            {OpeningRole, "opening"}};
 }
 
 QVariantMap LibraryModel::get(int row) const

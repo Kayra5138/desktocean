@@ -157,7 +157,7 @@ Kirigami.ApplicationWindow {
 
     // Development aid, e.g. desktocean-editor --template 0 --fill 500 270 --screenshot /tmp/editor.png
     // Optional: --swim <style id>, --wiggle-tail, --add-as <name> (saves the drawing to the library),
-    // --kind <fish|plant|decor>, --symmetry <h|v>, --stroke x0,y0,x1,y1,... (a red brush stroke),
+    // --kind <fish|crawler|plant|decor>, --opening x y w h (cave opening), --symmetry <h|v>, --stroke x0,y0,x1,y1,... (a red brush stroke),
     // --select-all, --edit-first (opens the first library fish for
     // editing), --names-first (opens its names dialog), --share-first <path> (exports it),
     // --family [row] (the family tree, centred on that library row),
@@ -191,6 +191,12 @@ Kirigami.ApplicationWindow {
                 drawPage.canvas.markMouth(Number(arg("--mouth")), Number(arg("--mouth", 2)));
             if (args.indexOf("--wiggle-tail") >= 0)
                 drawPage.canvas.paintTailWiggleForTest();
+            if (arg("--kind") !== undefined)
+                drawPage.kind = arg("--kind");
+            if (arg("--opening") !== undefined) {
+                drawPage.canvas.tool = DrawingCanvas.Opening;
+                drawPage.canvas.markOpening(...[1, 2, 3, 4].map(k => Number(arg("--opening", k))));
+            }
             if (arg("--add-as") !== undefined) {
                 if (arg("--kind") !== undefined)
                     drawPage.kind = arg("--kind");
