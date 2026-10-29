@@ -48,11 +48,6 @@ impl Gait {
             Gait::Walker => (40.0, (1.5, 5.0), (1.5, 6.0)),
         }
     }
-
-    /// Hides from a lingering cursor (a starfish doesn't bother)
-    fn shy(self) -> bool {
-        self != Gait::Star
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -81,8 +76,10 @@ pub struct Crawler {
     pub phase: f32,
     /// Degrees, follows the slope it stands on
     pub tilt: f32,
-    /// 0 out .. 1 dug in / in its shell
+    /// Unused (crawlers used to dig in); always 0
     pub buried: f32,
+    /// Lifted off the ground while hopping about in play, scene pixels
+    pub hop: f32,
     /// How far back on the sand it walks (scene y of its feet on flat sand)
     lane: f32,
     lane_target: f32,
@@ -91,13 +88,16 @@ pub struct Crawler {
     left: f32,
     speed: f32,
     cursor_near: f32,
-    hide_left: f32,
+    /// Playing with the cursor: seconds left, time into it, rest before the next game
+    play_left: f32,
+    play_t: f32,
+    play_cooldown: f32,
     /// Pellet it is heading for
     food: Option<usize>,
 }
 
-/// Crawlers this close to a cursor that lingers for a moment hide.
-const HIDE_RADIUS: f32 = 170.0;
+/// Crawlers this close to a cursor that lingers for a moment come and play.
+const PLAY_RADIUS: f32 = 190.0;
 
 impl Sim {
     /// Replaces the bottom creatures; ones with the same id keep their place
@@ -156,6 +156,7 @@ impl Sim {
             phase: self.rng.range(0.0, 6.0),
             tilt: 0.0,
             buried: 0.0,
+            hop: 0.0,
             lane,
             lane_target: lane,
             dir: if self.rng.chance(0.5) { 1.0 } else { -1.0 },
@@ -163,7 +164,9 @@ impl Sim {
             left: self.rng.range(0.5, 5.0),
             speed: 0.0,
             cursor_near: 0.0,
-            hide_left: 0.0,
+            play_left: 0.0,
+            play_t: 0.0,
+            play_cooldown: 0.0,
             food: None,
         };
         self.size_crawler(&mut c, spec);
@@ -201,26 +204,26 @@ impl Sim {
                 _ => 1.0,
             };
 
-            // A cursor that lingers close by: hide for a while
-            let near = pointer
-                .is_some_and(|(px, py)| (px - c.x).hypot(py - (c.y - c.h * 0.5)) < HIDE_RADIUS);
-            c.cursor_near = if near {
+            // A cursor that lingers close by: they come and play with it
+            let cursor =
+                pointer.filter(|&(px, py)| (px - c.x).hypot(py - (c.y - c.h * 0.5)) < PLAY_RADIUS);
+            c.cursor_near = if cursor.is_some() {
                 c.cursor_near + dt
             } else {
                 (c.cursor_near - dt).max(0.0)
             };
-            if c.gait.shy() && c.cursor_near > 0.5 && c.hide_left <= 0.0 {
-                c.hide_left = self.rng.range(4.0, 9.0);
-                c.walking = false;
+            c.play_cooldown = (c.play_cooldown - dt).max(0.0);
+            if c.cursor_near > 0.5 && c.play_left <= 0.0 && c.play_cooldown == 0.0 {
+                c.play_left = self.rng.range(3.0, 5.0);
+                c.play_t = 0.0;
             }
-            if c.hide_left > 0.0 {
-                // Stays in until the cursor has gone
-                if !near {
-                    c.hide_left -= dt;
+            let playing = c.play_left > 0.0;
+            if playing {
+                c.play_left -= dt;
+                c.play_t += dt;
+                if c.play_left <= 0.0 {
+                    c.play_cooldown = self.rng.range(3.0, 6.0);
                 }
-                c.buried = (c.buried + dt * 3.0).min(1.0);
-            } else {
-                c.buried = (c.buried - dt * 1.2).max(0.0);
             }
 
             // Food on the bottom
@@ -229,7 +232,7 @@ impl Sim {
             {
                 c.food = None;
             }
-            if c.food.is_none() && c.hide_left <= 0.0 {
+            if c.food.is_none() && !playing {
                 let reach = match c.gait {
                     Gait::Snail | Gait::Star => 260.0,
                     _ => 650.0,
@@ -250,8 +253,31 @@ impl Sim {
             }
 
             let mut want = 0.0;
-            if c.hide_left > 0.0 || c.buried > 0.5 {
-                c.speed = 0.0;
+            let mut hop = 0.0;
+            if playing {
+                let t = c.play_t;
+                match c.gait {
+                    // Little hops from side to side
+                    Gait::Crab | Gait::Walker => {
+                        let high = if c.gait == Gait::Crab { 0.22 } else { 0.14 };
+                        hop = (t * 8.0).sin().abs() * c.h * high;
+                        c.dir = if (t * 2.5) as i32 % 2 == 0 { 1.0 } else { -1.0 };
+                        want = pace * screen * 0.5;
+                    }
+                    // Turns to the cursor and comes over, bobbing happily
+                    Gait::Snail => {
+                        if let Some((px, _)) = cursor {
+                            c.dir = (px - c.x).signum();
+                            if (px - c.x).abs() > c.w * 0.4 {
+                                want = pace * screen * 2.0;
+                            }
+                        }
+                        hop = (t * 2.5).sin().abs() * c.h * 0.05;
+                    }
+                    // A starfish wiggles where it is
+                    Gait::Star => {}
+                }
+                c.walking = want > 0.0;
             } else if let Some(j) = c.food {
                 let (px, py) = (self.food[j].x, self.food[j].y);
                 c.lane_target = py.max(self.sand_top() + 2.0);
@@ -332,9 +358,15 @@ impl Sim {
                 .clamp(-35.0, 35.0);
             c.tilt += (slope - c.tilt) * (dt * 5.0).min(1.0);
             if c.gait == Gait::Star {
-                // A slow rock
+                // A slow rock, and a happy wiggle when playing
                 c.tilt += (self.time * 0.3 + c.phase).sin() * 4.0 * dt;
+                if playing {
+                    c.tilt = slope + (c.play_t * 9.0).sin() * 14.0;
+                }
             }
+            // Hops ease in and out so they never jump
+            c.hop += (hop - c.hop) * (dt * 20.0).min(1.0);
+            c.buried = 0.0;
 
             if c.gait != Gait::Crab {
                 let turn = if c.gait == Gait::Snail { 1.5 } else { 6.0 };
@@ -472,25 +504,35 @@ mod tests {
     }
 
     #[test]
-    fn crabs_dig_in_when_the_cursor_lingers() {
-        let mut s = tank(&[Gait::Crab, Gait::Star]);
+    fn crawlers_play_with_a_lingering_cursor() {
+        let mut s = tank(&[Gait::Crab, Gait::Snail]);
         s.crawlers[0].x = 600.0;
         s.crawlers[1].x = 1400.0;
-        for _ in 0..30 * 2 {
+        let (mut hopped, mut snail_came) = (0.0f32, false);
+        for _ in 0..30 * 3 {
             s.crawlers[0].x = 600.0;
-            s.crawlers[1].x = 640.0;
             let y = s.crawlers()[0].y - 20.0;
             s.step(DT, Some((620.0, y)));
+            hopped = hopped.max(s.crawlers()[0].hop);
+            assert_eq!(
+                s.crawlers()[0].buried,
+                0.0,
+                "nobody digs in or fades any more"
+            );
         }
-        assert!(s.crawlers()[1].buried == 0.0, "starfish don't hide");
-        assert!(s.crawlers()[0].buried > 0.8, "the crab should have dug in");
-        // Gone: it comes back out
-        for _ in 0..30 * 15 {
+        assert!(hopped > 5.0, "the crab should hop about ({hopped:.1}px)");
+        // The snail turns to a cursor next to it and comes over
+        let x0 = s.crawlers()[1].x;
+        for _ in 0..30 * 4 {
+            let y = s.crawlers()[1].y - 20.0;
+            s.step(DT, Some((x0 + 150.0, y)));
+            snail_came |= s.crawlers()[1].x > x0 + 5.0;
+        }
+        assert!(snail_came, "the snail should come toward the cursor");
+        // Left alone, they settle back on the ground
+        for _ in 0..30 * 8 {
             s.step(DT, None);
         }
-        assert!(
-            s.crawlers()[0].buried < 0.1,
-            "the crab should come back out"
-        );
+        assert!(s.crawlers()[0].hop < 1.0);
     }
 }

@@ -46,9 +46,10 @@ typedef struct DcCrawler {
     float facing;      // -1 left .. 1 right (crabs: always 1)
     float phase;       // leg cycle
     float tilt;        // degrees, follows the ground
-    float buried;      // 0 out .. 1 dug in / in its shell
+    float buried;      // unused, always 0
     uint32_t sprite;
     uint32_t gait;
+    float hop;         // lifted off the ground while hopping in play, scene pixels
 } DcCrawler;
 
 // A fish swam out through a side edge, toward the screen next to it

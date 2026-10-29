@@ -416,10 +416,12 @@ pub struct DcCrawler {
     pub facing: f32,
     pub phase: f32,
     pub tilt: f32,
-    /// 0 out .. 1 dug in / in its shell
+    /// Unused, always 0
     pub buried: f32,
     pub sprite: u32,
     pub gait: u32,
+    /// Lifted off the ground while hopping in play, scene pixels
+    pub hop: f32,
 }
 
 /// Replaces the bottom creatures (same ids keep their place).
@@ -477,6 +479,7 @@ pub unsafe extern "C" fn dc_sim_crawlers(handle: *mut DcSim, out: *mut DcCrawler
                     buried: c.buried,
                     sprite: c.sprite,
                     gait: c.gait.index(),
+                    hop: c.hop,
                 };
             }
         }

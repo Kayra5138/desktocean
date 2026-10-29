@@ -1809,7 +1809,8 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         for (const DcCrawler &c : m_crawlers) {
             if (c.sprite >= m_sprites.size())
                 continue;
-            const FishMesh::CrawlerPose pose{c.x, c.y, c.w, c.h, c.facing, c.phase, c.tilt, c.buried,
+            // (lifted while hopping about in play)
+            const FishMesh::CrawlerPose pose{c.x, c.y - c.hop, c.w, c.h, c.facing, c.phase, c.tilt, c.buried,
                                              FishMesh::Gait(c.gait)};
             FishMesh::writeCrawler(pose, m_sprites[c.sprite].uv, v, idx, base);
             v += FishMesh::kVertsPerFish;
