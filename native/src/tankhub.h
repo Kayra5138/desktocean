@@ -7,6 +7,7 @@
 #include <QtQml/qqmlregistration.h>
 
 class FishTank;
+class QQuickItem;
 
 // Lets other parts of plasmashell (the Desktocean widget) reach the aquarium
 // wallpaper. Every FishTank registers itself in a process-wide list; the hub
@@ -55,6 +56,13 @@ public:
 
     // Drops food somewhere in every tank
     Q_INVOKABLE void feed();
+    // Drops food right below `item` (the food jar widget) into the tank on its
+    // screen; false if no tank is there
+    Q_INVOKABLE bool feedBelow(QQuickItem *item);
+    // Drops food at global screen x (y picks the screen when screens are stacked; -1 = any)
+    Q_INVOKABLE bool feedAtGlobalX(qreal x, qreal y = -1);
+    // Drops food above the cursor in the tank under it ("Feed fish at cursor" shortcut)
+    Q_INVOKABLE bool feedAtCursor();
     Q_INVOKABLE void clearFood();
     // page: "" for drawing, "fish" for the fish list, "layout" for the tank layout
     Q_INVOKABLE bool openEditor(const QString &page = {});
@@ -71,6 +79,8 @@ Q_SIGNALS:
 
 private:
     FishTank *first() const;
+    // Registers the global "Feed fish at cursor" shortcut once per plasmashell
+    static void setUpShortcut();
 
     QTimer m_refresh;
 };

@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Desktocean"
+            }
+        ],
+        "Category": "Fun and Games",
+        "Description": "A jar of fish food for the Desktocean aquarium: click it and food falls into the water right below",
+        "Icon": "applications-games",
+        "Id": "desktocean.foodjar",
+        "License": "GPL-3.0-or-later",
+        "Name": "Desktocean Fish Food",
+        "Version": "0.1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

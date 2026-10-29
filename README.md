@@ -47,6 +47,10 @@ decorations and drop them into the tank.
 - **Themes** for water and sand: Tropical, Lagoon, Deep sea, Kelp forest, Volcanic
 - **Desktocean widget** for the panel or desktop: feed, pause, open the editor, and see how
   hungry the fish are and how many friendships they made
+- **Fish food jar** widget: put the jar anywhere on the desktop and click it; it tips, shakes and
+  food falls into the water right below it. Move the jar to feed somewhere else
+- **Feed fish at cursor** keyboard shortcut, <kbd>Meta</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> by default
+  (change it in *System Settings* → *Keyboard* → *Shortcuts* → *Desktocean*)
 - **Your computer in the water**: when a notification arrives a fish swims up and blows bubbles
   (not in Do Not Disturb); when the CPU is busy the current picks up, plants sway harder and more
   bubbles rise. Fish also let out a few bubbles now and then. Both can be turned off
@@ -165,6 +169,7 @@ aquarium adds about 60 MB of memory, mostly the sprite atlas.
 | `shaders/` | Water shader source, compiled to `.qsb` into the package |
 | `scripts/` | Install, build, reload and measure helpers |
 | `applet/` | The Desktocean control widget (Plasma applet) |
+| `applet-foodjar/` | The fish food jar widget (Plasma applet) |
 | `dev/preview.qml` | Standalone preview window |
 
 ## Roadmap

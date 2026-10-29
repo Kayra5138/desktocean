@@ -3,7 +3,7 @@
 #   - Desktocean.Core QML plugin (Rust core + C++) → ~/.local/lib/qt6/qml
 #   - desktocean-editor (drawing app)              → ~/.local/bin + app menu entry
 #   - wallpaper package                            → ~/.local/share/plasma/wallpapers
-#   - control widget                               → ~/.local/share/plasma/plasmoids
+#   - control widget and fish food jar widget      → ~/.local/share/plasma/plasmoids
 #
 # Options:
 #   --lockscreen      also use the aquarium as the lock screen wallpaper
@@ -75,6 +75,15 @@ if kpackagetool6 -t Plasma/Applet -s desktocean.control >/dev/null 2>&1; then
 else
     kpackagetool6 -t Plasma/Applet -i "$ROOT/applet" >/dev/null
     echo "Installed the Desktocean widget: add it from the panel's or desktop's \"Add Widgets…\""
+fi
+
+# --- fish food jar widget ----------------------------------------------------
+if kpackagetool6 -t Plasma/Applet -s desktocean.foodjar >/dev/null 2>&1; then
+    kpackagetool6 -t Plasma/Applet -u "$ROOT/applet-foodjar" >/dev/null
+    echo "Upgraded the fish food jar widget"
+else
+    kpackagetool6 -t Plasma/Applet -i "$ROOT/applet-foodjar" >/dev/null
+    echo "Installed the fish food jar: add \"Desktocean Fish Food\" from the desktop's \"Add Widgets…\""
 fi
 
 if kpackagetool6 -t Plasma/Wallpaper -s desktocean.aquarium >/dev/null 2>&1; then

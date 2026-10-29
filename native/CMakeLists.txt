@@ -12,6 +12,8 @@ find_package(Threads REQUIRED)
 # Idle sleep: input idle time and screen power (both work on Wayland)
 find_package(KF6IdleTime REQUIRED)
 find_package(KF6Screen REQUIRED)
+# "Feed fish at cursor" keyboard shortcut
+find_package(KF6GlobalAccel REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS DBus)
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -72,7 +74,7 @@ add_dependencies(desktocean_core desktocean_sim_cargo)
 # The generated type-registration source includes our headers by bare name.
 target_include_directories(desktocean_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(desktocean_core PRIVATE
-    Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Widgets Qt6::DBus KF6::IdleTime KF6::ScreenDpms
+    Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Widgets Qt6::DBus KF6::IdleTime KF6::ScreenDpms KF6::GlobalAccel
     desktocean_sim desktocean_render desktocean_library Threads::Threads ${CMAKE_DL_LIBS} m
 )
 # Keep Rust's std symbols private so they can't clash with other plugins in plasmashell.
