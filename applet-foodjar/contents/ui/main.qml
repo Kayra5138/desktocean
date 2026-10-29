@@ -5,10 +5,9 @@ import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import Desktocean.Core
 
-// A jar of fish food standing on the desktop. Click it: it shakes, a few flakes
-// spill out and food drops into the aquarium right below it. Drag it: it tips
-// over and keeps sprinkling food wherever you carry it, and stays where you
-// let go.
+// A jar of fish food standing on the desktop. Press it to pick it up and carry
+// it around; shake it back and forth over a spot and after a moment food falls
+// into the aquarium right below. Let go and it stays there.
 PlasmoidItem {
     id: root
 
@@ -18,7 +17,7 @@ PlasmoidItem {
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
     preferredRepresentation: fullRepresentation
     toolTipMainText: "Fish food"
-    toolTipSubText: TankHub.available ? "Click to feed the fish below, or drag the jar to sprinkle food as you go" : "Desktocean is not your wallpaper"
+    toolTipSubText: TankHub.available ? "Pick it up and shake it over the water to feed the fish" : "Desktocean is not your wallpaper"
 
     // The widget's own keyboard shortcut (its settings) shakes the jar too
     Connections {
@@ -60,32 +59,46 @@ PlasmoidItem {
             shaking.start();
         }
 
-        // Carried around: tipped over, shaking, food falling every so often
+        // Picked up: the jar follows the cursor. Shaking it back and forth in one
+        // spot tips it over, and after a moment of shaking food starts to fall
         property bool carrying: false
+        property real shakeEnergy: 0          // px of back-and-forth, fading away
+        readonly property bool pouring: carrying && shakeEnergy > 260
+        property real lean: 0                 // tilt from the last movement
         function sprinkle() {
             TankHub.feedBelow(jarBox);
             for (let i = 0; i < flakes.count; ++i)
                 flakes.itemAt(i).fall();
         }
         onCarryingChanged: {
-            if (carrying) {
+            shakeEnergy = 0;
+            lean = 0;
+            if (carrying)
                 shaking.stop();
-                sprinkle();
-            } else {
-                standUp.start();
+        }
+        Timer {
+            // Shaking fades when you stop
+            interval: 50
+            repeat: true
+            running: holder.carrying
+            onTriggered: {
+                holder.shakeEnergy = Math.max(0, holder.shakeEnergy - 30);
+                holder.lean *= 0.7;
             }
         }
         Timer {
-            interval: 650
+            // A moment of shaking before the first food, then a little more every so often
+            interval: 600
             repeat: true
-            running: holder.carrying
+            running: holder.pouring
             onTriggered: holder.sprinkle()
         }
-        SequentialAnimation {
-            running: holder.carrying
-            loops: Animation.Infinite
-            NumberAnimation { target: jar; property: "rotation"; to: 168; duration: 110 }
-            NumberAnimation { target: jar; property: "rotation"; to: 142; duration: 110 }
+        Binding {
+            target: jar
+            property: "rotation"
+            when: holder.carrying
+            value: holder.pouring ? 150 + holder.lean : holder.lean
+            restoreMode: Binding.RestoreNone
         }
         NumberAnimation {
             id: standUp
@@ -170,53 +183,59 @@ PlasmoidItem {
             id: mouse
             anchors.fill: jarBox
             hoverEnabled: true
-            cursorShape: holder.carrying ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+            cursorShape: holder.carrying ? Qt.ClosedHandCursor : Qt.OpenHandCursor
 
-            property point pressAt
             property point grab
             property var box: null
-            property bool moved: false
+            // Where shaking is measured from; moving far away starts afresh
+            property point anchor
+            property point last
+
+            function putDown() {
+                if (!holder.carrying)
+                    return;
+                if (box) {
+                    box.layout.positionItem(box);
+                    box.layout.save();
+                }
+                holder.carrying = false;
+                standUp.start();
+            }
 
             onPressed: mouseEvent => {
-                pressAt = Qt.point(mouseEvent.x, mouseEvent.y);
-                moved = false;
+                // Picked up straight away
                 box = root.desktopBox();
+                standUp.stop();
+                holder.carrying = true;
+                const at = box ? mapToItem(box.parent, mouseEvent.x, mouseEvent.y) : mapToGlobal(mouseEvent.x, mouseEvent.y);
+                anchor = last = at;
+                if (box) {
+                    grab = mapToItem(box, mouseEvent.x, mouseEvent.y);
+                    box.layout.releaseSpace(box);
+                }
             }
             onPositionChanged: mouseEvent => {
-                if (!pressed || !box)
+                if (!pressed || !holder.carrying)
                     return;
-                if (!holder.carrying) {
-                    if (Math.hypot(mouseEvent.x - pressAt.x, mouseEvent.y - pressAt.y) < Qt.styleHints.startDragDistance)
-                        return;
-                    // Lift it off the desktop's grid, then follow the cursor
-                    grab = mapToItem(box, pressAt.x, pressAt.y);
-                    box.layout.releaseSpace(box);
-                    moved = true;
-                    holder.carrying = true;
+                const at = box ? mapToItem(box.parent, mouseEvent.x, mouseEvent.y) : mapToGlobal(mouseEvent.x, mouseEvent.y);
+                const dx = at.x - last.x, dy = at.y - last.y;
+                last = at;
+                if (box) {
+                    box.x = at.x - grab.x;
+                    box.y = at.y - grab.y;
                 }
-                const at = mapToItem(box.parent, mouseEvent.x, mouseEvent.y);
-                box.x = at.x - grab.x;
-                box.y = at.y - grab.y;
-            }
-            onReleased: {
-                if (holder.carrying) {
-                    // Put it down here, and remember it
-                    box.layout.positionItem(box);
-                    box.layout.save();
-                    holder.carrying = false;
+                // Back and forth near one spot is shaking; carrying it across
+                // the screen is not
+                if (Math.hypot(at.x - anchor.x, at.y - anchor.y) > 140) {
+                    anchor = at;
+                    holder.shakeEnergy *= 0.3;
+                } else {
+                    holder.shakeEnergy = Math.min(900, holder.shakeEnergy + Math.abs(dx) + Math.abs(dy));
                 }
+                holder.lean = Math.max(-25, Math.min(25, holder.lean + dx * 0.6));
             }
-            onCanceled: {
-                if (holder.carrying) {
-                    box.layout.positionItem(box);
-                    box.layout.save();
-                    holder.carrying = false;
-                }
-            }
-            onClicked: {
-                if (!moved)
-                    holder.shake();
-            }
+            onReleased: putDown()
+            onCanceled: putDown()
         }
     }
 }
