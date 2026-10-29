@@ -20,6 +20,7 @@ Kirigami.FormLayout {
     property alias cfg_WeatherEffects: weatherEffects.checked
     property alias cfg_WeatherCity: weatherCity.text
     property alias cfg_ShowNames: showNames.checked
+    property alias cfg_AutoFeed: autoFeed.checked
     property alias cfg_Sounds: sounds.checked
     property alias cfg_SoundVolume: soundVolume.value
     property alias cfg_AmbientSound: ambientSound.checked
@@ -99,6 +100,12 @@ Kirigami.FormLayout {
         font: Kirigami.Theme.smallFont
         text: "Real weather comes from Open-Meteo (free, no account). Only the city name and its coordinates are sent; "
             + "a city like \"Paris, France\" or coordinates like \"48.85, 2.35\" work. Offline, the weather is simulated."
+    }
+
+    QQC2.CheckBox {
+        id: autoFeed
+        Kirigami.FormData.label: "Feeding:"
+        text: "Drop food somewhere when the fish get very hungry"
     }
 
     QQC2.CheckBox {

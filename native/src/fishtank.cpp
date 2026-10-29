@@ -279,6 +279,10 @@ FishTank::FishTank(QQuickItem *parent)
         }
     });
 
+    m_autoFeedTimer.setInterval(10 * 1000);
+    connect(&m_autoFeedTimer, &QTimer::timeout, this, &FishTank::maybeAutoFeed);
+    m_autoFeedTimer.start();
+
     // Babies grow slowly; once a minute is smooth enough
     m_growthTimer.setInterval(60 * 1000);
     connect(&m_growthTimer, &QTimer::timeout, this, &FishTank::refreshGrowth);
@@ -916,8 +920,31 @@ void FishTank::setFogColor(const QColor &color)
     Q_EMIT fogColorChanged();
 }
 
+void FishTank::setAutoFeed(bool on)
+{
+    if (on == m_autoFeed)
+        return;
+    m_autoFeed = on;
+    Q_EMIT autoFeedChanged();
+}
+
+void FishTank::maybeAutoFeed()
+{
+    // Only while someone can see it, when the fish are really hungry, the
+    // last food is gone and nobody fed them in the last couple of minutes
+    constexpr qreal kVeryHungry = 0.7;
+    constexpr qint64 kGapMs = 150 * 1000;
+    const bool visible = m_running && !m_paused && m_healthy && width() > 0;
+    if (!m_autoFeed || !visible || m_fish.empty() || !m_food.empty() || averageHunger() < kVeryHungry)
+        return;
+    if (m_lastFeed.isValid() && m_lastFeed.elapsed() < kGapMs)
+        return;
+    feed(-1);   // somewhere random
+}
+
 void FishTank::feed(qreal x)
 {
+    m_lastFeed.start();
     dc_sim_feed(m_sim, float(x));
     pullState();
     m_lastFood = m_food.size();

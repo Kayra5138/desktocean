@@ -83,6 +83,8 @@ class FishTank : public QQuickItem
     Q_PROPERTY(QPointF pointer READ pointer NOTIFY timeChanged)
     // Name the fish under the cursor (hoveredName, above the fish at hoveredPoint)
     Q_PROPERTY(bool showNames READ showNames WRITE setShowNames NOTIFY showNamesChanged)
+    // Drop food somewhere when the fish get very hungry
+    Q_PROPERTY(bool autoFeed READ autoFeed WRITE setAutoFeed NOTIFY autoFeedChanged)
     // Optional sounds (off by default), see sounds.h
     Q_PROPERTY(bool sounds READ sounds WRITE setSounds NOTIFY soundsChanged)
     Q_PROPERTY(qreal soundVolume READ soundVolume WRITE setSoundVolume NOTIFY soundsChanged)
@@ -143,6 +145,8 @@ public:
     bool lureActive() const { return m_lureActive; }
     QPointF pointer() const { return m_pointer; }
     bool showNames() const { return m_showNames; }
+    bool autoFeed() const { return m_autoFeed; }
+    void setAutoFeed(bool on);
     bool sounds() const { return m_sounds; }
     void setSounds(bool on);
     qreal soundVolume() const { return m_soundVolume; }
@@ -207,6 +211,7 @@ Q_SIGNALS:
     void foodCountChanged();
     void lureActiveChanged();
     void showNamesChanged();
+    void autoFeedChanged();
     void soundsChanged();
     void hoverChanged();
     void healthyChanged();
@@ -250,6 +255,11 @@ private:
     QTimer m_saveTimer;
     QTimer m_cpuTimer;
     QTimer m_growthTimer;
+    // Automatic feeding: checked every few seconds; the last feeding of any kind
+    QTimer m_autoFeedTimer;
+    QElapsedTimer m_lastFeed;
+    bool m_autoFeed = true;
+    void maybeAutoFeed();
     quint64 m_cpuBusy = 0;
     quint64 m_cpuTotal = 0;
     bool m_libraryLoaded = false;

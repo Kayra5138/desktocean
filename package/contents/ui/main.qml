@@ -42,6 +42,7 @@ WallpaperItem {
         sleepReason: "no input for " + idle.timeout + " min"
         showDebug: root.configuration.ShowDebug
         showNames: root.configuration.ShowNames
+        autoFeed: root.configuration.AutoFeed
         sounds: root.configuration.Sounds
         soundVolume: root.configuration.SoundVolume / 100
         ambientSound: root.configuration.AmbientSound

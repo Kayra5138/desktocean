@@ -21,6 +21,7 @@ Item {
     property alias lifeSpeed: tank.lifeSpeed
     // Name of the fish under the cursor
     property alias showNames: tank.showNames
+    property alias autoFeed: tank.autoFeed
     // Optional sounds
     property alias sounds: tank.sounds
     property alias soundVolume: tank.soundVolume
