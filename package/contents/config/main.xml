@@ -35,6 +35,17 @@
     <entry name="ShowNames" type="Bool">
       <default>false</default>
     </entry>
+    <entry name="Sounds" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="SoundVolume" type="Int">
+      <default>40</default>
+      <min>0</min>
+      <max>100</max>
+    </entry>
+    <entry name="AmbientSound" type="Bool">
+      <default>false</default>
+    </entry>
     <entry name="ShowDebug" type="Bool">
       <default>false</default>
     </entry>

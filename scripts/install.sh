@@ -55,6 +55,7 @@ esac
 python3 "$ROOT/scripts/make-test-fish.py"
 cp "$ROOT/applet/contents/icons/desktocean.svg" "$ROOT/package/contents/images/desktocean-icon.svg"
 python3 "$ROOT/scripts/make-starter-decor.py"
+python3 "$ROOT/scripts/make-sounds.py"
 # --- control widget ----------------------------------------------------------
 if kpackagetool6 -t Plasma/Applet -s desktocean.control >/dev/null 2>&1; then
     kpackagetool6 -t Plasma/Applet -u "$ROOT/applet" >/dev/null

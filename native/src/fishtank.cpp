@@ -1,6 +1,7 @@
 #include "fishtank.h"
 #include "fishlibrary.h"
 #include "spritenode.h"
+#include "sounds.h"
 #include "tankhub.h"
 #include "themes.h"
 
@@ -309,6 +310,7 @@ void FishTank::reportProfile()
 FishTank::~FishTank()
 {
     TankHub::unregisterTank(this);
+    SoundBoard::instance().setActive(this, false);
     saveState();
     dc_sim_free(m_sim);
 }
@@ -410,6 +412,8 @@ void FishTank::handleBirths()
     // Every fish lives on one screen only, so each tank records its own babies
     if (!m_babies)
         return;
+    if (n > 0)
+        SoundBoard::instance().play(SoundBoard::Sound::Hatch);
     for (uint32_t i = 0; i < n; ++i)
         recordBaby(births[i]);
 }
@@ -884,7 +888,69 @@ void FishTank::feed(qreal x)
 {
     dc_sim_feed(m_sim, float(x));
     pullState();
+    m_lastFood = m_food.size();
     update();
+    // Pellets landing on the water, one after another
+    for (const int ms : {0, 140, 330})
+        QTimer::singleShot(ms, this, [] { SoundBoard::instance().play(SoundBoard::Sound::Plop, 0.8); });
+}
+
+void FishTank::setSounds(bool on)
+{
+    if (on == m_sounds)
+        return;
+    m_sounds = on;
+    SoundBoard::instance().setEnabled(on);
+    Q_EMIT soundsChanged();
+}
+
+void FishTank::setSoundVolume(qreal volume)
+{
+    volume = std::clamp(volume, 0.0, 1.0);
+    if (qFuzzyCompare(volume, m_soundVolume))
+        return;
+    m_soundVolume = volume;
+    SoundBoard::instance().setVolume(volume);
+    Q_EMIT soundsChanged();
+}
+
+void FishTank::setAmbientSound(bool on)
+{
+    if (on == m_ambientSound)
+        return;
+    m_ambientSound = on;
+    SoundBoard::instance().setAmbient(on);
+    Q_EMIT soundsChanged();
+}
+
+void FishTank::setSoundDirectory(const QUrl &dir)
+{
+    if (dir == m_soundDir)
+        return;
+    m_soundDir = dir;
+    // Resolved against: make sure it reads as a directory
+    QUrl d = dir;
+    if (!d.path().endsWith(QLatin1Char('/')))
+        d.setPath(d.path() + QLatin1Char('/'));
+    SoundBoard::instance().setDirectory(d);
+    Q_EMIT soundsChanged();
+}
+
+void FishTank::playEventSounds()
+{
+    auto &board = SoundBoard::instance();
+    // A pellet gone (mostly eaten; dissolving ones fade out quietly anyway)
+    if (m_food.size() < m_lastFood)
+        board.play(SoundBoard::Sound::Nom);
+    // Bubbles reaching the surface, now and then
+    if (m_bubbles.size() < m_lastBubbles && QRandomGenerator::global()->bounded(3) == 0)
+        board.play(SoundBoard::Sound::Bubble, 0.8);
+    // A fish started enjoying a pet
+    if (m_hearts.size() > m_lastHearts && m_lastHearts == 0)
+        board.play(SoundBoard::Sound::Chime);
+    m_lastFood = m_food.size();
+    m_lastBubbles = m_bubbles.size();
+    m_lastHearts = m_hearts.size();
 }
 
 void FishTank::feedAtCursor()
@@ -1014,6 +1080,8 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
 void FishTank::updateTimer()
 {
     const bool shouldRun = m_running && !m_paused && m_healthy && isComponentComplete() && width() > 0 && height() > 0;
+    // Quiet while nobody can see the tank
+    SoundBoard::instance().setActive(this, shouldRun);
     if (m_matchRefresh) {
         m_timer.stop();
         if (shouldRun && !m_vsyncActive) {
@@ -1106,6 +1174,7 @@ void FishTank::tick()
     const uint32_t departed = dc_sim_take_departures(m_sim, gone, 8);
     for (uint32_t i = 0; i < departed; ++i)
         TankHub::handOver(this, gone[i].id, gone[i].side, gone[i].y);
+    playEventSounds();
     const qint64 stepped = t.nsecsElapsed();
     pullState();
     updateHover();

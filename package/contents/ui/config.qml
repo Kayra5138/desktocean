@@ -15,6 +15,9 @@ Kirigami.FormLayout {
     property alias cfg_ReactToNotifications: reactToNotifications.checked
     property alias cfg_ReactToCpu: reactToCpu.checked
     property alias cfg_ShowNames: showNames.checked
+    property alias cfg_Sounds: sounds.checked
+    property alias cfg_SoundVolume: soundVolume.value
+    property alias cfg_AmbientSound: ambientSound.checked
     property alias cfg_ShowDebug: showDebug.checked
 
     QQC2.SpinBox {
@@ -86,6 +89,27 @@ Kirigami.FormLayout {
     QQC2.CheckBox {
         id: reactToCpu
         text: "Water gets restless when the computer is busy"
+    }
+
+    QQC2.CheckBox {
+        id: sounds
+        Kirigami.FormData.label: "Sounds:"
+        text: "Soft sounds: bubbles, feeding, petting, hatching"
+    }
+
+    QQC2.Slider {
+        id: soundVolume
+        Kirigami.FormData.label: "Volume:"
+        enabled: sounds.checked
+        from: 0
+        to: 100
+        stepSize: 5
+    }
+
+    QQC2.CheckBox {
+        id: ambientSound
+        enabled: sounds.checked
+        text: "Quiet water in the background"
     }
 
     QQC2.CheckBox {

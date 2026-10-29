@@ -24,6 +24,9 @@ WallpaperItem {
         matchRefresh: root.configuration.MatchRefresh
         showDebug: root.configuration.ShowDebug
         showNames: root.configuration.ShowNames
+        sounds: root.configuration.Sounds
+        soundVolume: root.configuration.SoundVolume / 100
+        ambientSound: root.configuration.AmbientSound
         followTimeOfDay: root.configuration.FollowTimeOfDay
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu

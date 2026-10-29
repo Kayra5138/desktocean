@@ -75,6 +75,11 @@ class FishTank : public QQuickItem
     Q_PROPERTY(QPointF pointer READ pointer NOTIFY timeChanged)
     // Name the fish under the cursor (hoveredName, above the fish at hoveredPoint)
     Q_PROPERTY(bool showNames READ showNames WRITE setShowNames NOTIFY showNamesChanged)
+    // Optional sounds (off by default), see sounds.h
+    Q_PROPERTY(bool sounds READ sounds WRITE setSounds NOTIFY soundsChanged)
+    Q_PROPERTY(qreal soundVolume READ soundVolume WRITE setSoundVolume NOTIFY soundsChanged)
+    Q_PROPERTY(bool ambientSound READ ambientSound WRITE setAmbientSound NOTIFY soundsChanged)
+    Q_PROPERTY(QUrl soundDirectory READ soundDirectory WRITE setSoundDirectory NOTIFY soundsChanged)
     Q_PROPERTY(QString hoveredName READ hoveredName NOTIFY hoverChanged)
     Q_PROPERTY(QPointF hoveredPoint READ hoveredPoint NOTIFY hoverChanged)
     Q_PROPERTY(bool healthy READ healthy NOTIFY healthyChanged)
@@ -124,6 +129,14 @@ public:
     bool lureActive() const { return m_lureActive; }
     QPointF pointer() const { return m_pointer; }
     bool showNames() const { return m_showNames; }
+    bool sounds() const { return m_sounds; }
+    void setSounds(bool on);
+    qreal soundVolume() const { return m_soundVolume; }
+    void setSoundVolume(qreal volume);
+    bool ambientSound() const { return m_ambientSound; }
+    void setAmbientSound(bool on);
+    QUrl soundDirectory() const { return m_soundDir; }
+    void setSoundDirectory(const QUrl &dir);
     void setShowNames(bool show);
     QString hoveredName() const { return m_hoveredName; }
     QPointF hoveredPoint() const { return m_hoveredPoint; }
@@ -178,6 +191,7 @@ Q_SIGNALS:
     void foodCountChanged();
     void lureActiveChanged();
     void showNamesChanged();
+    void soundsChanged();
     void hoverChanged();
     void healthyChanged();
 
@@ -230,6 +244,13 @@ private:
     QHash<quint64, QString> m_specOwner;
     QHash<quint64, QString> m_specName;   // name of every copy, for the hover label
     bool m_showNames = false;
+    bool m_sounds = false;
+    qreal m_soundVolume = 0.4;
+    bool m_ambientSound = false;
+    QUrl m_soundDir;
+    // Last frame's counts, to hear what happened
+    size_t m_lastBubbles = 0, m_lastFood = 0, m_lastHearts = 0;
+    void playEventSounds();
     QString m_hoveredName;
     QPointF m_hoveredPoint;
 

@@ -26,6 +26,9 @@ Window {
         matchRefresh: Qt.application.arguments.indexOf("--vsync") >= 0
         // Name of the fish under the cursor
         showNames: true
+        // `--sounds` plays the sounds (with the quiet water loop)
+        sounds: Qt.application.arguments.indexOf("--sounds") >= 0
+        ambientSound: Qt.application.arguments.indexOf("--sounds") >= 0
         // `--fps 20` tries another frame rate
         fps: {
             const i = Qt.application.arguments.indexOf("--fps");
