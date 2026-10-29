@@ -49,6 +49,8 @@ WallpaperItem {
         theme: root.configuration.Theme
         reactToCpu: root.configuration.ReactToCpu
         babies: root.configuration.Babies && !root.lockScreen
+        weatherEnabled: root.configuration.WeatherEffects
+        weatherCity: root.configuration.WeatherCity
         // Chosen in the editor's tank layout: store it like a choice made in the settings
         // (the desktop's settings, not the lock screen's)
         onThemeRequested: theme => {

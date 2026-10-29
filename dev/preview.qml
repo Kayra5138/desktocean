@@ -48,6 +48,17 @@ Window {
         // `--asleep` shows the fish asleep (idle) whatever the hour; Z toggles it
         asleep: Qt.application.arguments.indexOf("--asleep") >= 0
         sleepReason: "preview"
+        // `--weather rain` forces rain|drizzle|heavy-rain|snow|storm|fog|cloudy|wind|clear;
+        // `--city Paris` tries the real weather; without either it is simulated. `--no-weather` turns it off
+        weatherEnabled: Qt.application.arguments.indexOf("--no-weather") < 0
+        forcedWeather: {
+            const i = Qt.application.arguments.indexOf("--weather");
+            return i >= 0 ? Qt.application.arguments[i + 1] : "";
+        }
+        weatherCity: {
+            const i = Qt.application.arguments.indexOf("--city");
+            return i >= 0 ? Qt.application.arguments[i + 1] : "";
+        }
 
         Keys.onSpacePressed: running = !running
         // Enter simulates a notification

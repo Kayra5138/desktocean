@@ -343,6 +343,25 @@ void FishTank::setReactToCpu(bool react)
     Q_EMIT agitationChanged();
 }
 
+void FishTank::setWeatherStir(qreal stir)
+{
+    stir = std::clamp(stir, 0.0, 1.0);
+    if (qFuzzyCompare(stir + 1, m_weatherStir + 1))
+        return;
+    m_weatherStir = stir;
+    Q_EMIT agitationChanged();
+}
+
+void FishTank::setWeatherLight(qreal light)
+{
+    light = std::clamp(light, 0.0, 2.0);
+    if (qFuzzyCompare(light, m_weatherLight))
+        return;
+    m_weatherLight = light;
+    update();
+    Q_EMIT weatherLightChanged();
+}
+
 void FishTank::sampleCpu()
 {
     // First line of /proc/stat: cpu user nice system idle iowait irq softirq steal ...
@@ -1600,7 +1619,7 @@ QSGNode *FishTank::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         node->setAtlas(window(), m_atlas);
     }
     node->setFogColor(m_fogColor);
-    node->setLight(float(0.35 + 0.65 * m_daylight));
+    node->setLight(float((0.35 + 0.65 * m_daylight) * m_weatherLight));
 
     // Fish whose sprite is not in the atlas (yet) are skipped
     std::vector<int> order;

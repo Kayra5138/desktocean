@@ -68,6 +68,7 @@ qt_add_qml_module(desktocean_core
         src/tankhub.h src/tankhub.cpp
         src/sounds.h src/sounds.cpp
         src/idlewatcher.h src/idlewatcher.cpp
+        src/weather.h src/weather.cpp
 )
 
 
@@ -75,7 +76,7 @@ add_dependencies(desktocean_core desktocean_sim_cargo)
 # The generated type-registration source includes our headers by bare name.
 target_include_directories(desktocean_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(desktocean_core PRIVATE
-    Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Widgets Qt6::DBus KF6::IdleTime KF6::ScreenDpms KF6::GlobalAccel
+    Qt6::Gui Qt6::Multimedia Qt6::Network Qt6::Qml Qt6::Quick Qt6::Widgets Qt6::DBus KF6::IdleTime KF6::ScreenDpms KF6::GlobalAccel
     desktocean_sim desktocean_render desktocean_library Threads::Threads ${CMAKE_DL_LIBS} m
 )
 # Keep Rust's std symbols private so they can't clash with other plugins in plasmashell.

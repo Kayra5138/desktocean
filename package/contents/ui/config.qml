@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
 
@@ -16,6 +17,8 @@ Kirigami.FormLayout {
     property alias cfg_MaxFish: maxFish.value
     property alias cfg_ReactToNotifications: reactToNotifications.checked
     property alias cfg_ReactToCpu: reactToCpu.checked
+    property alias cfg_WeatherEffects: weatherEffects.checked
+    property alias cfg_WeatherCity: weatherCity.text
     property alias cfg_ShowNames: showNames.checked
     property alias cfg_Sounds: sounds.checked
     property alias cfg_SoundVolume: soundVolume.value
@@ -73,6 +76,29 @@ Kirigami.FormLayout {
         id: followTimeOfDay
         Kirigami.FormData.label: "Day and night:"
         text: "Follow the clock (fish rest at night)"
+    }
+
+    QQC2.CheckBox {
+        id: weatherEffects
+        Kirigami.FormData.label: "Weather:"
+        text: "Weather effects (rain, snow, fog, wind, storms)"
+    }
+
+    QQC2.TextField {
+        id: weatherCity
+        Kirigami.FormData.label: "City:"
+        enabled: weatherEffects.checked
+        placeholderText: "Empty = simulated seasonal weather"
+    }
+
+    QQC2.Label {
+        Layout.fillWidth: true
+        Layout.maximumWidth: Kirigami.Units.gridUnit * 24
+        enabled: weatherEffects.checked
+        wrapMode: Text.WordWrap
+        font: Kirigami.Theme.smallFont
+        text: "Real weather comes from Open-Meteo (free, no account). Only the city name and its coordinates are sent; "
+            + "a city like \"Paris, France\" or coordinates like \"48.85, 2.35\" work. Offline, the weather is simulated."
     }
 
     QQC2.CheckBox {
