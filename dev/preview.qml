@@ -81,6 +81,13 @@ Window {
         onTriggered: aquarium.befriendAll()
     }
 
+    // `--export-sprites DIR` saves the sprites drawn in code as PNGs
+    Component.onCompleted: {
+        const i = Qt.application.arguments.indexOf("--export-sprites");
+        if (i >= 0)
+            console.warn("exported:", aquarium.tank.exportSprites(Qt.application.arguments[i + 1]));
+    }
+
     // `--bubble` blows a bubble that drifts slowly round the middle of the
     // tank, as the bubble wand would; fish next to it come in
     Timer {

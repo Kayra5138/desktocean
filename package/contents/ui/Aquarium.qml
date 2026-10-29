@@ -21,6 +21,8 @@ Item {
     property alias lifeSpeed: tank.lifeSpeed
     // Name of the fish under the cursor
     property alias showNames: tank.showNames
+    // The tank itself, for development aids in dev/preview.qml
+    readonly property alias tank: tank
     property alias autoFeed: tank.autoFeed
     // Optional sounds
     property alias sounds: tank.sounds

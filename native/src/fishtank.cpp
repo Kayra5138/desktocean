@@ -688,6 +688,20 @@ QPair<int, int> FishTank::relationCounts() const
     return {friends, rivals};
 }
 
+bool FishTank::exportSprites(const QString &dir) const
+{
+    QDir().mkpath(dir);
+    const QDir d(dir);
+    bool ok = true;
+    ok &= makeFoodSprite().save(d.filePath(QStringLiteral("pellet.png")));
+    ok &= makeBubbleSprite().save(d.filePath(QStringLiteral("bubble.png")));
+    ok &= makeRippleSprite().save(d.filePath(QStringLiteral("ripple.png")));
+    ok &= makeEggSprite().save(d.filePath(QStringLiteral("egg.png")));
+    ok &= makeHeartSprite().save(d.filePath(QStringLiteral("heart.png")));
+    ok &= makeBigBubbleSprite().save(d.filePath(QStringLiteral("carry-bubble.png")));
+    return ok;
+}
+
 QString FishTank::stats() const
 {
     const auto [friends, rivals] = relationCounts();

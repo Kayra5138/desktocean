@@ -101,6 +101,8 @@ public:
     Q_INVOKABLE void clearOpening();
     // Development aid (--opening): a cave opening in canvas pixels
     Q_INVOKABLE void markOpening(qreal x, qreal y, qreal w, qreal h);
+    // Development aid (--export-templates): saves the drawing, cropped, as a PNG
+    Q_INVOKABLE bool exportImage(const QString &path) const;
     Symmetry symmetry() const { return m_symmetry; }
     void setSymmetry(Symmetry symmetry);
     bool symmetryCentred() const;

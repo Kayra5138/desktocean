@@ -270,6 +270,11 @@ void DrawingCanvas::clearOpening()
     contentModified();
 }
 
+bool DrawingCanvas::exportImage(const QString &path) const
+{
+    return FishLibrary::cropToContent(m_image).save(path);
+}
+
 void DrawingCanvas::markOpening(qreal x, qreal y, qreal w, qreal h)
 {
     m_opening = QRectF(x, y, w, h).intersected(QRectF(QPointF(), QSizeF(kCanvasSize)));

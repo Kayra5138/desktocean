@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- Single-colour menu icon: pellets dropping toward a fish -->
+  <circle cx="5" cy="1.8" r="1.2" fill="#000"/>
+  <circle cx="8.6" cy="3.2" r="1.2" fill="#000"/>
+  <circle cx="5.6" cy="5.6" r="1.2" fill="#000"/>
+  <path fill-rule="evenodd" fill="#000" d="M3.5 11.5 C5 8.6 10 8.2 13.5 11.5 C10 14.8 5 14.4 3.5 11.5 Z M10.8 10.3 a0.8 0.8 0 1 0 0.01 0 Z"/>
+  <path fill="#000" d="M4.1 11.5 L0.8 9 Q1.7 11.5 0.8 14 Z"/>
+</svg>

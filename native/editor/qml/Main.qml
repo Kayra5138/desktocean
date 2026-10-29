@@ -191,6 +191,14 @@ Kirigami.ApplicationWindow {
                 drawPage.canvas.markMouth(Number(arg("--mouth")), Number(arg("--mouth", 2)));
             if (args.indexOf("--wiggle-tail") >= 0)
                 drawPage.canvas.paintTailWiggleForTest();
+            if (arg("--export-templates") !== undefined) {
+                const names = ["template-classic-fish", "template-long-fish", "template-round-fish", "template-seaweed",
+                               "template-kelp", "template-rock", "template-shell", "template-castle"];
+                for (let i = 0; i < names.length; ++i) {
+                    drawPage.canvas.loadTemplate(i);
+                    drawPage.canvas.exportImage(arg("--export-templates") + "/" + names[i] + ".png");
+                }
+            }
             if (arg("--kind") !== undefined)
                 drawPage.kind = arg("--kind");
             if (arg("--opening") !== undefined) {

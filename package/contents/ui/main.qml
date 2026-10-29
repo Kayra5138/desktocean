@@ -157,7 +157,7 @@ WallpaperItem {
     Component.onCompleted: {
         if (root.lockScreen)
             return;
-        TankHub.makeSubmenu(desktoceanMenu, desktoceanActions, Qt.resolvedUrl("../images/menu-desktocean.svg"));
-        TankHub.setMonochromeIcon(feedAction, Qt.resolvedUrl("../images/menu-feed.svg"));
+        TankHub.makeSubmenu(desktoceanMenu, desktoceanActions, Qt.resolvedUrl("../icons/menu-desktocean.svg"));
+        TankHub.setMonochromeIcon(feedAction, Qt.resolvedUrl("../icons/menu-feed.svg"));
     }
 }

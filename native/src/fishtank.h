@@ -176,6 +176,9 @@ public:
     static bool launchEditor(const QString &page = {});
     // One line for the diagnostics overlay: hunger, friends, rivals
     Q_INVOKABLE QString stats() const;
+    // Development aid (preview --export-sprites): saves the sprites drawn in
+    // code (pellet, bubbles, ripple, egg, heart) as PNGs into `dir`
+    Q_INVOKABLE bool exportSprites(const QString &dir) const;
 
     // Multi-monitor (see TankHub): swim the fish this tank owns
     void applyAssignment(bool animateNew);
