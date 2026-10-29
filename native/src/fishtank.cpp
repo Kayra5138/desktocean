@@ -1327,9 +1327,9 @@ bool FishTank::controlFishAt(QPointF at)
     return true;
 }
 
-void FishTank::controlInput(qreal dx, qreal dy, bool dash)
+void FishTank::controlInput(qreal dx, qreal dy, qreal dz, bool dash)
 {
-    dc_sim_control_input(m_sim, float(dx), float(dy), dash ? 1u : 0u);
+    dc_sim_control_input(m_sim, float(dx), float(dy), float(dz), dash ? 1u : 0u);
 }
 
 void FishTank::controlEnd()

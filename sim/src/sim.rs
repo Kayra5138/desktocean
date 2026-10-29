@@ -362,7 +362,7 @@ pub struct Fish {
     /// 0 = front, 1 = back; drives size, speed, fog and z-order
     pub depth: f32,
     /// Width before the spec's scale is applied
-    base_w: f32,
+    pub(super) base_w: f32,
     /// Still dropping in through the surface
     pub entering: bool,
     pub w: f32,

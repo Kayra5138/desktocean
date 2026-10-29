@@ -764,15 +764,21 @@ pub unsafe extern "C" fn dc_sim_control_start(handle: *mut DcSim, id: u64) -> bo
     with_sim(handle, false, |s| s.control_start(id))
 }
 
-/// The direction the keys point (x right, y down; each -1..1); non-zero
-/// `dash` asks for a burst of speed.
+/// The direction the keys point (x right, y down, z away from us; each
+/// -1..1); non-zero `dash` asks for a burst of speed.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dc_sim_control_input(handle: *mut DcSim, dx: f32, dy: f32, dash: u32) {
+pub unsafe extern "C" fn dc_sim_control_input(
+    handle: *mut DcSim,
+    dx: f32,
+    dy: f32,
+    dz: f32,
+    dash: u32,
+) {
     with_sim(handle, (), |s| {
-        if dx.is_finite() && dy.is_finite() {
-            s.control_input(dx, dy, dash != 0)
+        if dx.is_finite() && dy.is_finite() && dz.is_finite() {
+            s.control_input(dx, dy, dz, dash != 0)
         }
     });
 }

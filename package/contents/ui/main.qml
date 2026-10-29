@@ -201,9 +201,12 @@ WallpaperItem {
             property bool keyDown: false
             property bool keyLeft: false
             property bool keyRight: false
+            property bool keyAway: false     // Q: deeper into the tank
+            property bool keyNear: false     // E: toward us
 
             function send(dash) {
-                aquarium.controlInput((keyRight ? 1 : 0) - (keyLeft ? 1 : 0), (keyDown ? 1 : 0) - (keyUp ? 1 : 0), dash);
+                aquarium.controlInput((keyRight ? 1 : 0) - (keyLeft ? 1 : 0), (keyDown ? 1 : 0) - (keyUp ? 1 : 0),
+                                      (keyAway ? 1 : 0) - (keyNear ? 1 : 0), dash);
             }
 
             function setKey(key, pressed) {
@@ -212,6 +215,8 @@ WallpaperItem {
                 case Qt.Key_S: case Qt.Key_Down: keyDown = pressed; return true;
                 case Qt.Key_A: case Qt.Key_Left: keyLeft = pressed; return true;
                 case Qt.Key_D: case Qt.Key_Right: keyRight = pressed; return true;
+                case Qt.Key_Q: keyAway = pressed; return true;
+                case Qt.Key_E: keyNear = pressed; return true;
                 }
                 return false;
             }
@@ -280,7 +285,7 @@ WallpaperItem {
                     color: "white"
                     font.pixelSize: 15
                     text: aquarium.controlledName
-                        ? "Swimming as " + aquarium.controlledName + "  ·  WASD or arrows to swim  ·  Space to dash  ·  Esc to stop"
+                        ? "Swimming as " + aquarium.controlledName + "  ·  WASD or arrows to swim  ·  Q / E deeper / nearer  ·  Space to dash  ·  Esc to stop"
                         : "Click a fish to swim with it  ·  Esc or right-click to cancel"
                 }
             }

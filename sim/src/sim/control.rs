@@ -4,19 +4,22 @@
 
 use super::{EAT_RADIUS, Fish, Mode, PELLET_NOURISHMENT, Sim};
 
-/// Steered fish swim this much faster than they cruise on their own.
-const STEER_SPEED: f32 = 1.4;
+/// Steered fish swim this much faster than their top speed on their own.
+const STEER_SPEED: f32 = 2.4;
 /// A dash: this many times the steering speed, for DASH_SECS, then a rest.
-const DASH_BOOST: f32 = 2.6;
-const DASH_SECS: f32 = 0.35;
-const DASH_REST: f32 = 0.8;
+const DASH_BOOST: f32 = 3.2;
+const DASH_SECS: f32 = 0.6;
+const DASH_REST: f32 = 0.5;
+/// Going deeper or nearer: depth units (0 near .. 1 far) per second.
+const DEPTH_SPEED: f32 = 0.7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Control {
     pub fish: u64,
-    /// Wanted direction, -1..1 each (from the keys)
+    /// Wanted direction, -1..1 each (from the keys); dz > 0 is away
     dx: f32,
     dy: f32,
+    dz: f32,
     dash_left: f32,
     dash_rest: f32,
 }
@@ -38,9 +41,9 @@ impl Sim {
         true
     }
 
-    /// The direction the keys point (x right, y down; each -1..1), and
-    /// whether to dash now
-    pub fn control_input(&mut self, dx: f32, dy: f32, dash: bool) {
+    /// The direction the keys point (x right, y down, z away; each -1..1),
+    /// and whether to dash now
+    pub fn control_input(&mut self, dx: f32, dy: f32, dz: f32, dash: bool) {
         let Some(c) = &mut self.control else { return };
         let len = dx.hypot(dy);
         (c.dx, c.dy) = if len > 1.0 {
@@ -48,6 +51,7 @@ impl Sim {
         } else {
             (dx, dy)
         };
+        c.dz = dz.clamp(-1.0, 1.0);
         if dash && c.dash_left <= 0.0 && c.dash_rest <= 0.0 {
             c.dash_left = DASH_SECS;
         }
@@ -95,6 +99,17 @@ impl Sim {
         f.vy += (wy - f.vy) * k;
         f.x += f.vx * dt;
         f.y += f.vy * dt;
+        // Deeper or nearer: smaller and hazier away, bigger up close (the same
+        // way depth sizes fish when they arrive)
+        if c.dz != 0.0 {
+            let boost = if c.dash_left > 0.0 { 2.0 } else { 1.0 };
+            let depth = (f.depth + c.dz * DEPTH_SPEED * boost * dt).clamp(0.0, 1.0);
+            let ratio = (1.0 - 0.45 * depth) / (1.0 - 0.45 * f.depth);
+            f.base_w *= ratio;
+            f.w *= ratio;
+            f.h *= ratio;
+            f.depth = depth;
+        }
         self.clamp_to_water(f);
         if f.vx.abs() > 10.0 {
             f.dir = f.vx.signum();
@@ -150,26 +165,26 @@ mod tests {
     fn a_steered_fish_goes_where_the_keys_say_and_dashes() {
         let mut s = one_fish();
         assert!(s.control_start(3));
-        s.control_input(-1.0, 0.0, false);
+        s.control_input(-1.0, 0.0, 0.0, false);
         for _ in 0..30 {
             s.step(DT, None);
         }
         let after_walk = s.fish()[0].x;
         assert!(after_walk < 900.0, "it should swim left (x {after_walk})");
         assert!(s.fish()[0].facing < 0.0, "facing left");
-        s.control_input(0.0, 1.0, false);
+        s.control_input(0.0, 1.0, 0.0, false);
         let y0 = s.fish()[0].y;
         for _ in 0..30 {
             s.step(DT, None);
         }
         assert!(s.fish()[0].y > y0 + 40.0, "and down");
         // A dash is much faster than plain steering
-        s.control_input(1.0, 0.0, false);
+        s.control_input(1.0, 0.0, 0.0, false);
         for _ in 0..20 {
             s.step(DT, None);
         }
         let plain = s.fish()[0].speed;
-        s.control_input(1.0, 0.0, true);
+        s.control_input(1.0, 0.0, 0.0, true);
         for _ in 0..5 {
             s.step(DT, None);
         }
@@ -178,6 +193,17 @@ mod tests {
             "dash: {} vs {plain}",
             s.fish()[0].speed
         );
+        // Away into the tank: deeper and smaller
+        let (d0, w0) = (s.fish()[0].depth, s.fish()[0].w);
+        s.control_input(0.0, 0.0, 1.0, false);
+        for _ in 0..15 {
+            s.step(DT, None);
+        }
+        assert!(
+            s.fish()[0].depth > d0 + 0.2 || s.fish()[0].depth == 1.0,
+            "it should go deeper"
+        );
+        assert!(s.fish()[0].w < w0, "and look smaller");
         // Let go: it swims on by itself
         s.control_end();
         s.step(DT, None);
@@ -199,10 +225,10 @@ mod tests {
         s.food[0].size = s.fish[0].bite();
         s.fish[0].facing = 1.0;
         s.fish[0].dir = 1.0;
-        s.control_input(1.0, 0.0, false);
+        s.control_input(1.0, 0.0, 0.0, false);
         for _ in 0..30 * 2 {
             s.step(DT, None);
-            s.control_input(1.0, 0.0, false);
+            s.control_input(1.0, 0.0, 0.0, false);
         }
         assert!(
             s.food().is_empty(),

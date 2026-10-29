@@ -167,8 +167,8 @@ public:
     QString controlledName() const { return m_controlledName; }
     // Takes over the front-most fish at this point (item coordinates); false if none is there
     Q_INVOKABLE bool controlFishAt(QPointF at);
-    // The keys' direction (x right, y down; each -1..1) and a dash
-    Q_INVOKABLE void controlInput(qreal dx, qreal dy, bool dash);
+    // The keys' direction (x right, y down, z away; each -1..1) and a dash
+    Q_INVOKABLE void controlInput(qreal dx, qreal dy, qreal dz, bool dash);
     Q_INVOKABLE void controlEnd();
     bool healthy() const { return m_healthy; }
     QString coreVersion() const;

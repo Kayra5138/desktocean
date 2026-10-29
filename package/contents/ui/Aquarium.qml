@@ -26,7 +26,7 @@ Item {
     // Swimming a fish yourself (see main.qml)
     readonly property alias controlledName: tank.controlledName
     function controlFishAt(x, y) { return tank.controlFishAt(Qt.point(x, y)); }
-    function controlInput(dx, dy, dash) { tank.controlInput(dx, dy, dash); }
+    function controlInput(dx, dy, dz, dash) { tank.controlInput(dx, dy, dz, dash); }
     function controlEnd() { tank.controlEnd(); }
     property alias autoFeed: tank.autoFeed
     // Distant reef, kelp and wreck, sand details and the sky window
