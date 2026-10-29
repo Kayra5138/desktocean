@@ -193,6 +193,9 @@ public:
     void carryTo(QPointF at);
     void carryEnd();
     void carryRise();
+    void carryRelease();
+    // The wand's bubble on screen (item coordinates), or null when there is none
+    QRectF carryBubbleRect() const;
     qreal averageHunger() const;
     // (friendships, rivalries)
     QPair<int, int> relationCounts() const;

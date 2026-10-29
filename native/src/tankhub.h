@@ -79,6 +79,11 @@ public:
     Q_INVOKABLE void carryEnd();
     // Left alone for a while: the bubble floats up and pops at the surface
     Q_INVOKABLE void carryRise();
+    // Let go of the bubble: it drifts on with its momentum and pops at a side,
+    // or floats up after a few seconds alone
+    Q_INVOKABLE void carryRelease();
+    // Where the bubble is, in `item`'s coordinates; an empty rect when there is none
+    Q_INVOKABLE QRectF carryBubbleRect(QQuickItem *item) const;
     // Puts a desktop widget's box (an ItemContainer) at (x, y) in its
     // parent's coordinates right away. From C++, so the desktop's move
     // animation doesn't hold it back and the layout saves the new place.

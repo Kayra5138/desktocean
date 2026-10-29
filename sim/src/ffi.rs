@@ -652,6 +652,15 @@ pub unsafe extern "C" fn dc_sim_carry_to(handle: *mut DcSim, x: f32, y: f32) {
     });
 }
 
+/// Let go of the bubble: it drifts on with its momentum, pops if it hits a
+/// side, and floats up after a few seconds alone.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_carry_release(handle: *mut DcSim) {
+    with_sim(handle, (), |s| s.carry_release());
+}
+
 /// The bubble was left alone: it floats up and pops at the surface.
 /// # Safety
 /// `handle` must be null or a live pointer from `dc_sim_new`.

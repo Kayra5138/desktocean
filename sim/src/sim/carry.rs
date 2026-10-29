@@ -25,7 +25,19 @@ pub struct Carry {
     linger: f32,
     /// Let go of: floating up to pop at the surface
     pub rising: bool,
+    /// Being led around (by the cursor); let go, it drifts on with its
+    /// momentum, slows down, and after IDLE_SECS alone floats up
+    pub held: bool,
+    vx: f32,
+    vy: f32,
+    idle: f32,
+    /// When it was last moved, and where it was at the last step (for its speed)
+    moved_at: f32,
+    last: (f32, f32),
 }
+
+/// Left alone this long (not moving much), a bubble floats up to pop.
+const IDLE_SECS: f32 = 3.0;
 
 impl Carry {
     pub fn radius(&self, fish: &[Fish]) -> f32 {
@@ -71,6 +83,9 @@ impl Sim {
                 c.x = x;
                 c.y = y;
                 c.rising = false;
+                c.held = true;
+                c.idle = 0.0;
+                c.moved_at = self.time;
             }
             None => {
                 self.carry = Some(Carry {
@@ -81,7 +96,26 @@ impl Sim {
                     candidate: None,
                     linger: 0.0,
                     rising: false,
+                    held: false,
+                    vx: 0.0,
+                    vy: 0.0,
+                    idle: 0.0,
+                    moved_at: self.time,
+                    last: (x, y),
                 })
+            }
+        }
+    }
+
+    /// Let go of the bubble: it carries on with the speed it had
+    pub fn carry_release(&mut self) {
+        if let Some(c) = &mut self.carry {
+            c.held = false;
+            c.idle = 0.0;
+            // Held still before letting go: no fling
+            if self.time - c.moved_at > 0.1 {
+                c.vx = 0.0;
+                c.vy = 0.0;
             }
         }
     }
@@ -95,14 +129,18 @@ impl Sim {
 
     /// Let go: the bubble pops and the fish swims out
     pub fn carry_end(&mut self) {
+        // Pops where it is seen (around its fish)
+        let Some((bx, by, r)) = self.carry_bubble() else {
+            return;
+        };
         let Some(c) = self.carry.take() else { return };
-        let r = c.radius(&self.fish);
+        let (c_x, c_y) = (bx, by);
         // The pop: a ring of small bubbles
         for k in 0..8 {
             let a = k as f32 * std::f32::consts::TAU / 8.0;
             self.blow_bubbles(
-                c.x + a.cos() * r * 0.8,
-                c.y + a.sin() * r * 0.8,
+                c_x + a.cos() * r * 0.8,
+                c_y + a.sin() * r * 0.8,
                 1,
                 (2.5, 4.0),
                 0.3,
@@ -120,6 +158,38 @@ impl Sim {
 
     pub(super) fn update_carry(&mut self, dt: f32) {
         let Some(mut c) = self.carry else { return };
+        if c.held && dt > 0.0 {
+            // Its speed while being led, smoothed: it keeps it when let go
+            c.vx = 0.6 * c.vx + 0.4 * (c.x - c.last.0) / dt;
+            c.vy = 0.6 * c.vy + 0.4 * (c.y - c.last.1) / dt;
+        }
+        c.last = (c.x, c.y);
+        if !c.held && !c.rising {
+            // Drifting on after a fling, slowing down in the water
+            c.x += c.vx * dt;
+            c.y += c.vy * dt;
+            let drag = (-1.6 * dt).exp();
+            c.vx *= drag;
+            c.vy *= drag;
+            // Flung into a side, the sand or the surface: pop
+            let r = c.radius(&self.fish);
+            if c.x - r < 0.0
+                || c.x + r > self.width
+                || c.y - r < self.water_top()
+                || c.y + r > self.height
+            {
+                self.carry = Some(c);
+                self.carry_end();
+                return;
+            }
+            // Settled and left alone a while: up it goes
+            if c.vx.hypot(c.vy) < 40.0 {
+                c.idle += dt;
+                if c.idle >= IDLE_SECS {
+                    c.rising = true;
+                }
+            }
+        }
         if c.rising {
             // Up it goes, swaying a little, and pops just under the surface
             c.y -= 70.0 * dt;
@@ -308,8 +378,8 @@ mod tests {
             s.step(DT, None);
         }
         assert!(s.carry().unwrap().holding);
-        s.carry_rise();
-        for _ in 0..30 * 20 {
+        s.carry_release();
+        for _ in 0..30 * 25 {
             s.step(DT, None);
             if s.carry().is_none() {
                 break;
@@ -319,6 +389,33 @@ mod tests {
         let f = &s.fish()[0];
         assert!(f.y < 1080.0 * 0.3, "the fish rode up with it (y {})", f.y);
         assert!(!matches!(f.mode, Mode::Bubbled));
+    }
+
+    #[test]
+    fn a_flung_bubble_keeps_going_and_pops_at_the_side() {
+        let mut s = one_fish(Character::Explorer);
+        // Led quickly to the right, then let go mid-tank
+        for k in 0..10 {
+            s.carry_to(1100.0 + k as f32 * 40.0, 500.0);
+            s.step(DT, None);
+        }
+        s.carry_release();
+        let x0 = s.carry().unwrap().x;
+        for _ in 0..10 {
+            s.step(DT, None);
+        }
+        let c = s.carry().copied();
+        assert!(
+            c.is_none_or(|c| c.x > x0 + 100.0),
+            "it should carry on to the right"
+        );
+        for _ in 0..30 * 4 {
+            s.step(DT, None);
+        }
+        assert!(
+            s.carry().is_none(),
+            "it should have popped against the side"
+        );
     }
 
     #[test]

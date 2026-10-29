@@ -162,6 +162,7 @@ uint32_t dc_sim_take_departures(DcSim *sim, DcDeparture *out, uint32_t cap);  //
 bool dc_sim_arrive(DcSim *sim, uint64_t id, int32_t side, float y);  // swim in through a side edge
 void dc_sim_carry_to(DcSim *sim, float x, float y);   // bubble wand: the bubble is here
 void dc_sim_carry_end(DcSim *sim);                     // let go: it pops, the fish swims out
+void dc_sim_carry_release(DcSim *sim);                 // let go: drifts on, pops at a side, rises when idle
 void dc_sim_carry_rise(DcSim *sim);                    // left alone: floats up and pops at the surface
 bool dc_sim_carry_bubble(DcSim *sim, DcBubble *out);   // alpha = how close a fish is to coming in
 uint32_t dc_sim_hearts(DcSim *sim, DcBubble *out, uint32_t cap);   // radius = half size

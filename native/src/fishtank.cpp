@@ -585,6 +585,19 @@ void FishTank::carryTo(QPointF at)
     update();
 }
 
+void FishTank::carryRelease()
+{
+    dc_sim_carry_release(m_sim);
+}
+
+QRectF FishTank::carryBubbleRect() const
+{
+    if (!m_carrying)
+        return {};
+    const DcBubble &b = m_carryBubble;
+    return QRectF(b.x - b.radius, b.y - b.radius, b.radius * 2, b.radius * 2);
+}
+
 void FishTank::carryRise()
 {
     dc_sim_carry_rise(m_sim);

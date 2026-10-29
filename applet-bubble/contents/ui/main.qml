@@ -6,12 +6,15 @@ import org.kde.plasma.plasmoid
 import Desktocean.Core
 
 // A bubble wand standing on the desktop. Double-click it and a bubble comes
-// out of its ring. While the bubble is out, press the wand and drag: the
-// bubble follows the cursor. Hold it next to a fish for a moment and the fish
-// swims in on its own and rides along calmly. Leave the bubble alone for three
-// seconds and it floats up and pops at the surface (the fish swims out up
-// there); double-click to pop it right away. Without a bubble, dragging the
-// wand moves it; let go and it stays where it is.
+// out of its ring (a bubble already out pops first). Press the bubble itself
+// and drag it: hold it next to a fish for a moment and the fish swims in on
+// its own and rides along calmly. Fling it and it sails on, popping if it
+// hits a side; leave it alone for three seconds and it floats up and pops at
+// the surface. Drag the wand to move it; let go and it stays where it is.
+//
+// The bubble lives in the wallpaper, which never gets clicks; the wand puts
+// an invisible handle over it in the desktop's window so the bubble can be
+// grabbed directly.
 PlasmoidItem {
     id: root
 
@@ -21,7 +24,7 @@ PlasmoidItem {
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
     preferredRepresentation: fullRepresentation
     toolTipMainText: "Bubble wand"
-    toolTipSubText: TankHub.available ? "Double-click to blow a bubble, then drag from the wand to lead it to a fish"
+    toolTipSubText: TankHub.available ? "Double-click to blow a bubble, then drag the bubble to a fish"
                                       : "Desktocean is not your wallpaper"
 
     // The desktop's box around this widget (an ItemContainer of the desktop's
@@ -49,30 +52,79 @@ PlasmoidItem {
         property bool lifted: false
         property point dropAt
 
-        Component.onDestruction: if (bubbleOut) TankHub.carryEnd()
+        // The grab handle over the bubble, in the desktop window's top layer
+        property Item handle: null
 
+        Component.onDestruction: {
+            if (bubbleOut)
+                TankHub.carryEnd();
+            if (handle)
+                handle.destroy();
+        }
 
+        function blowBubble() {
+            // A bubble that is already out pops first
+            if (bubbleOut)
+                TankHub.carryEnd();
+            bubbleOut = TankHub.carryAt(ring, ring.width / 2, -ring.height * 0.9);
+            if (bubbleOut && !handle) {
+                const top = holder.Window.window ? holder.Window.window.contentItem : null;
+                if (top)
+                    handle = handleComponent.createObject(top);
+            }
+            if (bubbleOut)
+                TankHub.carryRelease();   // just blown: it floats there on its own
+        }
 
-        // Three seconds without being led anywhere: up it goes, and pops
+        // Keeps the handle on the bubble; notices when the bubble has popped
         Timer {
-            id: idle
-            interval: 3000
+            interval: 16
+            repeat: true
+            running: holder.bubbleOut && holder.handle !== null
             onTriggered: {
-                TankHub.carryRise();
-                holder.bubbleOut = false;
+                const r = TankHub.carryBubbleRect(holder.handle.parent);
+                if (r.width <= 0) {
+                    holder.bubbleOut = false;
+                    holder.handle.visible = false;
+                    return;
+                }
+                if (!holder.handle.pressed) {
+                    holder.handle.x = r.x;
+                    holder.handle.y = r.y;
+                    holder.handle.width = r.width;
+                    holder.handle.height = r.height;
+                }
+                holder.handle.visible = true;
             }
         }
 
-        function toggleBubble() {
-            if (bubbleOut) {
-                idle.stop();
-                TankHub.carryEnd();
-                bubbleOut = false;
-            } else {
-                // Blown just above the ring
-                bubbleOut = TankHub.carryAt(ring, ring.width / 2, -ring.height * 0.9);
-                if (bubbleOut)
-                    idle.restart();
+        Component {
+            id: handleComponent
+            MouseArea {
+                // Above everything on the desktop (icons, widgets)
+                z: 1e6
+                visible: false
+                hoverEnabled: true
+                preventStealing: true
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+
+                // Where on the bubble it was grabbed, so it doesn't jump
+                property point grab
+
+                function lead(mouseEvent) {
+                    const p = mapToItem(parent, mouseEvent.x, mouseEvent.y);
+                    TankHub.carryAt(parent, p.x - grab.x, p.y - grab.y);
+                }
+                onPressed: mouseEvent => {
+                    grab = Qt.point(mouseEvent.x - width / 2, mouseEvent.y - height / 2);
+                    lead(mouseEvent);
+                }
+                onPositionChanged: mouseEvent => {
+                    if (pressed)
+                        lead(mouseEvent);
+                }
+                onReleased: TankHub.carryRelease()
+                onCanceled: TankHub.carryRelease()
             }
         }
 
@@ -101,7 +153,7 @@ PlasmoidItem {
                 Behavior on opacity { NumberAnimation { duration: 150 } }
             }
 
-            // The ring's middle (see wand.svg): where the bubble is
+            // The ring's middle (see wand.svg): the bubble comes out just above it
             Item {
                 id: ring
                 x: wandBox.width * 13 / 64
@@ -120,8 +172,6 @@ PlasmoidItem {
 
             property point grab
             property var box: null
-            // This press leads the bubble rather than moving the wand
-            property bool leading: false
 
             function putDown() {
                 if (!holder.carrying)
@@ -136,13 +186,6 @@ PlasmoidItem {
             }
 
             onPressed: mouseEvent => {
-                if (holder.bubbleOut) {
-                    leading = true;
-                    idle.stop();
-                    TankHub.carryAt(mouse, mouseEvent.x, mouseEvent.y);
-                    return;
-                }
-                leading = false;
                 box = root.desktopBox();
                 holder.carrying = true;
                 if (box) {
@@ -154,30 +197,17 @@ PlasmoidItem {
                 }
             }
             onPositionChanged: mouseEvent => {
-                if (pressed && leading) {
-                    TankHub.carryAt(mouse, mouseEvent.x, mouseEvent.y);
-                    return;
-                }
                 if (!pressed || !holder.carrying || !box)
                     return;
                 const at = mapToItem(box.parent, mouseEvent.x, mouseEvent.y);
                 // Exactly under the cursor
                 holder.dropAt = Qt.point(at.x - grab.x, at.y - grab.y);
             }
-            function letGo() {
-                if (leading) {
-                    leading = false;
-                    if (holder.bubbleOut)
-                        idle.restart();
-                    return;
-                }
-                putDown();
-            }
-            onReleased: letGo()
-            onCanceled: letGo()
+            onReleased: putDown()
+            onCanceled: putDown()
             onDoubleClicked: {
-                letGo();
-                holder.toggleBubble();
+                putDown();
+                holder.blowBubble();
             }
         }
     }

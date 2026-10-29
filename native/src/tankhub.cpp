@@ -367,6 +367,23 @@ bool TankHub::carryAt(QQuickItem *item, qreal x, qreal y)
     return found;
 }
 
+void TankHub::carryRelease()
+{
+    if (carryTank())
+        carryTank()->carryRelease();
+}
+
+QRectF TankHub::carryBubbleRect(QQuickItem *item) const
+{
+    FishTank *tank = carryTank();
+    if (!tank || !item)
+        return {};
+    const QRectF r = tank->carryBubbleRect();
+    if (r.isNull())
+        return {};
+    return QRectF(tank->mapToItem(item, r.topLeft()), tank->mapToItem(item, r.bottomRight()));
+}
+
 void TankHub::carryRise()
 {
     if (carryTank())
