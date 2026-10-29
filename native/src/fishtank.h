@@ -53,6 +53,9 @@ class FishTank : public QQuickItem
     Q_PROPERTY(qreal hourOverride READ hourOverride WRITE setHourOverride NOTIFY hourOverrideChanged)
     // 0 = night, 1 = day; drives the water shader and dims the fish
     Q_PROPERTY(qreal daylight READ daylight NOTIFY daylightChanged)
+    // Fish behave as at night (rest low and slow) whatever the clock says;
+    // the water keeps its real light. Set while nobody uses the computer.
+    Q_PROPERTY(bool asleep READ asleep WRITE setAsleep NOTIFY asleepChanged)
     // Busy computer, restless water: CPU load stirs the current and bubbles
     Q_PROPERTY(bool reactToCpu READ reactToCpu WRITE setReactToCpu NOTIFY reactToCpuChanged)
     // Smoothed CPU load 0..1 (0 when reactToCpu is off); drives the water's agitation
@@ -112,6 +115,8 @@ public:
     qreal hourOverride() const { return m_hourOverride; }
     void setHourOverride(qreal hour);
     qreal daylight() const { return m_daylight; }
+    bool asleep() const { return m_asleep; }
+    void setAsleep(bool asleep);
     bool reactToCpu() const { return m_reactToCpu; }
     void setReactToCpu(bool react);
     qreal agitation() const { return m_reactToCpu ? m_cpuLoad : 0; }
@@ -183,6 +188,7 @@ Q_SIGNALS:
     void followTimeOfDayChanged();
     void hourOverrideChanged();
     void daylightChanged();
+    void asleepChanged();
     void reactToCpuChanged();
     void agitationChanged();
     void babiesChanged();
@@ -269,6 +275,7 @@ private:
     bool m_followTimeOfDay = true;
     qreal m_hourOverride = -1;
     qreal m_daylight = 1;
+    bool m_asleep = false;
     bool m_reactToCpu = true;
     bool m_babies = true;
     int m_maxFish = 30;

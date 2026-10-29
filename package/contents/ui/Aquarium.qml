@@ -32,6 +32,9 @@ Item {
     readonly property var themeColors: tank.themeColors
     property alias hourOverride: tank.hourOverride
     property string pauseReason: ""
+    // Fish rest as at night (water light unchanged); sleepReason says why, for the diagnostics
+    property alias asleep: tank.asleep
+    property string sleepReason: ""
     readonly property alias foodCount: tank.foodCount
 
     // Must match SAND_TOP in sim/src/sim.rs
@@ -146,7 +149,8 @@ Item {
             snapshot = "Desktocean · Phase 4\n"
                 + "Core: rust " + tank.coreVersion + (tank.healthy ? " (ok)" : " (STOPPED)") + "\n"
                 + "FPS: " + measuredFps + " (target " + (tank.matchRefresh ? "screen refresh" : tank.fps) + ")\n"
-                + "State: " + (tank.running && !tank.paused ? "running" : "paused (" + (tank.paused ? "by user" : aquarium.pauseReason) + ")") + "\n"
+                + "State: " + (tank.running && !tank.paused ? (tank.asleep ? "asleep (" + (aquarium.sleepReason || "idle") + ")" : "running")
+                               : "paused (" + (tank.paused ? "by user" : aquarium.pauseReason) + ")") + "\n"
                 + "Fish: " + tank.fishCount + "  Food: " + tank.foodCount + "\n"
                 + "Following cursor: " + (tank.lureActive ? "yes" : "no") + "\n"
                 + tank.stats() + "\n"

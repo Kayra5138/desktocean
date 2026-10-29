@@ -45,10 +45,16 @@ Window {
             return i >= 0 ? Number(Qt.application.arguments[i + 1]) : -1;
         }
 
+        // `--asleep` shows the fish asleep (idle) whatever the hour; Z toggles it
+        asleep: Qt.application.arguments.indexOf("--asleep") >= 0
+        sleepReason: "preview"
+
         Keys.onSpacePressed: running = !running
         // Enter simulates a notification
         Keys.onReturnPressed: announce()
         Keys.onPressed: event => {
+            if (event.key === Qt.Key_Z)
+                aquarium.asleep = !aquarium.asleep;
             if (event.key === Qt.Key_S)
                 aquarium.grabToImage(r => r.saveToFile(Qt.resolvedUrl("preview.png").toString().replace("file://", "")));
         }

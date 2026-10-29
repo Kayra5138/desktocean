@@ -409,8 +409,9 @@ void FishTank::handleBirths()
 {
     DcBirth births[8];
     const uint32_t n = dc_sim_take_births(m_sim, births, 8);
-    // Every fish lives on one screen only, so each tank records its own babies
-    if (!m_babies)
+    // Every fish lives on one screen only, so each tank records its own
+    // babies; the lock screen only looks
+    if (!m_babies || TankHub::isLockScreen())
         return;
     if (n > 0)
         SoundBoard::instance().play(SoundBoard::Sound::Hatch);
@@ -569,12 +570,22 @@ void FishTank::updateDaylight()
         // Dawn 5:30-7:30, dusk 18:30-20:30
         d = smoothstep(5.5, 7.5, hour) * (1 - smoothstep(18.5, 20.5, hour));
     }
-    dc_sim_set_daylight(m_sim, float(d));
+    // Asleep: night for the fish only
+    dc_sim_set_daylight(m_sim, m_asleep ? 0.f : float(d));
     if (std::abs(d - m_daylight) < 0.0005)
         return;
     m_daylight = d;
     update();
     Q_EMIT daylightChanged();
+}
+
+void FishTank::setAsleep(bool asleep)
+{
+    if (asleep == m_asleep)
+        return;
+    m_asleep = asleep;
+    updateDaylight();
+    Q_EMIT asleepChanged();
 }
 
 qreal FishTank::averageHunger() const
@@ -668,6 +679,8 @@ void FishTank::saveState() const
 {
     if (!m_stateLoaded)
         return;   // never overwrite saved friendships before they were read
+    if (TankHub::isLockScreen())
+        return;   // plasmashell's tank keeps the state; the lock screen only reads it
 
     // With several screens every tank holds some of the fish: start from what
     // is saved and replace only what concerns the fish swimming here
@@ -1080,8 +1093,8 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
 void FishTank::updateTimer()
 {
     const bool shouldRun = m_running && !m_paused && m_healthy && isComponentComplete() && width() > 0 && height() > 0;
-    // Quiet while nobody can see the tank
-    SoundBoard::instance().setActive(this, shouldRun);
+    // Quiet while nobody can see the tank, and always on the lock screen
+    SoundBoard::instance().setActive(this, shouldRun && !TankHub::isLockScreen());
     if (m_matchRefresh) {
         m_timer.stop();
         if (shouldRun && !m_vsyncActive) {
@@ -1330,7 +1343,8 @@ void FishTank::seedDecor(const QString &only)
 void FishTank::watchLibrary()
 {
     const QString dir = FishLibrary::directory();
-    QDir().mkpath(dir);
+    if (!TankHub::isLockScreen())
+        QDir().mkpath(dir);
     const QString parent = QFileInfo(dir).dir().path();
     for (const QString &path : {dir, parent}) {
         if (!m_watcher.directories().contains(path))
@@ -1357,9 +1371,11 @@ void FishTank::checkRequests()
 
 void FishTank::loadLibrary(bool animateNew)
 {
-    if (!FishLibrary::exists() && !m_starterFish.isEmpty())
+    // The lock screen shows the library as it is; plasmashell seeds it
+    const bool writable = !TankHub::isLockScreen();
+    if (writable && !FishLibrary::exists() && !m_starterFish.isEmpty())
         seedLibrary();
-    if (!FishLibrary::decorSeeded())
+    if (writable && !FishLibrary::decorSeeded())
         seedDecor();
     else if (TankHub::isPrimary(this)) {
         // Starters that came later (the cave, crawlers): existing tanks get

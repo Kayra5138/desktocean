@@ -8,6 +8,8 @@ Kirigami.FormLayout {
     property alias cfg_Fps: fps.value
     property alias cfg_MatchRefresh: matchRefresh.checked
     property alias cfg_PauseOnMaximized: pauseOnMaximized.checked
+    property alias cfg_SleepWhenIdle: sleepWhenIdle.checked
+    property alias cfg_IdleMinutes: idleMinutes.value
     property string cfg_Theme
     property alias cfg_FollowTimeOfDay: followTimeOfDay.checked
     property alias cfg_Babies: babies.checked
@@ -37,6 +39,19 @@ Kirigami.FormLayout {
         id: pauseOnMaximized
         Kirigami.FormData.label: "Performance:"
         text: "Pause while a maximized or fullscreen window is open"
+    }
+
+    QQC2.CheckBox {
+        id: sleepWhenIdle
+        text: "Fish fall asleep when the computer is not used (10 FPS)"
+    }
+
+    QQC2.SpinBox {
+        id: idleMinutes
+        Kirigami.FormData.label: "Fall asleep after (minutes):"
+        enabled: sleepWhenIdle.checked
+        from: 1
+        to: 120
     }
 
     QQC2.ComboBox {

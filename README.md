@@ -50,6 +50,10 @@ decorations and drop them into the tank.
 - **Themes** for water and sand: Tropical, Lagoon, Deep sea, Kelp forest, Volcanic
 - **Desktocean widget** for the panel or desktop: feed, pause, open the editor, and see how
   hungry the fish are and how many friendships they made
+- **Fish food jar** widget: put the jar anywhere on the desktop and click it; it tips, shakes and
+  food falls into the water right below it. Move the jar to feed somewhere else
+- **Feed fish at cursor** keyboard shortcut, <kbd>Meta</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> by default
+  (change it in *System Settings* → *Keyboard* → *Shortcuts* → *Desktocean*)
 - **Your computer in the water**: when a notification arrives a fish swims up and blows bubbles
   (not in Do Not Disturb); when the CPU is busy the current picks up, plants sway harder and more
   bubbles rise. Fish also let out a few bubbles now and then. Both can be turned off
@@ -61,12 +65,17 @@ decorations and drop them into the tank.
 - Unlimited food; **Clear food** removes it
 - Simulation written in Rust; a panic inside it freezes the aquarium instead of crashing plasmashell
 - Stops ticking and redrawing while a maximized or fullscreen window covers the screen
+- **Idle sleep**: after a few minutes without keyboard or mouse input (3 by default, a setting)
+  the fish fall asleep as if it were night, while the water keeps its light, and the tank drops
+  to 10 FPS. When the screen switches off or the session locks it stops completely. Any input
+  wakes them at once. Uses KIdleTime and KScreen's DPMS, so it works on Wayland
 - Capped frame rate (default 30 FPS); zero redraws while paused
 
 ## Requirements
 
 - KDE Plasma 6 (developed on 6.8, Wayland) with Kirigami
 - Qt 6 development files and the `qsb` shader tool (`qt6-base`, `qt6-declarative`, `qt6-shadertools`)
+- KDE Frameworks KIdleTime and libkscreen development files (`kidletime`, `libkscreen`; part of any Plasma install)
 - CMake, a C++20 compiler, and Rust (cargo)
 - Python 3 (generates the placeholder fish)
 
@@ -90,6 +99,23 @@ reloads the QML (desktop and panels blink for a second):
 ./scripts/reload-plasma.sh
 ```
 
+### Lock screen
+
+The aquarium can also be the lock screen wallpaper, with the same fish:
+
+```bash
+./scripts/install.sh --lockscreen
+```
+
+or pick it yourself in *System Settings* → *Screen Locking* → *Appearance: Configure…* →
+*Wallpaper type* → **Desktocean** (its settings there are separate from the desktop's).
+`./scripts/install.sh --no-lockscreen` puts the default picture back.
+
+On the lock screen the fish only swim: there is no menu, no reaction to notifications, and
+nothing is written to the fish library. Babies and friendships are recorded by the desktop's
+aquarium only. The lock screen is started by KWin and finds `Desktocean.Core` through the same
+`QML_IMPORT_PATH`; right after the very first install, log out and back in once.
+
 ## Your fish
 
 Fish live in `~/.local/share/desktocean/fish/`: one PNG per fish (head facing right),
@@ -111,7 +137,8 @@ Run the aquarium in a plain window, without touching plasmashell:
 /usr/lib/qt6/bin/qml -I build/qml dev/preview.qml
 ```
 
-Click to feed, <kbd>Space</kbd> to pause, <kbd>S</kbd> to save `dev/preview.png`.
+Click to feed, <kbd>Space</kbd> to pause, <kbd>Z</kbd> to put the fish to sleep (as when idle;
+or start with `-- --asleep`), <kbd>S</kbd> to save `dev/preview.png`.
 Run `./scripts/build-shaders.sh` after editing anything in `shaders/`, and
 `cmake --build build` after editing `sim/` or `native/`. Rust tests: `cargo test` in `sim/`.
 
@@ -145,11 +172,13 @@ aquarium adds about 60 MB of memory, mostly the sprite atlas.
 | `sim/` | Rust simulation core (static library, C ABI in `sim/include/`) |
 | `native/` | C++ QML plugin `Desktocean.Core`: `FishTank` ticks the core, reads the cursor, batch-renders sprites |
 | `native/editor/` | `desktocean-editor`: drawing canvas, fish library page (Kirigami) |
+| `native/src/idlewatcher.*` | `IdleWatcher`: no input for a while, screen off, session locked |
 | `native/src/fishlibrary.*` | The fish library on disk, shared by plugin and editor |
 | `native/src/fishmesh.*`, `spritenode.*` | Swim styles, mesh bending and batched sprite rendering, shared by tank and editor preview |
 | `shaders/` | Water shader source, compiled to `.qsb` into the package |
 | `scripts/` | Install, build, reload and measure helpers |
 | `applet/` | The Desktocean control widget (Plasma applet) |
+| `applet-foodjar/` | The fish food jar widget (Plasma applet) |
 | `dev/preview.qml` | Standalone preview window |
 
 ## Roadmap

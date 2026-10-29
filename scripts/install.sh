@@ -3,8 +3,21 @@
 #   - Desktocean.Core QML plugin (Rust core + C++) → ~/.local/lib/qt6/qml
 #   - desktocean-editor (drawing app)              → ~/.local/bin + app menu entry + *.desktocean type
 #   - wallpaper package                            → ~/.local/share/plasma/wallpapers
-#   - control widget                               → ~/.local/share/plasma/plasmoids
+#   - control widget and fish food jar widget      → ~/.local/share/plasma/plasmoids
+#
+# Options:
+#   --lockscreen      also use the aquarium as the lock screen wallpaper
+#   --no-lockscreen   put the lock screen back to the default picture wallpaper
 set -euo pipefail
+LOCKSCREEN=""
+for arg in "$@"; do
+    case "$arg" in
+        --lockscreen) LOCKSCREEN=on ;;
+        --no-lockscreen) LOCKSCREEN=off ;;
+        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
+    esac
+done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 QML_DIR="$HOME/.local/lib/qt6/qml"
 ENV_FILE="$HOME/.config/environment.d/50-desktocean.conf"
@@ -70,6 +83,15 @@ else
     echo "Installed the Desktocean widget: add it from the panel's or desktop's \"Add Widgets…\""
 fi
 
+# --- fish food jar widget ----------------------------------------------------
+if kpackagetool6 -t Plasma/Applet -s desktocean.foodjar >/dev/null 2>&1; then
+    kpackagetool6 -t Plasma/Applet -u "$ROOT/applet-foodjar" >/dev/null
+    echo "Upgraded the fish food jar widget"
+else
+    kpackagetool6 -t Plasma/Applet -i "$ROOT/applet-foodjar" >/dev/null
+    echo "Installed the fish food jar: add \"Desktocean Fish Food\" from the desktop's \"Add Widgets…\""
+fi
+
 if kpackagetool6 -t Plasma/Wallpaper -s desktocean.aquarium >/dev/null 2>&1; then
     kpackagetool6 -t Plasma/Wallpaper -u "$ROOT/package"
     echo "Upgraded. Plasma caches QML and plugins: run scripts/reload-plasma.sh to see changes."
@@ -77,3 +99,18 @@ else
     kpackagetool6 -t Plasma/Wallpaper -i "$ROOT/package"
     echo "Installed. Pick it in: right-click desktop → Desktop and Wallpaper → Wallpaper type → Desktocean"
 fi
+
+# --- lock screen (only when asked) -------------------------------------------
+# The lock screen (kscreenlocker_greet) is started by KWin and inherits the
+# session environment, so it finds Desktocean.Core through the same
+# QML_IMPORT_PATH; right after the very first install that needs a new login.
+case "$LOCKSCREEN" in
+    on)
+        kwriteconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin desktocean.aquarium
+        echo "The lock screen now shows the aquarium (System Settings → Screen Locking → Appearance to change it)"
+        ;;
+    off)
+        kwriteconfig6 --file kscreenlockerrc --group Greeter --key WallpaperPlugin --delete
+        echo "The lock screen is back to the default picture wallpaper"
+        ;;
+esac

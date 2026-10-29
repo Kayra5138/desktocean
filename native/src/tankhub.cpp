@@ -1,8 +1,15 @@
 #include "tankhub.h"
 #include "fishtank.h"
 
+#include <KGlobalAccel>
+
 #include <QAction>
 #include <algorithm>
+#include <QCursor>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QCoreApplication>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QIconEngine>
@@ -14,6 +21,8 @@
 #include <QQmlFile>
 #include <QQuickWindow>
 #include <QScreen>
+
+#include <algorithm>
 
 namespace {
 // All tanks in this process. Plain pointers guarded by QPointer, touched only
@@ -68,6 +77,7 @@ TankHub::TankHub(QObject *parent)
 
 void TankHub::registerTank(FishTank *tank)
 {
+    setUpShortcut();
     tanks().removeAll(nullptr);
     if (tanks().contains(tank))
         return;
@@ -189,8 +199,22 @@ int TankHub::totalFish()
     return n;
 }
 
+bool TankHub::isLockScreen()
+{
+    static const bool lockScreen = [] {
+        if (qEnvironmentVariableIsSet("DESKTOCEAN_LOCKSCREEN"))
+            return qEnvironmentVariableIntValue("DESKTOCEAN_LOCKSCREEN") == 1;
+        return QFileInfo(QCoreApplication::applicationFilePath()).fileName().startsWith(QLatin1String("kscreenlocker"))
+            || QCoreApplication::applicationName().startsWith(QLatin1String("kscreenlocker"));
+    }();
+    return lockScreen;
+}
+
 bool TankHub::isPrimary(const FishTank *tank)
 {
+    // The lock screen only looks: plasmashell's tank records the babies
+    if (isLockScreen())
+        return false;
     for (const QPointer<FishTank> &t : std::as_const(tanks())) {
         if (t)
             return t == tank;
@@ -269,6 +293,93 @@ void TankHub::feed()
             t->feed(-1);
     }
     Q_EMIT stateChanged();
+}
+
+namespace {
+// Drops food at global point p if it lies over the tank (vertically: anywhere
+// within the tank's height when y < 0)
+bool feedAtGlobal(FishTank *tank, QPointF p, bool anyHeight)
+{
+    if (!tank || !tank->window() || tank->width() <= 0)
+        return false;
+    const QPointF top = tank->mapToGlobal(QPointF(0, 0));
+    if (anyHeight)
+        p.setY(top.y() + tank->height() / 2);
+    const QPointF local = tank->mapFromGlobal(p);
+    if (local.x() < 0 || local.x() >= tank->width() || local.y() < 0 || local.y() >= tank->height())
+        return false;
+    tank->feed(local.x());
+    return true;
+}
+
+bool feedUnderCursor()
+{
+    const QPointF cursor = QCursor::pos();
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (feedAtGlobal(t, cursor, false))
+            return true;
+    }
+    return false;
+}
+} // namespace
+
+bool TankHub::feedBelow(QQuickItem *item)
+{
+    if (!item || !item->window())
+        return false;
+    const QPointF centre(item->width() / 2, item->height() / 2);
+    // A widget on the desktop shares the wallpaper's window: no global maths needed
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (t && t->window() == item->window() && t->width() > 0) {
+            const qreal x = item->mapToItem(t, centre).x();
+            t->feed(std::clamp(x, 0.0, t->width() - 1));
+            Q_EMIT stateChanged();
+            return true;
+        }
+    }
+    // Elsewhere (a panel): the tank on the same screen
+    const QPointF global = item->mapToGlobal(centre);
+    return feedAtGlobalX(global.x(), global.y());
+}
+
+bool TankHub::feedAtGlobalX(qreal x, qreal y)
+{
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (feedAtGlobal(t, QPointF(x, y), y < 0)) {
+            Q_EMIT stateChanged();
+            return true;
+        }
+    }
+    // A panel lies outside the tank's rectangle: try the x alone
+    if (y >= 0)
+        return feedAtGlobalX(x, -1);
+    return false;
+}
+
+bool TankHub::feedAtCursor()
+{
+    if (!feedUnderCursor())
+        return false;
+    Q_EMIT stateChanged();
+    return true;
+}
+
+void TankHub::setUpShortcut()
+{
+    // Global shortcuts belong to plasmashell's tanks, never the lock screen or a
+    // preview window (registering would add an entry to the user's shortcuts)
+    static bool done = false;
+    if (done || QCoreApplication::applicationName() != QLatin1String("plasmashell"))
+        return;
+    done = true;
+    auto *action = new QAction(QStringLiteral("Feed fish at cursor"), qApp);
+    action->setObjectName(QStringLiteral("feed-at-cursor"));
+    action->setProperty("componentName", QStringLiteral("desktocean"));
+    action->setProperty("componentDisplayName", QStringLiteral("Desktocean"));
+    const QList<QKeySequence> shortcut{QKeySequence(Qt::META | Qt::ALT | Qt::Key_F)};
+    KGlobalAccel::self()->setDefaultShortcut(action, shortcut);
+    KGlobalAccel::self()->setShortcut(action, shortcut);   // keeps a shortcut the user changed
+    connect(action, &QAction::triggered, action, [] { feedUnderCursor(); });
 }
 
 void TankHub::clearFood()
