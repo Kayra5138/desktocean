@@ -59,6 +59,8 @@ pub struct DcFishSpec {
     /// Mouth on the drawing as fractions of width and height; negative = default
     pub mouth_x: f32,
     pub mouth_y: f32,
+    /// 0 fish, 1 jellyfish, 2 seahorse, 3 ray, 4 turtle
+    pub body: u32,
 }
 
 #[repr(C)]
@@ -199,6 +201,7 @@ pub unsafe extern "C" fn dc_sim_set_population(
                     } else {
                         crate::sim::DEFAULT_MOUTH
                     },
+                    body: crate::sim::Body::from_index(d.body),
                 })
                 .collect()
         };
@@ -620,6 +623,7 @@ mod tests {
                     adult: 1,
                     mouth_x: -1.0,
                     mouth_y: -1.0,
+                    body: 0,
                 })
                 .collect();
             dc_sim_set_population(h, specs.as_ptr(), 7, false);

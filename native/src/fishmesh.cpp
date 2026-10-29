@@ -14,6 +14,14 @@ const std::vector<Style> &styles()
         {QStringLiteral("stiff"), QStringLiteral("Stiff – tail only"), 3.0f, 0.0f, 4.0f, 1.5f, 1.4f, 0.0f, 0.0f, false},
         {QStringLiteral("bouncy"), QStringLiteral("Bouncy – bobs up and down"), 3.0f, 0.0f, 2.0f, 0.6f, 0.8f, 0.1f, 0.05f, false},
         {QStringLiteral("glider"), QStringLiteral("Glider – beat and coast"), 4.0f, 0.0f, 1.7f, 1.1f, 1.0f, 0.02f, 0.0f, true},
+        {QStringLiteral("turtle"), QStringLiteral("Turtle – slow paddling, comes up for air"), 2.0f, 0.0f, 6.0f, 0.4f, 0.5f,
+         0.04f, 0.0f, true, Body::Turtle},
+        {QStringLiteral("ray"), QStringLiteral("Ray – rippling wings, near the bottom"), 2.8f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f,
+         0.0f, false, Body::Ray},
+        {QStringLiteral("seahorse"), QStringLiteral("Seahorse – upright, fins flutter (draw it standing)"), 3.0f, 0.0f,
+         2.0f, 1.0f, 1.0f, 0.03f, 0.0f, false, Body::Seahorse},
+        {QStringLiteral("jelly"), QStringLiteral("Jellyfish – pulses up, drifts down (bell on top)"), 3.0f, 0.0f, 2.0f,
+         1.0f, 1.0f, 0.0f, 0.0f, false, Body::Jelly},
     };
     return list;
 }
@@ -84,20 +92,54 @@ void writeFish(const Pose &f, const QRectF &uv, const Style &st, const std::vect
         columnWave[c] = std::sin(ph - u * st.waveLength);
     }
 
+    // Jellyfish: the bell squeezes on each pulse (in step with the simulation,
+    // which pushes it up then), the tentacles trail and sway
+    const float pulse = std::max(0.f, std::sin(f.phase * 0.5f));
+
     for (int r = 0; r <= kRows; ++r) {
         const float vv = float(r) / kRows;
         for (int c = 0; c <= kSegments; ++c) {
             const float u = float(c) / kSegments;
             float bend = columnBend[c];
-            if (masked)
-                bend *= weights[size_t(r) * (kSegments + 1) + c];
+            const float paint = masked ? weights[size_t(r) * (kSegments + 1) + c] : 1.f;
+            bend *= paint;
             const float wave = columnWave[c];
 
-            const float px = u * w + std::abs(wave) * bend * w * 0.025f;
-            const float py = (vv - 0.5f) * h * squash + 0.5f * h + wave * amp * h * bend - headSway * u + bob;
+            float px = u * w + std::abs(wave) * bend * w * 0.025f;
+            float py = (vv - 0.5f) * h * squash + 0.5f * h + wave * amp * h * bend - headSway * u + bob;
+            float mirror = flip;
+            switch (st.body) {
+            case Body::Fish:
+            case Body::Turtle:
+                break;
+            case Body::Jelly: {
+                // Never mirrored: it has no front
+                mirror = 1.f;
+                const float tentacle = std::max(0.f, (vv - 0.45f) / 0.55f);
+                px = w * 0.5f + (u - 0.5f) * w * (1.f - 0.14f * pulse * (1.f - vv))
+                   + std::sin(f.phase * 0.9f - vv * 5.f + u * 4.f) * 0.06f * w * tentacle * paint;
+                py = vv * h * (1.f + 0.06f * pulse) + pulse * 0.1f * h * tentacle;
+                break;
+            }
+            case Body::Seahorse:
+                // Stiff and upright; the fins flutter and it bobs gently
+                px = u * w + std::sin(ph * 2.5f + vv * 6.f) * 0.012f * w * paint;
+                py = vv * h + std::sin(ph * 0.4f) * 0.03f * h;
+                break;
+            case Body::Ray: {
+                // Both wing edges ripple together from the front back; the tail
+                // (left end) trails a little
+                const float wing = std::pow(std::abs(vv - 0.5f) * 2.f, 1.4f);
+                const float tail = std::max(0.f, 0.25f - u) * 4.f;
+                px = u * w;
+                py = vv * h + std::sin(ph * 0.5f - u * st.waveLength) * 0.16f * h * wing * paint
+                   + std::sin(ph - u * 8.f) * 0.05f * h * tail;
+                break;
+            }
+            }
 
             // Around the centre: mirror for facing, then pitch, then place
-            const float cx = (px - w * 0.5f) * flip;
+            const float cx = (px - w * 0.5f) * mirror;
             const float cy = py - h * 0.5f;
             Vertex &out = *v++;
             out.x = f.x + cx * cs - cy * sn;

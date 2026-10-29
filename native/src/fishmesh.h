@@ -38,6 +38,10 @@ struct Pose {
     float depth;       // 0 front .. 1 back
 };
 
+// Swimmers that are not fish-shaped bend their own way (and the simulation
+// moves them their own way: DC_BODY_*)
+enum class Body { Fish, Jelly, Seahorse, Ray, Turtle };
+
 struct Style {
     QString id;
     QString label;
@@ -49,6 +53,7 @@ struct Style {
     float bob;          // vertical body bob, fraction of h
     float squash;       // vertical breathing, fraction of h
     bool glide;         // beat, then coast
+    Body body = Body::Fish;
 };
 
 const std::vector<Style> &styles();

@@ -99,6 +99,53 @@ pub struct FishSpec {
     /// Where the mouth is on the drawing, as fractions of its width and height
     /// (head facing right); food is eaten only when it touches this point
     pub mouth: (f32, f32),
+    /// What kind of swimmer: decides how it moves
+    pub body: Body,
+}
+
+/// Swimmers that aren't shaped like a fish move their own way
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Body {
+    #[default]
+    Fish,
+    /// Pulses up, drifts down; doesn't chase food or turn round
+    Jelly,
+    /// Upright and slow
+    Seahorse,
+    /// Glides near the bottom
+    Ray,
+    /// Slow paddler that comes up for air now and then
+    Turtle,
+}
+
+impl Body {
+    pub fn from_index(i: u32) -> Self {
+        match i {
+            1 => Body::Jelly,
+            2 => Body::Seahorse,
+            3 => Body::Ray,
+            4 => Body::Turtle,
+            _ => Body::Fish,
+        }
+    }
+
+    fn speed(self) -> f32 {
+        match self {
+            Body::Fish => 1.0,
+            Body::Jelly => 0.35,
+            Body::Seahorse => 0.3,
+            Body::Ray => 0.8,
+            Body::Turtle => 0.5,
+        }
+    }
+
+    /// Tall drawings are fine for these
+    fn max_aspect(self) -> f32 {
+        match self {
+            Body::Jelly | Body::Seahorse => 3.0,
+            _ => 1.5,
+        }
+    }
 }
 
 /// Mouth of a drawing nobody marked: near the tip of the nose, a bit low.
@@ -338,6 +385,7 @@ pub struct Fish {
     scale: f32,
     /// In (or partly in) a cave: drawn behind the cave's front
     pub sheltered: bool,
+    pub body: Body,
 }
 
 impl Fish {
@@ -381,7 +429,13 @@ impl Fish {
     /// Body pitch in degrees, nose following the vertical velocity.
     pub fn tilt(&self) -> f32 {
         let deg = self.vy.atan2(self.vx.abs() + 20.0).to_degrees() * 0.7;
-        deg.clamp(-28.0, 28.0) * self.dir
+        let lean = match self.body {
+            Body::Jelly => 0.0,
+            Body::Seahorse => 0.15,
+            Body::Ray => 0.5,
+            _ => 1.0,
+        };
+        deg.clamp(-28.0, 28.0) * self.dir * lean
     }
 }
 
@@ -613,7 +667,7 @@ impl Sim {
         self.shelters
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.fits(f))
+            .filter(|(_, s)| s.fits(f) && f.body != Body::Jelly)
             .filter(|(k, s)| {
                 let taken: f32 = self
                     .fish
@@ -799,6 +853,10 @@ impl Sim {
                     f.adult = spec.adult;
                     f.mouth = spec.mouth;
                     f.scale = spec.scale;
+                    if f.body != spec.body {
+                        f.max_speed *= spec.body.speed() / f.body.speed();
+                        f.body = spec.body;
+                    }
                     Self::apply_size(&mut f, spec);
                     self.clamp_to_water(&mut f);
                     f
@@ -829,7 +887,7 @@ impl Sim {
 
     fn apply_size(f: &mut Fish, spec: &FishSpec) {
         f.w = f.base_w * spec.scale.clamp(0.3, 3.0);
-        f.h = f.w * spec.aspect.clamp(0.15, 1.5);
+        f.h = f.w * spec.aspect.clamp(0.15, spec.body.max_aspect());
     }
 
     /// Picks the next wander target from a few candidates: within the fish's
@@ -885,7 +943,10 @@ impl Sim {
                 }
             }
             .clamp(lo, hi);
-            let y = if character == Character::Homebody && self.daylight >= 0.5 {
+            let y = if character == Character::Homebody
+                && self.daylight >= 0.5
+                && f.body != Body::Ray
+            {
                 top + (f.home.1 + self.rng.range(-0.15, 0.15)).clamp(0.0, 1.0) * water
             } else {
                 top + self.rng.range(band_lo, band_hi) * water
@@ -968,7 +1029,10 @@ impl Sim {
             entering,
             w: 0.0,
             h: 0.0,
-            max_speed: self.rng.range(60.0, 115.0) * (1.0 - 0.3 * depth) * personality.speed,
+            max_speed: self.rng.range(60.0, 115.0)
+                * (1.0 - 0.3 * depth)
+                * personality.speed
+                * spec.body.speed(),
             dir,
             facing: dir,
             turn_cooldown: 0.0,
@@ -981,7 +1045,11 @@ impl Sim {
             bubble_timer: self.rng.range(20.0, 120.0),
             adult: spec.adult,
             birth_cooldown: self.rng.range(0.3, 1.0) * BIRTH_COOLDOWN,
-            band: personality.character.band(&mut traits),
+            band: if spec.body == Body::Ray {
+                (0.75, 1.0)
+            } else {
+                personality.character.band(&mut traits)
+            },
             home: (traits.range(0.1, 0.9), traits.range(0.15, 0.85)),
             food_aware: false,
             notice_in: -1.0,
@@ -995,6 +1063,7 @@ impl Sim {
             mouth: spec.mouth,
             scale: spec.scale,
             sheltered: false,
+            body: spec.body,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -1226,7 +1295,7 @@ impl Sim {
         // picky ones only nearby. Pellets behind the fish count as farther
         // away, so it prefers to keep going rather than turn for every crumb,
         // and pellets others are already after count as farther too.
-        let notice = if f.food_aware {
+        let notice = if f.food_aware && f.body != Body::Jelly {
             250.0 + (0.5 * p.appetite + f.hunger) * self.width
         } else {
             0.0
@@ -1270,6 +1339,7 @@ impl Sim {
                 f.cursor_near = 0.0;
             }
         } else if p.follows_cursor()
+            && matches!(f.body, Body::Fish | Body::Turtle | Body::Ray)
             && f.cursor_near >= CURSOR_DWELL_SECS
             && f.follow_cooldown == 0.0
         {
@@ -1433,7 +1503,12 @@ impl Sim {
                 if dist < 30.0 + f.h * 0.3 {
                     // Much bigger than everyday bubbles, and each one leaves a ripple
                     // at the surface: the burst should read as "something happened"
-                    self.blow_bubbles(mx, my, 9, (10.0, 18.0), 1.8);
+                    if f.body == Body::Turtle {
+                        // Just a breath
+                        self.blow_bubbles(mx, my, 2, (4.0, 6.0), 0.4);
+                    } else {
+                        self.blow_bubbles(mx, my, 9, (10.0, 18.0), 1.8);
+                    }
                     f.mode = Mode::Idle { left: 2.5 };
                 } else if left - dt <= 0.0 {
                     f.mode = Mode::Wander;
@@ -1495,7 +1570,10 @@ impl Sim {
                         let shelter = (f.school.is_none() && self.rng.chance(cave_chance))
                             .then(|| self.find_shelter(f, self.width * 0.5))
                             .flatten();
-                        if let Some(shelter) = shelter {
+                        if f.body == Body::Turtle && night < 0.5 && self.rng.chance(0.12) {
+                            // Up for a breath of air
+                            f.mode = Mode::Surface { left: 25.0 };
+                        } else if let Some(shelter) = shelter {
                             let left = if night > 0.5 {
                                 self.rng.range(40.0, 150.0)
                             } else {
@@ -1678,6 +1756,20 @@ impl Sim {
             }
         }
 
+        if f.body == Body::Jelly {
+            // A pulse of the bell pushes it up, then it sinks slowly; it
+            // drifts sideways only a little and never turns round
+            let pulse = (f.phase * 0.5).sin().max(0.0);
+            let up = if f.ty < f.y - 20.0 { 1.3 } else { 0.45 };
+            des_x *= 0.4;
+            des_y = if pulse > 0.0 {
+                -f.max_speed * 2.2 * pulse * up
+            } else {
+                f.max_speed * 0.35
+            };
+            goal_x = None;
+        }
+
         // Turning: only when the goal is clearly behind the body, for a moment,
         // and not right after the previous turn. Small corrections near the goal
         // (food under the chin) are done by backing up slowly instead, which is
@@ -1710,6 +1802,8 @@ impl Sim {
         // Mostly horizontal swimmers, except when heading up to the surface
         let climb = if surface.is_some() {
             1.5
+        } else if f.body == Body::Jelly {
+            2.5
         } else if f.flee_left > 0.0 {
             1.0
         } else {
@@ -1835,6 +1929,7 @@ impl Sim {
         let willing = |f: &Fish| {
             f.school.is_none()
                 && !f.entering
+                && f.body == Body::Fish
                 && !matches!(f.mode, Mode::Hide { .. })
                 && f.personality.character != Character::Shy
                 && f.school_appetite() > 0.35
@@ -2001,6 +2096,7 @@ mod tests {
                 scale: 1.0,
                 adult: true,
                 mouth: DEFAULT_MOUTH,
+                body: Body::Fish,
             })
             .collect()
     }
@@ -2066,6 +2162,7 @@ mod tests {
             scale: 1.5,
             adult: true,
             mouth: DEFAULT_MOUTH,
+            body: Body::Fish,
         });
         s.set_population(&next, true);
 
@@ -2091,6 +2188,7 @@ mod tests {
             scale: 1.0,
             adult: true,
             mouth: DEFAULT_MOUTH,
+            body: Body::Fish,
         });
         s.set_population(&next, true);
         let f = s.fish().iter().find(|f| f.id == 50).unwrap();
@@ -2118,6 +2216,7 @@ mod tests {
                     scale: 0.5,
                     adult: true,
                     mouth: DEFAULT_MOUTH,
+                    body: Body::Fish,
                 },
                 FishSpec {
                     id: 2,
@@ -2126,6 +2225,7 @@ mod tests {
                     scale: 2.0,
                     adult: true,
                     mouth: DEFAULT_MOUTH,
+                    body: Body::Fish,
                 },
             ],
             false,
@@ -2415,6 +2515,7 @@ mod tests {
             scale: 1.0,
             adult: true,
             mouth: DEFAULT_MOUTH,
+            body: Body::Fish,
         });
         s.set_population(&next, true);
         let mean_distance = |s: &Sim| {
@@ -2539,6 +2640,7 @@ mod tests {
                     scale,
                     adult,
                     mouth: DEFAULT_MOUTH,
+                    body: Body::Fish,
                 },
                 FishSpec {
                     id: 2,
@@ -2547,6 +2649,7 @@ mod tests {
                     scale,
                     adult,
                     mouth: DEFAULT_MOUTH,
+                    body: Body::Fish,
                 },
             ],
             false,
@@ -2641,6 +2744,7 @@ mod tests {
                         scale,
                         adult: true,
                         mouth: DEFAULT_MOUTH,
+                        body: Body::Fish,
                     })
                     .collect();
                 s.set_population(&specs, false);
@@ -2693,6 +2797,7 @@ mod tests {
             scale: 0.4,
             adult: false,
             mouth: DEFAULT_MOUTH,
+            body: Body::Fish,
         });
         s.set_population(&next, true);
         assert!(s.place_fish(77, 900.0, 600.0));
@@ -2712,6 +2817,7 @@ mod tests {
                 scale: 1.0,
                 adult: true,
                 mouth,
+                body: Body::Fish,
             }],
             false,
         );
@@ -2930,6 +3036,97 @@ mod tests {
         );
     }
 
+    fn one_of(body: Body, seed: u64) -> Sim {
+        let mut s = Sim::new(seed);
+        s.set_population(
+            &[FishSpec {
+                id: 77 + seed,
+                sprite: 0,
+                aspect: if body == Body::Seahorse { 2.0 } else { 0.6 },
+                scale: 1.0,
+                adult: true,
+                mouth: DEFAULT_MOUTH,
+                body,
+            }],
+            false,
+        );
+        s.resize(2560.0, 1440.0);
+        s.fish[0].hunger = 0.0;
+        s
+    }
+
+    #[test]
+    fn jellyfish_bob_up_and_down_and_drift_slowly() {
+        let mut s = one_of(Body::Jelly, 1);
+        let (mut dx, mut dy, mut ups) = (0.0, 0.0, 0);
+        let mut last = (s.fish[0].x, s.fish[0].y);
+        for n in 0..30 * 180 {
+            s.step(DT, None);
+            let f = &s.fish()[0];
+            dx += (f.x - last.0).abs();
+            dy += (f.y - last.1).abs();
+            if n % 30 == 0 && f.vy < -10.0 {
+                ups += 1;
+            }
+            assert_eq!(f.tilt(), 0.0, "jellyfish don't pitch");
+            last = (f.x, f.y);
+        }
+        assert!(
+            dy > dx,
+            "mostly up and down: {dx:.0} px across, {dy:.0} px up/down"
+        );
+        assert!(ups > 10, "it should pulse upward regularly ({ups})");
+        assert!(
+            s.fish()[0].h > s.fish()[0].w * 0.5,
+            "tall drawings stay tall"
+        );
+    }
+
+    #[test]
+    fn rays_glide_low_and_seahorses_are_slow() {
+        let (mut ray_y, mut n) = (0.0, 0.0);
+        let mut sea_speed: f32 = 0.0;
+        let mut fish_speed: f32 = 0.0;
+        for seed in 1..4 {
+            let (mut ray, mut sea, mut fish) = (
+                one_of(Body::Ray, seed),
+                one_of(Body::Seahorse, seed),
+                one_of(Body::Fish, seed),
+            );
+            for _ in 0..30 * 120 {
+                ray.step(DT, None);
+                sea.step(DT, None);
+                fish.step(DT, None);
+                ray_y += ray.fish()[0].y / 1440.0;
+                n += 1.0;
+                sea_speed = sea_speed.max(sea.fish()[0].speed);
+                fish_speed = fish_speed.max(fish.fish()[0].speed);
+            }
+        }
+        assert!(
+            ray_y / n > 0.6,
+            "rays should keep low (mean y {:.2})",
+            ray_y / n
+        );
+        assert!(
+            sea_speed < fish_speed * 0.6,
+            "seahorses should be slow: {sea_speed:.0} vs {fish_speed:.0}"
+        );
+    }
+
+    #[test]
+    fn turtles_come_up_for_air() {
+        let mut surfaced = false;
+        for seed in 1..4 {
+            let mut s = one_of(Body::Turtle, seed);
+            for _ in 0..30 * 600 {
+                s.step(DT, None);
+                surfaced |= s.fish()[0].y < 1440.0 * (WATER_TOP + 0.1);
+            }
+        }
+        assert!(surfaced, "a turtle never came up for air in 30 minutes");
+    }
+
     /// A cave on the sand, big enough for medium fish
     const CAVE: Shelter = Shelter {
         x: 1300.0,
@@ -3046,6 +3243,7 @@ mod tests {
                     scale: 1.0,
                     adult: true,
                     mouth: DEFAULT_MOUTH,
+                    body: Body::Fish,
                 })
                 .collect();
             s.set_population(&specs, false);
@@ -3086,6 +3284,7 @@ mod tests {
                 scale: scales[(k % 6) as usize],
                 adult: true,
                 mouth: DEFAULT_MOUTH,
+                body: Body::Fish,
             })
             .collect();
         s.set_population(&specs, false);
@@ -3235,6 +3434,7 @@ mod tests {
                 scale: 1.0,
                 adult: true,
                 mouth: DEFAULT_MOUTH,
+                body: Body::Fish,
             })
             .collect();
         s.set_population(&specs, false);

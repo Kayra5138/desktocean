@@ -1171,7 +1171,7 @@ void FishTank::loadLibrary(bool animateNew)
         for (int k = 0; k < e.count; ++k) {
             const auto id = quint64(qHash(e.id, size_t(k)));
             specs.push_back({id, sprite, aspect, float(e.scale * growth), growth >= 1.0 ? 1u : 0u, float(mouth.x()),
-                             float(mouth.y())});
+                             float(mouth.y()), uint32_t(FishMesh::style(e.style).body)});
             specEntry.push_back(e);
             owners.insert(id, e.id);
             names.insert(id, e.fishName(k));

@@ -82,7 +82,14 @@ typedef struct DcFishSpec {
     uint32_t adult;    // non-zero once grown up; only adults have babies
     float mouth_x;     // mouth on the drawing, fraction of width (head right); < 0 = default
     float mouth_y;     // ... fraction of height
+    uint32_t body;     // DC_BODY_*: how it swims
 } DcFishSpec;
+
+#define DC_BODY_FISH     0u
+#define DC_BODY_JELLY    1u
+#define DC_BODY_SEAHORSE 2u
+#define DC_BODY_RAY      3u
+#define DC_BODY_TURTLE   4u
 
 // Two fish had a baby at (x, y)
 typedef struct DcBirth {
