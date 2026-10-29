@@ -431,12 +431,22 @@ void FishTank::updateDaylight()
         // Dawn 5:30-7:30, dusk 18:30-20:30
         d = smoothstep(5.5, 7.5, hour) * (1 - smoothstep(18.5, 20.5, hour));
     }
-    dc_sim_set_daylight(m_sim, float(d));
+    // Asleep: night for the fish only
+    dc_sim_set_daylight(m_sim, m_asleep ? 0.f : float(d));
     if (std::abs(d - m_daylight) < 0.0005)
         return;
     m_daylight = d;
     update();
     Q_EMIT daylightChanged();
+}
+
+void FishTank::setAsleep(bool asleep)
+{
+    if (asleep == m_asleep)
+        return;
+    m_asleep = asleep;
+    updateDaylight();
+    Q_EMIT asleepChanged();
 }
 
 qreal FishTank::averageHunger() const

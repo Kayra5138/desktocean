@@ -14,6 +14,14 @@
     <entry name="PauseOnMaximized" type="Bool">
       <default>true</default>
     </entry>
+    <entry name="SleepWhenIdle" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="IdleMinutes" type="Int">
+      <default>3</default>
+      <min>1</min>
+      <max>120</max>
+    </entry>
     <entry name="Theme" type="String">
       <default>tropical</default>
     </entry>

@@ -58,12 +58,17 @@ decorations and drop them into the tank.
 - Unlimited food; **Clear food** removes it
 - Simulation written in Rust; a panic inside it freezes the aquarium instead of crashing plasmashell
 - Stops ticking and redrawing while a maximized or fullscreen window covers the screen
+- **Idle sleep**: after a few minutes without keyboard or mouse input (3 by default, a setting)
+  the fish fall asleep as if it were night, while the water keeps its light, and the tank drops
+  to 10 FPS. When the screen switches off or the session locks it stops completely. Any input
+  wakes them at once. Uses KIdleTime and KScreen's DPMS, so it works on Wayland
 - Capped frame rate (default 30 FPS); zero redraws while paused
 
 ## Requirements
 
 - KDE Plasma 6 (developed on 6.8, Wayland) with Kirigami
 - Qt 6 development files and the `qsb` shader tool (`qt6-base`, `qt6-declarative`, `qt6-shadertools`)
+- KDE Frameworks KIdleTime and libkscreen development files (`kidletime`, `libkscreen`; part of any Plasma install)
 - CMake, a C++20 compiler, and Rust (cargo)
 - Python 3 (generates the placeholder fish)
 
@@ -119,7 +124,8 @@ Run the aquarium in a plain window, without touching plasmashell:
 /usr/lib/qt6/bin/qml -I build/qml dev/preview.qml
 ```
 
-Click to feed, <kbd>Space</kbd> to pause, <kbd>S</kbd> to save `dev/preview.png`.
+Click to feed, <kbd>Space</kbd> to pause, <kbd>Z</kbd> to put the fish to sleep (as when idle;
+or start with `-- --asleep`), <kbd>S</kbd> to save `dev/preview.png`.
 Run `./scripts/build-shaders.sh` after editing anything in `shaders/`, and
 `cmake --build build` after editing `sim/` or `native/`. Rust tests: `cargo test` in `sim/`.
 
@@ -153,6 +159,7 @@ aquarium adds about 60 MB of memory, mostly the sprite atlas.
 | `sim/` | Rust simulation core (static library, C ABI in `sim/include/`) |
 | `native/` | C++ QML plugin `Desktocean.Core`: `FishTank` ticks the core, reads the cursor, batch-renders sprites |
 | `native/editor/` | `desktocean-editor`: drawing canvas, fish library page (Kirigami) |
+| `native/src/idlewatcher.*` | `IdleWatcher`: no input for a while, screen off, session locked |
 | `native/src/fishlibrary.*` | The fish library on disk, shared by plugin and editor |
 | `native/src/fishmesh.*`, `spritenode.*` | Swim styles, mesh bending and batched sprite rendering, shared by tank and editor preview |
 | `shaders/` | Water shader source, compiled to `.qsb` into the package |

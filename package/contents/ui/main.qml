@@ -25,11 +25,21 @@ WallpaperItem {
         }
     }
 
+    // Nobody at the computer: fish fall asleep and the tank ticks slowly; with
+    // the screen off or the session locked it stops. Any input wakes it.
+    IdleWatcher {
+        id: idle
+        timeout: root.configuration.SleepWhenIdle ? root.configuration.IdleMinutes : 0
+    }
+    readonly property int sleepFps: 10
+
     Aquarium {
         id: aquarium
         anchors.fill: parent
-        fps: root.configuration.Fps
-        matchRefresh: root.configuration.MatchRefresh
+        fps: idle.idle ? Math.min(root.sleepFps, root.configuration.Fps) : root.configuration.Fps
+        matchRefresh: root.configuration.MatchRefresh && !idle.idle
+        asleep: idle.idle
+        sleepReason: "no input for " + idle.timeout + " min"
         showDebug: root.configuration.ShowDebug
         showNames: root.configuration.ShowNames
         followTimeOfDay: root.configuration.FollowTimeOfDay
@@ -45,8 +55,8 @@ WallpaperItem {
             root.configuration.writeConfig();
         }
         maxFish: root.configuration.MaxFish
-        running: !root.covered
-        pauseReason: root.covered ? "window covers screen" : ""
+        running: !root.covered && !idle.screenOff && !idle.locked
+        pauseReason: idle.locked ? "session locked" : idle.screenOff ? "screen off" : root.covered ? "window covers screen" : ""
     }
 
     // Pointer events never reach the wallpaper: the folder view sits on top and
