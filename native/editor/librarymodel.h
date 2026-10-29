@@ -50,6 +50,14 @@ public:
     // Names single copies of a fish; empty strings mean automatic names
     Q_INVOKABLE bool setFishNames(const QString &id, const QStringList &names);
 
+    // Saves one entry as a .desktocean file to share; returns an error message or ""
+    Q_INVOKABLE QString exportFish(const QString &id, const QUrl &file);
+    // A file name to suggest for exporting, e.g. "Bubbles.desktocean"
+    Q_INVOKABLE QString exportName(const QString &id) const;
+    // Adds the fish in a .desktocean file (URL or local path); returns
+    // {name, kind} of the new entry, or {error}
+    Q_INVOKABLE QVariantMap importFish(const QVariant &file);
+
 Q_SIGNALS:
     void countChanged();
     void lastErrorChanged();

@@ -28,13 +28,26 @@ Kirigami.ApplicationWindow {
         discardPrompt.open();
     }
 
+    // Returns the page it opened
     function openPage(page) {
         while (pageStack.depth > 1)
             pageStack.pop();
         if (page === "fish")
-            pageStack.push(libraryPage);
+            return pageStack.push(libraryPage);
         else if (page === "layout")
-            pageStack.push(layoutPage);
+            return pageStack.push(layoutPage);
+        return null;
+    }
+
+    // `desktocean-editor fish.desktocean` (or opening the file) imports the shared fish
+    function importSharedFiles(args) {
+        const files = args.filter(a => a.endsWith(".desktocean") && !a.startsWith("-"));
+        if (files.length === 0)
+            return false;
+        const library = openPage("fish");
+        for (const file of files)
+            library.importFile(file);
+        return true;
     }
 
     // Closing with an unsaved drawing asks first
@@ -86,6 +99,8 @@ Kirigami.ApplicationWindow {
             window.raise();
             window.requestActivate();
             const i = args.indexOf("--page");
+            if (window.importSharedFiles(args))
+                return;
             if (i >= 0)
                 window.openPage(args[i + 1]);
         }
@@ -107,8 +122,10 @@ Kirigami.ApplicationWindow {
 
     // `desktocean-editor --page fish|layout` opens straight on that page
     Component.onCompleted: {
-        const args = Qt.application.arguments;
+        const args = Qt.application.arguments.slice(1);
         const i = args.indexOf("--page");
+        if (importSharedFiles(args))
+            return;
         if (i >= 0)
             openPage(args[i + 1]);
     }
@@ -128,7 +145,8 @@ Kirigami.ApplicationWindow {
     // Optional: --swim <style id>, --wiggle-tail, --add-as <name> (saves the drawing to the library),
     // --kind <fish|plant|decor>, --symmetry <h|v>, --stroke x0,y0,x1,y1,... (a red brush stroke),
     // --select-all, --edit-first (opens the first library fish for
-    // editing), --names-first (opens its names dialog), --library, --layout.
+    // editing), --names-first (opens its names dialog), --share-first <path> (exports it),
+    // --library, --layout. A .desktocean file among the arguments is imported.
     Timer {
         readonly property var args: Qt.application.arguments
         function arg(name, offset) {
@@ -170,6 +188,8 @@ Kirigami.ApplicationWindow {
                 window.pageStack.push(libraryPage).editFirstForTest();
             if (args.indexOf("--names-first") >= 0)
                 window.pageStack.push(libraryPage).namesFirstForTest();
+            if (arg("--share-first") !== undefined)
+                window.pageStack.push(libraryPage).shareFirstForTest(arg("--share-first"));
             if (args.indexOf("--library") >= 0)
                 window.pageStack.push(libraryPage);
             if (args.indexOf("--layout") >= 0)
