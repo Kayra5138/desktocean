@@ -1,5 +1,7 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls as QQC2
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Desktocean.Editor
@@ -9,6 +11,8 @@ Kirigami.ScrollablePage {
 
     signal drawNew()
     signal editFish(var fish)
+    // Family tree, centred on a fish ("" for none)
+    signal openFamily(string fishId)
 
     title: "My fish · " + library.swimming + " swimming"
 
@@ -23,6 +27,42 @@ Kirigami.ScrollablePage {
             page.editFish(fish);
     }
 
+    function showMessage(type, text) {
+        message.type = type;
+        message.text = text;
+        message.visible = true;
+    }
+
+    // Adds the fish in a .desktocean file (URL or path) and says how it went
+    function importFile(file) {
+        const result = library.importFish(file);
+        if (result.error)
+            showMessage(Kirigami.MessageType.Error, result.error);
+        else
+            showMessage(Kirigami.MessageType.Positive, result.kind === "fish"
+                ? "“" + result.name + "” has joined your aquarium."
+                : "“" + result.name + "” is in the tank. Open Tank layout to move it.");
+    }
+
+    function exportTo(fishId, file) {
+        const error = library.exportFish(fishId, file);
+        if (error)
+            showMessage(Kirigami.MessageType.Error, error);
+        else
+            showMessage(Kirigami.MessageType.Positive, "Saved. Send the file to a friend: opening it adds the fish to their aquarium.");
+    }
+
+    // Used by Main.qml's --share-first development flag
+    function shareFirstForTest(path) {
+        exportTo(library.get(0).fishId, "file://" + path);
+        console.warn("share-first:", message.text);
+    }
+
+    // Used by Main.qml's --family development flag
+    function familyForTest(row) {
+        page.openFamily(row === undefined ? "" : library.get(row).fishId);
+    }
+
     // Used by Main.qml's --names-first development flag
     function namesFirstForTest() {
         namesDialog.edit(library.get(0));
@@ -33,14 +73,31 @@ Kirigami.ScrollablePage {
             text: "Draw a new fish"
             icon.name: "draw-brush"
             onTriggered: page.drawNew()
+        },
+        Kirigami.Action {
+            text: "Family tree"
+            icon.name: "view-list-tree"
+            onTriggered: page.openFamily("")
+        },
+        Kirigami.Action {
+            text: "Import fish…"
+            icon.name: "document-import"
+            onTriggered: importDialog.open()
         }
     ]
 
     header: Kirigami.InlineMessage {
-        type: Kirigami.MessageType.Error
-        text: library.lastError
-        visible: library.lastError !== ""
+        id: message
+        visible: false
         showCloseButton: true
+    }
+
+    Connections {
+        target: library
+        function onLastErrorChanged() {
+            if (library.lastError)
+                page.showMessage(Kirigami.MessageType.Error, library.lastError);
+        }
     }
 
     GridView {
@@ -91,6 +148,24 @@ Kirigami.ScrollablePage {
                     visible: cell.kind === "fish"
                     displayHint: Kirigami.DisplayHint.AlwaysHide
                     onTriggered: namesDialog.edit(library.get(cell.index))
+                },
+                Kirigami.Action {
+                    text: "Family…"
+                    icon.name: "view-list-tree"
+                    visible: cell.kind === "fish"
+                    displayHint: Kirigami.DisplayHint.AlwaysHide
+                    onTriggered: page.openFamily(cell.fishId)
+                },
+                Kirigami.Action {
+                    text: "Share…"
+                    icon.name: "document-share"
+                    displayHint: Kirigami.DisplayHint.AlwaysHide
+                    onTriggered: {
+                        shareDialog.fishId = cell.fishId;
+                        shareDialog.currentFolder = StandardPaths.writableLocation(StandardPaths.DocumentsLocation);
+                        shareDialog.selectedFile = shareDialog.currentFolder + "/" + library.exportName(cell.fishId);
+                        shareDialog.open();
+                    }
                 },
                 Kirigami.Action {
                     text: "Flip"
@@ -254,6 +329,23 @@ Kirigami.ScrollablePage {
                 }
             }
         }
+    }
+
+    FileDialog {
+        id: shareDialog
+        property string fishId
+        title: "Share a fish"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "desktocean"
+        nameFilters: ["Desktocean fish (*.desktocean)"]
+        onAccepted: page.exportTo(fishId, selectedFile)
+    }
+
+    FileDialog {
+        id: importDialog
+        title: "Import a fish"
+        nameFilters: ["Desktocean fish (*.desktocean)", "All files (*)"]
+        onAccepted: page.importFile(selectedFile)
     }
 
     Kirigami.PromptDialog {

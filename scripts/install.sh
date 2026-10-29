@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds everything and installs it for the current user:
 #   - Desktocean.Core QML plugin (Rust core + C++) → ~/.local/lib/qt6/qml
-#   - desktocean-editor (drawing app)              → ~/.local/bin + app menu entry
+#   - desktocean-editor (drawing app)              → ~/.local/bin + app menu entry + *.desktocean type
 #   - wallpaper package                            → ~/.local/share/plasma/wallpapers
 #   - control widget                               → ~/.local/share/plasma/plasmoids
 set -euo pipefail
@@ -33,6 +33,11 @@ mkdir -p "$BIN" "$APPS"
 cp "$ROOT/build/desktocean-editor" "$BIN/.desktocean-editor.new"
 mv -f "$BIN/.desktocean-editor.new" "$BIN/desktocean-editor"
 cp "$ROOT/native/editor/desktocean-editor.desktop" "$APPS/desktocean-editor.desktop"
+# Shared fish (*.desktocean) open in the editor
+MIME="$HOME/.local/share/mime"
+mkdir -p "$MIME/packages"
+cp "$ROOT/native/editor/desktocean-fish.xml" "$MIME/packages/desktocean-fish.xml"
+command -v update-mime-database >/dev/null 2>&1 && update-mime-database "$MIME" || true
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$APPS" || true
 echo "Installed desktocean-editor → $BIN"
 

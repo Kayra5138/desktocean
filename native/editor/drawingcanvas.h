@@ -48,12 +48,21 @@ class DrawingCanvas : public QQuickPaintedItem
     Q_PROPERTY(bool showMouth READ showMouth WRITE setShowMouth NOTIFY showMouthChanged)
     // The user placed the mouth (otherwise it is guessed from the drawing)
     Q_PROPERTY(bool mouthMarked READ mouthMarked NOTIFY contentChanged)
+    // Mirror drawing: brush, eraser, shapes, fill and the wiggle brush paint on
+    // both sides of an axis the user can drag by its handle
+    Q_PROPERTY(Symmetry symmetry READ symmetry WRITE setSymmetry NOTIFY symmetryChanged)
+    // The axis is through the middle of the canvas
+    Q_PROPERTY(bool symmetryCentred READ symmetryCentred NOTIFY symmetryChanged)
 
 public:
     enum Tool { Brush, Eraser, Fill, Picker, Line, Rectangle, Ellipse, Select, Mouth };
     Q_ENUM(Tool)
     enum Wiggle { More, Less, Normal };
     Q_ENUM(Wiggle)
+    // TopBottom mirrors across a horizontal line (a fish seen from the side),
+    // LeftRight across a vertical one
+    enum Symmetry { NoSymmetry, TopBottom, LeftRight };
+    Q_ENUM(Symmetry)
 
     explicit DrawingCanvas(QQuickItem *parent = nullptr);
 
@@ -86,6 +95,12 @@ public:
     bool showMouth() const { return m_showMouth; }
     void setShowMouth(bool show);
     bool mouthMarked() const { return m_mouth.x() >= 0; }
+    Symmetry symmetry() const { return m_symmetry; }
+    void setSymmetry(Symmetry symmetry);
+    bool symmetryCentred() const;
+    Q_INVOKABLE void centreSymmetryAxis();
+    // Development aid: a brush stroke through points [x0, y0, x1, y1, ...] in canvas pixels
+    Q_INVOKABLE void strokeForTest(const QVariantList &points);
     // Forget the marked mouth and go back to the guess
     Q_INVOKABLE void resetMouth();
     // Marks the mouth at a point in canvas pixels (900 x 540)
@@ -140,6 +155,7 @@ Q_SIGNALS:
     void viewRectChanged();
     void pressureChanged();
     void showMouthChanged();
+    void symmetryChanged();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -151,14 +167,21 @@ protected:
     void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
 private:
-    enum class Drag { None, Stroke, Shape, Rubber, Move, Resize, Pan };
+    enum class Drag { None, Stroke, Shape, Rubber, Move, Resize, Pan, Axis };
 
     QPointF toImage(QPointF itemPos) const;
     QRectF toView(const QRectF &imageRect) const;
     bool onResizeHandle(QPointF itemPos) const;
+    // The other side of the symmetry axis
+    QPointF mirrored(QPointF p) const;
+    // Where the axis handle is drawn, in item coordinates
+    QPointF axisHandle() const;
+    bool onAxisHandle(QPointF itemPos) const;
     void pushUndo();
     void drawSegment(QPointF from, QPointF to);
     void drawShape(QPainter &p, QPointF from, QPointF to) const;
+    void drawOneShape(QPainter &p, QPointF from, QPointF to) const;
+    void drawOneSegment(QPainter &p, QPointF from, QPointF to) const;
     void floodFill(QPoint seed);
     void liftSelection(const QRect &rect);
     void dropFloating();
@@ -213,4 +236,6 @@ private:
     bool m_showMouth = true;
     QPointF m_mouth{-1, -1};       // canvas pixels; negative = not marked
     QPointF m_guessedMouth{-1, -1};
+    Symmetry m_symmetry = NoSymmetry;
+    QPointF m_axis{450, 270};      // canvas pixels: y for TopBottom, x for LeftRight
 };

@@ -118,6 +118,14 @@ bool flip(const QString &id, QString *error = nullptr);
 // Names single copies of a fish; an empty name means automatic
 bool setFishNames(const QString &id, const QStringList &names, QString *error = nullptr);
 
+// Sharing a single fish, plant or decoration as one "<name>.desktocean" file:
+// JSON {format: "desktocean-fish", version: 1, kind, name, style, scale, sway,
+// mouth, sprite: base64 PNG, wiggle: base64 PNG (optional)}
+bool exportEntry(const QString &id, const QString &path, QString *error = nullptr);
+// Adds the fish in a .desktocean file as a new entry (one copy, no family).
+// The file is untrusted: sizes are capped and every field is checked.
+std::optional<FishEntry> importFile(const QString &path, QString *error = nullptr);
+
 // Best guess for an unmarked mouth: the front tip of the drawing, at the
 // height of its nose. Fractions of the image (head facing right).
 QPointF guessMouth(const QImage &sprite);

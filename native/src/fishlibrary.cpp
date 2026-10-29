@@ -1,19 +1,24 @@
 #include "fishlibrary.h"
+#include "fishmesh.h"
 
+#include <QBuffer>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLockFile>
+#include <QRandomGenerator>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QUuid>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 namespace {
@@ -584,6 +589,171 @@ bool flip(const QString &id, QString *error)
     }
     setError(error, QStringLiteral("No such fish"));
     return false;
+}
+
+namespace {
+const QString kShareFormat = QStringLiteral("desktocean-fish");
+constexpr int kShareVersion = 1;
+constexpr qint64 kShareMaxBytes = 8 * 1024 * 1024;
+constexpr int kShareMaxSide = 2048;
+
+QByteArray pngBase64(const QImage &image)
+{
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    return bytes.toBase64();
+}
+
+// A PNG of at most kShareMaxSide on each side, or a null image
+QImage pngFromBase64(const QJsonValue &value, QString *why)
+{
+    const auto decoded = QByteArray::fromBase64Encoding(value.toString().toLatin1(),
+                                                        QByteArray::AbortOnBase64DecodingErrors);
+    if (!value.isString() || !decoded) {
+        *why = QStringLiteral("the picture is damaged");
+        return {};
+    }
+    QByteArray bytes = *decoded;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer, "png");
+    reader.setDecideFormatFromContent(false);
+    const QSize size = reader.size();
+    if (!size.isValid() || size.isEmpty()) {
+        *why = QStringLiteral("the picture is not a PNG");
+        return {};
+    }
+    if (size.width() > kShareMaxSide || size.height() > kShareMaxSide) {
+        *why = QStringLiteral("the picture is too big (at most %1 × %1 pixels)").arg(kShareMaxSide);
+        return {};
+    }
+    const QImage image = reader.read();
+    if (image.isNull() || image.size() != size)
+        *why = QStringLiteral("the picture is damaged");
+    return image.size() == size ? image : QImage();
+}
+
+// Printable text only, on one line
+QString cleanName(const QString &name)
+{
+    QString out;
+    for (const QChar c : name)
+        out += c.isPrint() ? c : QLatin1Char(' ');
+    return out.simplified().left(60).trimmed();
+}
+
+double number(const QJsonValue &v, double fallback, double lo, double hi)
+{
+    const double d = v.isDouble() ? v.toDouble() : fallback;
+    return std::isfinite(d) ? std::clamp(d, lo, hi) : fallback;
+}
+} // namespace
+
+bool exportEntry(const QString &id, const QString &path, QString *error)
+{
+    const QList<FishEntry> entries = load(error);
+    const auto it = std::find_if(entries.begin(), entries.end(), [&](const FishEntry &e) { return e.id == id; });
+    if (it == entries.end()) {
+        setError(error, QStringLiteral("No such fish"));
+        return false;
+    }
+    const QImage sprite(it->path());
+    if (sprite.isNull()) {
+        setError(error, QStringLiteral("Cannot read %1").arg(it->path()));
+        return false;
+    }
+    QJsonObject root{
+        {QStringLiteral("format"), kShareFormat},
+        {QStringLiteral("version"), kShareVersion},
+        {QStringLiteral("kind"), kindName(it->kind)},
+        // Babies take their automatic name with them, it means nothing without the parents
+        {QStringLiteral("name"), it->name.isEmpty() && it->bornAt > 0 ? it->displayName : it->name},
+        {QStringLiteral("style"), it->style},
+        {QStringLiteral("scale"), it->scale},
+        {QStringLiteral("sway"), it->sway},
+        {QStringLiteral("sprite"), QString::fromLatin1(pngBase64(sprite))},
+    };
+    if (it->mouth.x() >= 0)
+        root.insert(QStringLiteral("mouth"), QJsonArray{it->mouth.x(), it->mouth.y()});
+    const QImage wiggle = it->wiggle.isEmpty() ? QImage() : QImage(it->wigglePath());
+    if (!wiggle.isNull())
+        root.insert(QStringLiteral("wiggle"), QString::fromLatin1(pngBase64(wiggle)));
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        setError(error, file.errorString());
+        return false;
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    if (!file.commit()) {
+        setError(error, file.errorString());
+        return false;
+    }
+    return true;
+}
+
+std::optional<FishEntry> importFile(const QString &path, QString *error)
+{
+    auto fail = [&](const QString &why) {
+        setError(error, QStringLiteral("Cannot import %1: %2").arg(QFileInfo(path).fileName(), why));
+        return std::nullopt;
+    };
+    QFile file(path);
+    if (!QFileInfo(path).isFile() || !file.open(QIODevice::ReadOnly))
+        return fail(file.exists() ? file.errorString() : QStringLiteral("no such file"));
+    if (file.size() > kShareMaxBytes)
+        return fail(QStringLiteral("the file is too big"));
+    const QByteArray bytes = file.read(kShareMaxBytes + 1);
+    if (bytes.size() > kShareMaxBytes)
+        return fail(QStringLiteral("the file is too big"));
+    const QJsonObject o = QJsonDocument::fromJson(bytes).object();
+    if (o.value(QStringLiteral("format")).toString() != kShareFormat)
+        return fail(QStringLiteral("it is not a Desktocean fish"));
+    const int version = o.value(QStringLiteral("version")).toInt(0);
+    if (version < 1 || version > kShareVersion)
+        return fail(QStringLiteral("it was made by a newer Desktocean"));
+
+    const QString kind = o.value(QStringLiteral("kind")).toString(QStringLiteral("fish"));
+    if (kind != QLatin1String("fish") && kind != QLatin1String("plant") && kind != QLatin1String("decor"))
+        return fail(QStringLiteral("unknown kind “%1”").arg(cleanName(kind)));
+
+    QString why;
+    const QImage sprite = pngFromBase64(o.value(QStringLiteral("sprite")), &why);
+    if (sprite.isNull())
+        return fail(why);
+    QImage wiggle;
+    if (o.contains(QStringLiteral("wiggle"))) {
+        // A bad mask is not worth refusing the fish for
+        wiggle = pngFromBase64(o.value(QStringLiteral("wiggle")), &why);
+        if (wiggle.size() != sprite.size())
+            wiggle = {};
+    }
+
+    FishEntry meta;
+    meta.kind = kindFromName(kind);
+    meta.name = cleanName(o.value(QStringLiteral("name")).toString());
+    const QString style = o.value(QStringLiteral("style")).toString();
+    const auto &styles = FishMesh::styles();
+    meta.style = std::any_of(styles.begin(), styles.end(), [&](const FishMesh::Style &s) { return s.id == style; })
+        ? style
+        : QStringLiteral("classic");
+    meta.scale = number(o.value(QStringLiteral("scale")), 1.0, 0.3, 3.0);
+    meta.sway = number(o.value(QStringLiteral("sway")), 1.0, 0.0, 3.0);
+    meta.count = 1;
+    if (meta.kind != FishEntry::Kind::Fish) {
+        // Somewhere on the sand, like a freshly drawn one
+        Placement p;
+        p.x = 0.15 + 0.7 * QRandomGenerator::global()->generateDouble();
+        meta.placements << p;
+    }
+
+    FishDrawing drawing{sprite.convertToFormat(QImage::Format_ARGB32), wiggle, QPointF(-1, -1)};
+    const QJsonArray mouth = o.value(QStringLiteral("mouth")).toArray();
+    if (meta.kind == FishEntry::Kind::Fish && mouth.size() == 2 && mouth[0].isDouble() && mouth[1].isDouble())
+        drawing.mouth = QPointF(number(mouth[0], 0, 0, 1) * sprite.width(), number(mouth[1], 0, 0, 1) * sprite.height());
+    return add(drawing, meta, error);
 }
 
 QPointF guessMouth(const QImage &sprite)

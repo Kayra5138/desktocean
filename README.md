@@ -12,8 +12,11 @@ decorations and drop them into the tank.
 
 - **Drawing editor** (`desktocean-editor`, or right-click the desktop → **Draw a fish…**):
   brush, eraser, bucket fill, colour palette, undo/redo, outline templates to colour in,
-  picture import with background removal, flip; **My aquarium** page to set how many
-  copies of each fish swim, or remove them
+  picture import with background removal, flip, **mirror drawing** (top/bottom or left/right
+  across a line you can drag); **My aquarium** page to set how many copies of each fish swim,
+  or remove them, and a **family tree** of who is whose baby
+- **Share fish** with friends: **Share…** on a fish card saves a single `.desktocean` file;
+  opening it (or **Import fish…**) adds the fish to another aquarium
 - New fish drop into the tank through the surface as soon as you save them
 - **Swim styles** per fish (classic, eel, stiff tail, bouncy, glider) and a **wiggle brush**
   to paint which parts move more (fins, tail) or stay stiff, with a live swimming preview
@@ -93,6 +96,12 @@ Fish live in `~/.local/share/desktocean/fish/`: one PNG per fish (head facing ri
 an optional `.wiggle.png` motion mask, and a `fish.json` manifest. Friendships are kept
 in `~/.local/share/desktocean/state.json`. On first run the tank is seeded with four starter fish;
 remove or keep them from the editor's **My aquarium** page.
+
+A shared `.desktocean` file is JSON holding one drawing (PNG, base64), its wiggle mask and
+settings; nothing else from your library goes with it. Imports are capped at 8 MB and
+2048 × 2048 pixels and arrive as a new fish with one copy and no family.
+`desktocean-editor fish.desktocean` imports from the command line; the install script
+registers the file type so a double-click does the same.
 
 ## Development
 
