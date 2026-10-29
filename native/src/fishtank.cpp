@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSet>
 #include <QTime>
 #include <QImageReader>
 #include <QPainter>
@@ -406,8 +407,8 @@ void FishTank::handleBirths()
 {
     DcBirth births[8];
     const uint32_t n = dc_sim_take_births(m_sim, births, 8);
-    // Only one tank records babies, or every screen would add its own
-    if (!TankHub::isPrimary(this) || !m_babies)
+    // Every fish lives on one screen only, so each tank records its own babies
+    if (!m_babies)
         return;
     for (uint32_t i = 0; i < n; ++i)
         recordBaby(births[i]);
@@ -415,7 +416,7 @@ void FishTank::handleBirths()
 
 void FishTank::recordBaby(const DcBirth &birth)
 {
-    if (fishCount() >= m_maxFish)
+    if (TankHub::totalFish() >= m_maxFish)
         return;
     const QString idA = m_specOwner.value(birth.parent_a), idB = m_specOwner.value(birth.parent_b);
     const QList<FishEntry> entries = FishLibrary::load();
@@ -452,14 +453,67 @@ void FishTank::recordBaby(const DcBirth &birth)
         qWarning("Desktocean: could not record a baby: %s", qPrintable(error));
         return;
     }
-    // Placed between the parents once the library reload brings it in
+    // Placed between the parents (on this screen) once the library reload brings it in
+    for (int k = 0; k < added->count; ++k)
+        TankHub::assign(quint64(qHash(added->id, size_t(k))), this);
     m_newborns.insert(added->id, QPointF(birth.x, birth.y));
+}
+
+void FishTank::applyAssignment(bool animateNew)
+{
+    m_specs.clear();
+    m_specEntry.clear();
+    for (size_t i = 0; i < m_allSpecs.size(); ++i) {
+        if (TankHub::owns(this, m_allSpecs[i].id)) {
+            m_specs.push_back(m_allSpecs[i]);
+            m_specEntry.push_back(m_allSpecEntry[i]);
+        }
+    }
+    std::vector<DcCrawlerSpec> crawlers;
+    for (const DcCrawlerSpec &c : m_allCrawlers) {
+        if (TankHub::owns(this, c.id))
+            crawlers.push_back(c);
+    }
+    dc_sim_set_population(m_sim, m_specs.data(), uint32_t(m_specs.size()), animateNew);
+    dc_sim_set_crawlers(m_sim, crawlers.data(), uint32_t(crawlers.size()));
+    pullState();
+    update();
+}
+
+std::vector<DcRelation> FishTank::relationsOf(quint64 id) const
+{
+    const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
+    std::vector<DcRelation> all(n);
+    all.resize(std::min(n, dc_sim_relations(m_sim, all.data(), n)));
+    std::vector<DcRelation> mine;
+    std::copy_if(all.begin(), all.end(), std::back_inserter(mine),
+                 [&](const DcRelation &r) { return r.a == id || r.b == id; });
+    return mine;
+}
+
+void FishTank::adopt(quint64 id, int side, qreal y, const std::vector<DcRelation> &relations)
+{
+    applyAssignment(false);
+    if (!relations.empty()) {
+        const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
+        std::vector<DcRelation> all(n);
+        all.resize(std::min(n, dc_sim_relations(m_sim, all.data(), n)));
+        all.insert(all.end(), relations.begin(), relations.end());
+        dc_sim_set_relations(m_sim, all.data(), uint32_t(all.size()));
+    }
+    dc_sim_arrive(m_sim, id, side, float(y));
+    pullState();
+}
+
+void FishTank::setExits(bool left, bool right)
+{
+    dc_sim_set_exits(m_sim, left, right);
 }
 
 void FishTank::refreshGrowth()
 {
     // Once a minute is also often enough to keep trust and eggs saved
-    if (m_stateLoaded && TankHub::isPrimary(this))
+    if (m_stateLoaded)
         saveState();
     bool changed = false;
     for (size_t i = 0; i < m_specs.size(); ++i) {
@@ -473,6 +527,13 @@ void FishTank::refreshGrowth()
             m_specs[i].scale = scale;
             m_specs[i].adult = adult;
             changed = true;
+            // ...and in the full list, so a later reshuffle keeps the size
+            for (DcFishSpec &s : m_allSpecs) {
+                if (s.id == m_specs[i].id) {
+                    s.scale = scale;
+                    s.adult = adult;
+                }
+            }
         }
     }
     if (changed)
@@ -603,9 +664,29 @@ void FishTank::saveState() const
 {
     if (!m_stateLoaded)
         return;   // never overwrite saved friendships before they were read
+
+    // With several screens every tank holds some of the fish: start from what
+    // is saved and replace only what concerns the fish swimming here
+    QJsonObject old;
+    {
+        QFile file(FishLibrary::statePath());
+        if (file.open(QIODevice::ReadOnly))
+            old = QJsonDocument::fromJson(file.readAll()).object();
+    }
+    QSet<quint64> here;
+    for (const DcFish &f : m_fish)
+        here.insert(f.id);
+    const auto idOf = [](const QJsonValue &v) { return v.toString().toULongLong(); };
+
     const uint32_t n = dc_sim_relations(m_sim, nullptr, 0);
     std::vector<DcRelation> rel(n);
     rel.resize(std::min(n, dc_sim_relations(m_sim, rel.data(), n)));
+    for (const QJsonValue &v : old.value(QStringLiteral("relations")).toArray()) {
+        const QJsonObject o = v.toObject();
+        const quint64 a = idOf(o.value(QStringLiteral("a"))), b = idOf(o.value(QStringLiteral("b")));
+        if (!here.contains(a) && !here.contains(b))
+            rel.push_back({a, b, float(o.value(QStringLiteral("affinity")).toDouble())});
+    }
 
     // Raw relations for the tank, plus friend/rival pairs by library fish for the editor
     QJsonArray relations, friends, rivals;
@@ -621,51 +702,61 @@ void FishTank::saveState() const
         else if (r.affinity < DC_RIVAL)
             rivals.append(QJsonArray{a, b});
     }
-    // Character of every copy, by library fish, for the editor's cards
+
+    // Character of every fish, and of every copy by library fish for the editor's cards
+    QJsonObject fishCharacters = old.value(QStringLiteral("fishCharacters")).toObject();
+    for (const DcFish &f : m_fish)
+        fishCharacters.insert(QString::number(f.id), int(f.character));
+    // Forget fish that are no longer in the library
+    for (auto it = fishCharacters.begin(); it != fishCharacters.end();)
+        it = m_specOwner.contains(it.key().toULongLong()) ? std::next(it) : fishCharacters.erase(it);
     static const char *const kCharacters[] = {"explorer", "homebody", "bottom dweller", "skimmer", "lazy", "playful", "shy"};
     QHash<QString, QStringList> characters;
-    for (const DcFish &f : m_fish) {
-        const QString owner = m_specOwner.value(f.id);
-        if (!owner.isEmpty() && f.character < std::size(kCharacters))
-            characters[owner] << QString::fromLatin1(kCharacters[f.character]);
+    for (auto it = fishCharacters.begin(); it != fishCharacters.end(); ++it) {
+        const QString owner = m_specOwner.value(it.key().toULongLong());
+        const int c = it.value().toInt(-1);
+        if (!owner.isEmpty() && c >= 0 && c < int(std::size(kCharacters)))
+            characters[owner] << QString::fromLatin1(kCharacters[c]);
     }
     QJsonObject characterMap;
     for (auto it = characters.cbegin(); it != characters.cend(); ++it)
         characterMap.insert(it.key(), QJsonArray::fromStringList(it.value()));
 
-    // Eggs, as fractions of the tank so another screen size still works; only
-    // the primary tank has them, the others keep what is saved
+    // Eggs, as fractions of the tank so another screen size still works
     QJsonArray eggs;
-    if (TankHub::isPrimary(this) && width() > 0 && height() > 0) {
-        for (const DcEgg &e : m_eggs)
+    QSet<quint64> ourClutches;
+    if (width() > 0 && height() > 0) {
+        for (const DcEgg &e : m_eggs) {
+            ourClutches.insert(e.parent_a);
             eggs.append(QJsonObject{{QStringLiteral("a"), QString::number(e.parent_a)},
                                     {QStringLiteral("b"), QString::number(e.parent_b)},
                                     {QStringLiteral("x"), e.x / width()},
                                     {QStringLiteral("y"), e.y / height()},
                                     {QStringLiteral("count"), int(e.count)},
                                     {QStringLiteral("progress"), double(e.progress)}});
-    } else {
-        QFile old(FishLibrary::statePath());
-        if (old.open(QIODevice::ReadOnly))
-            eggs = QJsonDocument::fromJson(old.readAll()).object().value(QStringLiteral("eggs")).toArray();
+        }
     }
-    // How much each fish trusts you; the primary tank's word counts
-    QJsonObject trust;
-    if (TankHub::isPrimary(this)) {
-        const uint32_t nt = dc_sim_trust(m_sim, nullptr, 0);
-        std::vector<DcTrust> list(nt);
-        list.resize(std::min(nt, dc_sim_trust(m_sim, list.data(), nt)));
-        for (const DcTrust &t : list)
+    for (const QJsonValue &v : old.value(QStringLiteral("eggs")).toArray()) {
+        const quint64 a = idOf(v.toObject().value(QStringLiteral("a")));
+        if (!here.contains(a) && !ourClutches.contains(a))
+            eggs.append(v);
+    }
+
+    // How much each fish trusts you
+    QJsonObject trust = old.value(QStringLiteral("trust")).toObject();
+    const uint32_t nt = dc_sim_trust(m_sim, nullptr, 0);
+    std::vector<DcTrust> list(nt);
+    list.resize(std::min(nt, dc_sim_trust(m_sim, list.data(), nt)));
+    for (const DcTrust &t : list) {
+        if (here.contains(t.id))
             trust.insert(QString::number(t.id), double(t.trust));
-    } else {
-        QFile old(FishLibrary::statePath());
-        if (old.open(QIODevice::ReadOnly))
-            trust = QJsonDocument::fromJson(old.readAll()).object().value(QStringLiteral("trust")).toObject();
     }
+
     const QJsonObject root{{QStringLiteral("relations"), relations},
                            {QStringLiteral("friends"), friends},
                            {QStringLiteral("rivals"), rivals},
                            {QStringLiteral("characters"), characterMap},
+                           {QStringLiteral("fishCharacters"), fishCharacters},
                            {QStringLiteral("theme"), m_theme},
                            {QStringLiteral("eggs"), eggs},
                            {QStringLiteral("trust"), trust}};
@@ -914,6 +1005,7 @@ void FishTank::geometryChange(const QRectF &newGeometry, const QRectF &oldGeomet
     dc_sim_resize(m_sim, float(newGeometry.width()), float(newGeometry.height()));
     updateShelters();
     restoreEggs();
+    TankHub::updateNeighbours();
     pullState();
     update();
     updateTimer();
@@ -1009,6 +1101,11 @@ void FishTank::tick()
     t.start();
     dc_sim_step(m_sim, float(dt), float(m_pointer.x()), float(m_pointer.y()));
     handleBirths();
+    // Fish that swam off to the screen next door
+    DcDeparture gone[8];
+    const uint32_t departed = dc_sim_take_departures(m_sim, gone, 8);
+    for (uint32_t i = 0; i < departed; ++i)
+        TankHub::handOver(this, gone[i].id, gone[i].side, gone[i].y);
     const qint64 stepped = t.nsecsElapsed();
     pullState();
     updateHover();
@@ -1320,10 +1417,10 @@ void FishTank::loadLibrary(bool animateNew)
     m_decor = std::move(decor);
     updateShelters();
     rebuildAtlas(images);
-    dc_sim_set_population(m_sim, specs.data(), uint32_t(specs.size()), animateNew && m_libraryLoaded);
-    dc_sim_set_crawlers(m_sim, crawlers.data(), uint32_t(crawlers.size()));
-    m_specs = std::move(specs);
-    m_specEntry = std::move(specEntry);
+    m_allSpecs = std::move(specs);
+    m_allSpecEntry = std::move(specEntry);
+    m_allCrawlers = std::move(crawlers);
+    applyAssignment(animateNew && m_libraryLoaded);
     m_specOwner = owners;
     m_specName = names;
     // Newborns appear between their parents rather than dropping in from above

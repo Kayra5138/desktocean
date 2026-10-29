@@ -2,14 +2,18 @@
 #include "fishtank.h"
 
 #include <QAction>
+#include <algorithm>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QIconEngine>
 #include <QPainter>
 #include <QPalette>
+#include <QHash>
 #include <QList>
 #include <QMenu>
 #include <QQmlFile>
+#include <QQuickWindow>
+#include <QScreen>
 
 namespace {
 // All tanks in this process. Plain pointers guarded by QPointer, touched only
@@ -18,6 +22,37 @@ QList<QPointer<FishTank>> &tanks()
 {
     static QList<QPointer<FishTank>> list;
     return list;
+}
+
+// Which tank each fish lives in
+QHash<quint64, QPointer<FishTank>> &owners()
+{
+    static QHash<quint64, QPointer<FishTank>> map;
+    return map;
+}
+
+// The screen a tank covers, in global coordinates (works on Wayland too,
+// where windows don't know their own position)
+QRect screenOf(const FishTank *tank)
+{
+    const QQuickWindow *w = tank ? tank->window() : nullptr;
+    return w && w->screen() ? w->screen()->geometry() : QRect();
+}
+
+int load(const FishTank *tank)
+{
+    int n = 0;
+    for (const QPointer<FishTank> &t : std::as_const(owners()))
+        n += t == tank;
+    return n;
+}
+
+void reapplyAll()
+{
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (t)
+            t->applyAssignment(false);
+    }
 }
 } // namespace
 
@@ -34,14 +69,124 @@ TankHub::TankHub(QObject *parent)
 void TankHub::registerTank(FishTank *tank)
 {
     tanks().removeAll(nullptr);
-    if (!tanks().contains(tank))
-        tanks().append(tank);
+    if (tanks().contains(tank))
+        return;
+    tanks().append(tank);
+    // A new screen: hand it a fair share of the fish already swimming
+    const int live = int(tanks().size());
+    if (live > 1 && !owners().isEmpty()) {
+        const int share = int(owners().size()) / live;
+        int moved = 0;
+        for (auto it = owners().begin(); it != owners().end() && moved < share; ++it) {
+            if (it.value() && load(it.value()) > share) {
+                it.value() = tank;
+                ++moved;
+            }
+        }
+        reapplyAll();
+    }
+    updateNeighbours();
 }
 
 void TankHub::unregisterTank(FishTank *tank)
 {
     tanks().removeAll(tank);
     tanks().removeAll(nullptr);
+    // Its fish move to the other screens
+    bool orphans = false;
+    for (auto it = owners().begin(); it != owners().end();) {
+        if (!it.value() || it.value() == tank) {
+            it = owners().erase(it);
+            orphans = true;
+        } else {
+            ++it;
+        }
+    }
+    if (orphans)
+        reapplyAll();
+    updateNeighbours();
+}
+
+bool TankHub::owns(FishTank *tank, quint64 id)
+{
+    auto it = owners().find(id);
+    if (it != owners().end() && it.value())
+        return it.value() == tank;
+    // Nobody has it: the tank with the fewest fish takes it
+    FishTank *best = tank;
+    int bestLoad = load(tank);
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (t && load(t) < bestLoad) {
+            best = t;
+            bestLoad = load(t);
+        }
+    }
+    owners().insert(id, best);
+    return best == tank;
+}
+
+void TankHub::assign(quint64 id, FishTank *tank)
+{
+    owners().insert(id, tank);
+}
+
+void TankHub::handOver(FishTank *from, quint64 id, int side, qreal y)
+{
+    const QRect src = screenOf(from);
+    const qreal globalY = src.top() + y * (from->height() > 0 ? src.height() / from->height() : 1.0);
+    FishTank *target = nullptr;
+    qreal targetY = y;
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (!t || t == from)
+            continue;
+        const QRect r = screenOf(t);
+        const bool touches = side > 0 ? r.left() == src.left() + src.width() : r.left() + r.width() == src.left();
+        if (!touches || r.bottom() < src.top() || r.top() > src.bottom())
+            continue;
+        target = t;
+        const qreal local = std::clamp(globalY, qreal(r.top()), qreal(r.bottom())) - r.top();
+        targetY = local * (r.height() > 0 ? t->height() / r.height() : 1.0);
+        if (globalY >= r.top() && globalY <= r.bottom())
+            break;   // a screen right beside it at that height: perfect
+    }
+    if (!target) {
+        // The neighbour went away: it turns round and comes back in
+        from->adopt(id, side, y, {});
+        return;
+    }
+    owners().insert(id, target);
+    from->applyAssignment(false);
+    target->adopt(id, -side, targetY, from->relationsOf(id));
+}
+
+void TankHub::updateNeighbours()
+{
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (!t)
+            continue;
+        const QRect a = screenOf(t);
+        bool left = false, right = false;
+        for (const QPointer<FishTank> &o : std::as_const(tanks())) {
+            if (!o || o == t)
+                continue;
+            const QRect b = screenOf(o);
+            if (a.isNull() || b.isNull() || b.bottom() < a.top() || b.top() > a.bottom())
+                continue;
+            left |= b.left() + b.width() == a.left();
+            right |= b.left() == a.left() + a.width();
+        }
+        t->setExits(left, right);
+    }
+}
+
+int TankHub::totalFish()
+{
+    int n = 0;
+    for (const QPointer<FishTank> &t : std::as_const(tanks())) {
+        if (t)
+            n += t->fishCount();
+    }
+    return n;
 }
 
 bool TankHub::isPrimary(const FishTank *tank)
@@ -84,8 +229,7 @@ void TankHub::setPaused(bool paused)
 
 int TankHub::fishCount() const
 {
-    const FishTank *t = first();
-    return t ? t->fishCount() : 0;
+    return totalFish();
 }
 
 int TankHub::foodCount() const

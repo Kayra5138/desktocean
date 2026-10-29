@@ -7,9 +7,11 @@ use crate::rng::Rng;
 mod crawl;
 mod eggs;
 mod pet;
+mod travel;
 pub use crawl::{Crawler, CrawlerSpec, Gait};
 pub use eggs::{Egg, HATCH_SECS};
 pub use pet::Heart;
+pub use travel::Departure;
 
 /// Fraction of the height where the sand starts.
 pub const SAND_TOP: f32 = 0.86;
@@ -399,6 +401,10 @@ pub struct Fish {
     /// 0 .. 1: grows with petting and with eating food you dropped
     trust: f32,
     heart_timer: f32,
+    /// Heading out through a side edge to another screen: -1 left, 1 right
+    travel: i32,
+    /// Just came in through a side edge, still outside the tank
+    arriving: bool,
 }
 
 impl Fish {
@@ -550,6 +556,9 @@ pub struct Sim {
     ripples: Vec<Ripple>,
     births: Vec<Birth>,
     shelters: Vec<Shelter>,
+    /// Side edges that lead to another screen, and fish that left through them
+    exits: (bool, bool),
+    departures: Vec<Departure>,
     /// Hearts floating up from petted fish
     hearts: Vec<Heart>,
     last_pointer: Option<(f32, f32)>,
@@ -596,6 +605,8 @@ impl Sim {
             ripples: Vec::new(),
             births: Vec::new(),
             shelters: Vec::new(),
+            exits: (false, false),
+            departures: Vec::new(),
             hearts: Vec::new(),
             last_pointer: None,
             saved_trust: HashMap::new(),
@@ -943,6 +954,9 @@ impl Sim {
             _ => (0.15, 0.5),
         };
 
+        if f.travel != 0 || self.maybe_travel(f) {
+            return;
+        }
         // Parents keep an eye on their eggs
         if let Some((ex, ey)) = self.own_eggs(f.id)
             && self.rng.chance(0.5)
@@ -1022,7 +1036,10 @@ impl Sim {
 
     fn clamp_to_water(&self, f: &mut Fish) {
         let half = f.w * 0.5;
-        f.x = f.x.clamp(half, (self.width - half).max(half));
+        // (on the way to or from another screen it may be past a side edge)
+        if f.travel == 0 && !f.arriving {
+            f.x = f.x.clamp(half, (self.width - half).max(half));
+        }
         // A fish dropping in may still be above the surface.
         let top = if f.entering {
             -f.h
@@ -1103,6 +1120,8 @@ impl Sim {
             pet: 0.0,
             trust: 0.0,
             heart_timer: 0.0,
+            travel: 0,
+            arriving: false,
         };
         Self::apply_size(&mut f, spec);
         if entering {
@@ -1227,6 +1246,7 @@ impl Sim {
 
         self.update_relations(&others, dt);
         self.update_eggs(dt * self.life_speed);
+        self.update_travel();
         self.update_crawlers(dt, pointer);
         self.food.retain(|p| !p.eaten && p.age < FOOD_LIFETIME);
     }

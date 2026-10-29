@@ -37,6 +37,19 @@ public:
     // multi-monitor setup doesn't do them once per screen
     static bool isPrimary(const FishTank *tank);
 
+    // Multi-monitor: every fish (by sim id) lives in exactly one tank. A fish
+    // nobody has yet goes to the tank with the fewest; a new screen gets a
+    // share of the others' fish.
+    static bool owns(FishTank *tank, quint64 id);
+    static void assign(quint64 id, FishTank *tank);
+    // A fish swam out through a side edge (-1 left, 1 right) at local y: give
+    // it to the screen on that side, or send it back in if there is none
+    static void handOver(FishTank *from, quint64 id, int side, qreal y);
+    // Tells every tank which of its side edges have a screen next to them
+    static void updateNeighbours();
+    // Fish in all tanks together
+    static int totalFish();
+
     bool available() const;
     bool paused() const;
     void setPaused(bool paused);

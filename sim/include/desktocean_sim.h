@@ -51,6 +51,13 @@ typedef struct DcCrawler {
     uint32_t gait;
 } DcCrawler;
 
+// A fish swam out through a side edge, toward the screen next to it
+typedef struct DcDeparture {
+    uint64_t id;
+    int32_t side;      // -1 left edge, 1 right edge
+    float y;           // scene pixels
+} DcDeparture;
+
 // How much a fish trusts you (petting, eating food you dropped)
 typedef struct DcTrust {
     uint64_t id;
@@ -148,6 +155,9 @@ uint32_t dc_sim_ripples(DcSim *sim, DcRipple *out, uint32_t cap);
 uint32_t dc_sim_take_births(DcSim *sim, DcBirth *out, uint32_t cap);  // drains them
 bool dc_sim_place_fish(DcSim *sim, uint64_t id, float x, float y);
 void dc_sim_set_shelters(DcSim *sim, const DcShelter *list, uint32_t count);  // replaces the caves
+void dc_sim_set_exits(DcSim *sim, uint32_t left, uint32_t right);  // side edges with a screen next to them
+uint32_t dc_sim_take_departures(DcSim *sim, DcDeparture *out, uint32_t cap);  // drains them
+bool dc_sim_arrive(DcSim *sim, uint64_t id, int32_t side, float y);  // swim in through a side edge
 uint32_t dc_sim_hearts(DcSim *sim, DcBubble *out, uint32_t cap);   // radius = half size
 uint32_t dc_sim_trust(DcSim *sim, DcTrust *out, uint32_t cap);      // returns total count
 void dc_sim_set_trust(DcSim *sim, const DcTrust *list, uint32_t count);

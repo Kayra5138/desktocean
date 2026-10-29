@@ -145,6 +145,14 @@ public:
     static bool launchEditor(const QString &page = {});
     // One line for the diagnostics overlay: hunger, friends, rivals
     Q_INVOKABLE QString stats() const;
+
+    // Multi-monitor (see TankHub): swim the fish this tank owns
+    void applyAssignment(bool animateNew);
+    // A fish handed over from another screen swims in through a side edge,
+    // bringing its friendships along
+    void adopt(quint64 id, int side, qreal y, const std::vector<DcRelation> &relations);
+    std::vector<DcRelation> relationsOf(quint64 id) const;
+    void setExits(bool left, bool right);
     qreal averageHunger() const;
     // (friendships, rivalries)
     QPair<int, int> relationCounts() const;
@@ -259,6 +267,10 @@ private:
     // Current population, kept so babies can grow without reloading images
     std::vector<DcFishSpec> m_specs;
     std::vector<FishEntry> m_specEntry;   // the library entry of each spec
+    // Every fish and crawler in the library; m_specs is the part on this screen
+    std::vector<DcFishSpec> m_allSpecs;
+    std::vector<FishEntry> m_allSpecEntry;
+    std::vector<DcCrawlerSpec> m_allCrawlers;
     qreal m_cpuLoad = 0;
     qreal m_flow = 0;
 

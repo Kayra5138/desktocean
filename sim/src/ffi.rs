@@ -579,6 +579,62 @@ pub unsafe extern "C" fn dc_sim_set_trust(handle: *mut DcSim, list: *const DcTru
     });
 }
 
+/// Which side edges lead to another screen (non-zero = open).
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_exits(handle: *mut DcSim, left: u32, right: u32) {
+    with_sim(handle, (), |s| s.set_exits(left != 0, right != 0));
+}
+
+/// A fish swam out through a side edge
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DcDeparture {
+    pub id: u64,
+    /// -1 left edge, 1 right edge
+    pub side: i32,
+    pub y: f32,
+}
+
+/// Moves fish that left since the last call into `out` (up to `cap`); the
+/// fish are gone from this tank's population.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`, and `out` null or valid for `cap` writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_take_departures(
+    handle: *mut DcSim,
+    out: *mut DcDeparture,
+    cap: u32,
+) -> u32 {
+    with_sim(handle, 0, |s| {
+        let list = s.take_departures();
+        if out.is_null() {
+            return 0;
+        }
+        // SAFETY: caller provides room for `cap` elements.
+        let dst = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+        let mut n = 0;
+        for (d, g) in dst.iter_mut().zip(&list) {
+            *d = DcDeparture {
+                id: g.id,
+                side: g.side,
+                y: g.y,
+            };
+            n += 1;
+        }
+        n
+    })
+}
+
+/// A fish already in the population comes in through a side edge at `y`.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_arrive(handle: *mut DcSim, id: u64, side: i32, y: f32) -> bool {
+    with_sim(handle, false, |s| y.is_finite() && s.arrive(id, side, y))
+}
+
 /// A clutch of eggs
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
