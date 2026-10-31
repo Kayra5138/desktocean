@@ -55,6 +55,7 @@ Kirigami.Page {
             kind: kind,
             name: name,
             scale: sizeBox.currentValue,
+            speed: speedBox.currentValue,
             count: isCreature ? (editing ? copiesBox.value : Math.max(1, copiesBox.value)) : 1,
             swimStyle: styleBox.currentValue,
             sway: swaySlider.value
@@ -115,6 +116,14 @@ Kirigami.Page {
                 best = i;
         }
         sizeBox.currentIndex = best;
+        // ...and speed preset
+        const speed = fish.speed !== undefined ? fish.speed : 1;
+        let bestSpeed = 0;
+        for (let i = 0; i < speedBox.model.length; ++i) {
+            if (Math.abs(speedBox.model[i].value - speed) < Math.abs(speedBox.model[bestSpeed].value - speed))
+                bestSpeed = i;
+        }
+        speedBox.currentIndex = bestSpeed;
         copiesBox.value = fish.copies;
         message.visible = false;
     }
@@ -131,6 +140,7 @@ Kirigami.Page {
         canvas.motionMode = false;
         nameField.clear();
         copiesBox.value = 1;
+        speedBox.currentIndex = 2;
         styleBox.currentIndex = 0;
         swaySlider.value = 1;
     }
@@ -599,6 +609,25 @@ Kirigami.Page {
                             { text: "Medium", value: 1.0 },
                             { text: "Large", value: 1.4 },
                             { text: "Huge", value: 1.9 }
+                        ]
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: page.isCreature
+                    QQC2.Label { text: "Speed:" }
+                    QQC2.ComboBox {
+                        id: speedBox
+                        Layout.fillWidth: true
+                        textRole: "text"
+                        valueRole: "value"
+                        currentIndex: 2
+                        model: [
+                            { text: "Very slow", value: 0.25 },
+                            { text: "Slow", value: 0.5 },
+                            { text: "Normal", value: 1.0 },
+                            { text: "Fast", value: 1.7 },
+                            { text: "Very fast", value: 2.5 }
                         ]
                     }
                 }

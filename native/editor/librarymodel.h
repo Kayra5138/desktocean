@@ -25,7 +25,7 @@ public:
     enum Role {
         IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole,
         FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole, MouthRole,
-        CustomNameRole, FishNamesRole, DefaultFishNamesRole, OpeningRole
+        CustomNameRole, FishNamesRole, DefaultFishNamesRole, OpeningRole, SpeedRole
     };
 
     explicit LibraryModel(QObject *parent = nullptr);

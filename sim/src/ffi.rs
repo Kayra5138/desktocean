@@ -61,6 +61,8 @@ pub struct DcFishSpec {
     pub mouth_y: f32,
     /// 0 fish, 1 jellyfish, 2 seahorse, 3 ray, 4 turtle
     pub body: u32,
+    /// Speed multiplier, 1 = normal; 0 or less also means normal
+    pub speed: f32,
 }
 
 #[repr(C)]
@@ -204,6 +206,7 @@ pub unsafe extern "C" fn dc_sim_set_population(
                         crate::sim::DEFAULT_MOUTH
                     },
                     body: crate::sim::Body::from_index(d.body),
+                    speed: if d.speed > 0.0 { d.speed } else { 1.0 },
                 })
                 .collect()
         };
@@ -421,6 +424,8 @@ pub struct DcCrawlerSpec {
     pub scale: f32,
     /// 0 crab, 1 snail, 2 starfish, 3 walker (shrimp)
     pub gait: u32,
+    /// Speed multiplier, 1 = normal; 0 or less also means normal
+    pub speed: f32,
 }
 
 /// A bottom creature right now
@@ -471,6 +476,7 @@ pub unsafe extern "C" fn dc_sim_set_crawlers(
                     aspect: c.aspect,
                     scale: c.scale,
                     gait: crate::sim::Gait::from_index(c.gait),
+                    speed: if c.speed > 0.0 { c.speed } else { 1.0 },
                 })
                 .collect()
         };
@@ -1011,6 +1017,7 @@ mod tests {
                     mouth_x: -1.0,
                     mouth_y: -1.0,
                     body: 0,
+                    speed: 1.0,
                 })
                 .collect();
             dc_sim_set_population(h, specs.as_ptr(), 7, false);

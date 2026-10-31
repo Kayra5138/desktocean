@@ -511,6 +511,7 @@ void FishTank::recordBaby(const DcBirth &birth)
     // No name of its own: it is called after its parents, whatever they are called
     meta.style = a->style;
     meta.scale = (a->scale + b->scale) / 2;
+    meta.speed = (a->speed + b->speed) / 2;
     // Small fish have litters: siblings share one drawing, as copies
     meta.count = std::clamp(int(birth.count), 1, std::max(1, m_maxFish - fishCount()));
     meta.bornAt = QDateTime::currentMSecsSinceEpoch();
@@ -1654,7 +1655,7 @@ void FishTank::loadLibrary(bool animateNew)
             const auto gait = FishMesh::gaitFromId(e.style);
             for (int k = 0; k < e.count; ++k) {
                 const auto id = quint64(qHash(e.id, size_t(k)));
-                crawlers.push_back({id, sprite, aspect, float(e.scale), FishMesh::gaitIndex(gait)});
+                crawlers.push_back({id, sprite, aspect, float(e.scale), FishMesh::gaitIndex(gait), float(e.speed)});
                 owners.insert(id, e.id);
                 names.insert(id, e.fishName(k));
             }
@@ -1711,7 +1712,7 @@ void FishTank::loadLibrary(bool animateNew)
         for (int k = 0; k < e.count; ++k) {
             const auto id = quint64(qHash(e.id, size_t(k)));
             specs.push_back({id, sprite, aspect, float(e.scale * growth), growth >= 1.0 ? 1u : 0u, float(mouth.x()),
-                             float(mouth.y()), uint32_t(FishMesh::style(e.style).body)});
+                             float(mouth.y()), uint32_t(FishMesh::style(e.style).body), float(e.speed)});
             specEntry.push_back(e);
             owners.insert(id, e.id);
             names.insert(id, e.fishName(k));

@@ -572,6 +572,7 @@ FishEntry entryFromMap(const QVariantMap &m)
     e.kind = FishLibrary::kindFromName(m.value(QStringLiteral("kind"), QStringLiteral("fish")).toString());
     e.name = m.value(QStringLiteral("name")).toString();
     e.scale = m.value(QStringLiteral("scale"), 1.0).toDouble();
+    e.speed = m.value(QStringLiteral("speed"), 1.0).toDouble();
     e.count = m.value(QStringLiteral("count"), 1).toInt();
     e.style = m.value(QStringLiteral("swimStyle"), QStringLiteral("classic")).toString();
     e.sway = m.value(QStringLiteral("sway"), 1.0).toDouble();

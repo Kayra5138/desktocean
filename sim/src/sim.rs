@@ -122,6 +122,8 @@ pub struct FishSpec {
     pub mouth: (f32, f32),
     /// What kind of swimmer: decides how it moves
     pub body: Body,
+    /// Swimming speed multiplier set by the user (1 = normal)
+    pub speed: f32,
 }
 
 /// Swimmers that aren't shaped like a fish move their own way
@@ -415,6 +417,8 @@ pub struct Fish {
     /// In (or partly in) a cave: drawn behind the cave's front
     pub sheltered: bool,
     pub body: Body,
+    /// The speed multiplier from the spec, already part of max_speed
+    speed_mul: f32,
     /// Cursor stroking so far (px), see pet.rs
     pet: f32,
     /// 0 .. 1: grows with petting and with eating food you dropped
@@ -446,9 +450,10 @@ impl Fish {
         ((1.0 - self.scale) / 0.6).clamp(0.0, 1.0)
     }
 
-    /// Close enough in size to swim in one school
+    /// Close enough in size and speed to swim in one school
     fn same_size(&self, other: &Fish) -> bool {
         (0.87..1.15).contains(&(other.w / self.w.max(1.0)))
+            && (0.7..1.45).contains(&(other.speed_mul / self.speed_mul))
     }
 
     /// Sociability plus the pull small fish feel toward a school
@@ -950,6 +955,11 @@ impl Sim {
                         f.max_speed *= spec.body.speed() / f.body.speed();
                         f.body = spec.body;
                     }
+                    let speed = spec.speed.clamp(0.1, 4.0);
+                    if speed != f.speed_mul {
+                        f.max_speed *= speed / f.speed_mul;
+                        f.speed_mul = speed;
+                    }
                     Self::apply_size(&mut f, spec);
                     self.clamp_to_water(&mut f);
                     f
@@ -1141,7 +1151,8 @@ impl Sim {
             max_speed: self.rng.range(60.0, 115.0)
                 * (1.0 - 0.3 * depth)
                 * personality.speed
-                * spec.body.speed(),
+                * spec.body.speed()
+                * spec.speed.clamp(0.1, 4.0),
             dir,
             facing: dir,
             turn_cooldown: 0.0,
@@ -1173,6 +1184,7 @@ impl Sim {
             scale: spec.scale,
             sheltered: false,
             body: spec.body,
+            speed_mul: spec.speed.clamp(0.1, 4.0),
             pet: 0.0,
             trust: 0.0,
             heart_timer: 0.0,
@@ -2076,7 +2088,8 @@ impl Sim {
         };
 
         f.speed = f.vx.hypot(f.vy);
-        f.phase = (f.phase + dt * (2.5 + f.speed * 0.07)) % (TAU * 64.0);
+        // (slow swimmers beat their tails slowly too)
+        f.phase = (f.phase + dt * (2.5 * f.speed_mul.sqrt() + f.speed * 0.07)) % (TAU * 64.0);
     }
 }
 
@@ -2349,6 +2362,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             })
             .collect()
     }
@@ -2415,6 +2429,7 @@ mod tests {
             adult: true,
             mouth: DEFAULT_MOUTH,
             body: Body::Fish,
+            speed: 1.0,
         });
         s.set_population(&next, true);
 
@@ -2441,6 +2456,7 @@ mod tests {
             adult: true,
             mouth: DEFAULT_MOUTH,
             body: Body::Fish,
+            speed: 1.0,
         });
         s.set_population(&next, true);
         let f = s.fish().iter().find(|f| f.id == 50).unwrap();
@@ -2469,6 +2485,7 @@ mod tests {
                     adult: true,
                     mouth: DEFAULT_MOUTH,
                     body: Body::Fish,
+                    speed: 1.0,
                 },
                 FishSpec {
                     id: 2,
@@ -2478,6 +2495,7 @@ mod tests {
                     adult: true,
                     mouth: DEFAULT_MOUTH,
                     body: Body::Fish,
+                    speed: 1.0,
                 },
             ],
             false,
@@ -2768,6 +2786,7 @@ mod tests {
             adult: true,
             mouth: DEFAULT_MOUTH,
             body: Body::Fish,
+            speed: 1.0,
         });
         s.set_population(&next, true);
         let mean_distance = |s: &Sim| {
@@ -2893,6 +2912,7 @@ mod tests {
                     adult,
                     mouth: DEFAULT_MOUTH,
                     body: Body::Fish,
+                    speed: 1.0,
                 },
                 FishSpec {
                     id: 2,
@@ -2902,6 +2922,7 @@ mod tests {
                     adult,
                     mouth: DEFAULT_MOUTH,
                     body: Body::Fish,
+                    speed: 1.0,
                 },
             ],
             false,
@@ -3049,6 +3070,7 @@ mod tests {
                         adult: true,
                         mouth: DEFAULT_MOUTH,
                         body: Body::Fish,
+                        speed: 1.0,
                     })
                     .collect();
                 s.set_population(&specs, false);
@@ -3102,6 +3124,7 @@ mod tests {
             adult: false,
             mouth: DEFAULT_MOUTH,
             body: Body::Fish,
+            speed: 1.0,
         });
         s.set_population(&next, true);
         assert!(s.place_fish(77, 900.0, 600.0));
@@ -3122,6 +3145,7 @@ mod tests {
                 adult: true,
                 mouth,
                 body: Body::Fish,
+                speed: 1.0,
             }],
             false,
         );
@@ -3351,12 +3375,44 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body,
+                speed: 1.0,
             }],
             false,
         );
         s.resize(2560.0, 1440.0);
         s.fish[0].hunger = 0.0;
         s
+    }
+
+    #[test]
+    fn the_speed_setting_makes_fish_slower_or_faster() {
+        let top = |speed: f32| {
+            let mut s = Sim::new(7);
+            s.set_population(
+                &[FishSpec {
+                    id: 40,
+                    sprite: 0,
+                    aspect: 0.6,
+                    scale: 1.0,
+                    adult: true,
+                    mouth: DEFAULT_MOUTH,
+                    body: Body::Fish,
+                    speed,
+                }],
+                false,
+            );
+            s.resize(2560.0, 1440.0);
+            s.fish[0].hunger = 0.0;
+            let mut fastest = 0.0f32;
+            for _ in 0..30 * 60 {
+                s.step(DT, None);
+                fastest = fastest.max(s.fish()[0].speed);
+            }
+            fastest
+        };
+        let (slow, normal, fast) = (top(0.25), top(1.0), top(2.5));
+        assert!(slow < normal * 0.4, "very slow: {slow:.0} vs {normal:.0}");
+        assert!(fast > normal * 1.8, "very fast: {fast:.0} vs {normal:.0}");
     }
 
     #[test]
@@ -3548,6 +3604,7 @@ mod tests {
                     adult: true,
                     mouth: DEFAULT_MOUTH,
                     body: Body::Fish,
+                    speed: 1.0,
                 })
                 .collect();
             s.set_population(&specs, false);
@@ -3591,6 +3648,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             })
             .collect();
         s.set_population(&specs, false);
@@ -3718,6 +3776,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             })
             .collect();
         s.set_population(&specs, false);
@@ -3829,6 +3888,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             })
             .collect();
         s.set_population(&specs, false);

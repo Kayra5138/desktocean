@@ -115,6 +115,7 @@ bool save(const QList<FishEntry> &entries, QString *error)
             {QStringLiteral("file"), e.file},
             {QStringLiteral("style"), e.style},
             {QStringLiteral("scale"), e.scale},
+            {QStringLiteral("speed"), e.speed},
             {QStringLiteral("count"), e.count},
             {QStringLiteral("number"), e.number},
         };
@@ -175,6 +176,7 @@ void applyMeta(FishEntry &e, const FishEntry &meta, int minCount)
     e.name = meta.name.trimmed();
     e.style = meta.style.isEmpty() ? QStringLiteral("classic") : meta.style;
     e.scale = std::clamp(meta.scale, 0.3, 3.0);
+    e.speed = std::clamp(meta.speed, 0.1, 4.0);
     e.count = std::clamp(meta.count, minCount, 50);
     e.kind = meta.kind;
     e.sway = std::clamp(meta.sway, 0.0, 3.0);
@@ -379,6 +381,7 @@ QList<FishEntry> load(QString *error)
         e.wiggle = o.value(QStringLiteral("wiggle")).toString();
         e.style = o.value(QStringLiteral("style")).toString(QStringLiteral("classic"));
         e.scale = std::clamp(o.value(QStringLiteral("scale")).toDouble(1.0), 0.3, 3.0);
+        e.speed = std::clamp(o.value(QStringLiteral("speed")).toDouble(1.0), 0.1, 4.0);
         e.count = std::clamp(o.value(QStringLiteral("count")).toInt(1), 0, 50);
         e.kind = kindFromName(o.value(QStringLiteral("kind")).toString());
         e.sway = std::clamp(o.value(QStringLiteral("sway")).toDouble(1.0), 0.0, 3.0);
@@ -672,6 +675,7 @@ bool exportEntry(const QString &id, const QString &path, QString *error)
         {QStringLiteral("name"), it->name.isEmpty() && it->bornAt > 0 ? it->displayName : it->name},
         {QStringLiteral("style"), it->style},
         {QStringLiteral("scale"), it->scale},
+        {QStringLiteral("speed"), it->speed},
         {QStringLiteral("sway"), it->sway},
         {QStringLiteral("sprite"), QString::fromLatin1(pngBase64(sprite))},
     };
@@ -736,13 +740,21 @@ std::optional<FishEntry> importFile(const QString &path, QString *error)
     meta.name = cleanName(o.value(QStringLiteral("name")).toString());
     const QString style = o.value(QStringLiteral("style")).toString();
     const auto &styles = FishMesh::styles();
-    meta.style = std::any_of(styles.begin(), styles.end(), [&](const FishMesh::Style &s) { return s.id == style; })
-        ? style
-        : QStringLiteral("classic");
+    if (meta.kind == FishEntry::Kind::Crawler) {
+        // Crawlers keep their gait in the same field
+        static const QStringList gaits{QStringLiteral("crab"), QStringLiteral("snail"), QStringLiteral("star"),
+                                       QStringLiteral("walker")};
+        meta.style = gaits.contains(style) ? style : gaits.first();
+    } else {
+        meta.style = std::any_of(styles.begin(), styles.end(), [&](const FishMesh::Style &s) { return s.id == style; })
+            ? style
+            : QStringLiteral("classic");
+    }
     meta.scale = number(o.value(QStringLiteral("scale")), 1.0, 0.3, 3.0);
+    meta.speed = number(o.value(QStringLiteral("speed")), 1.0, 0.1, 4.0);
     meta.sway = number(o.value(QStringLiteral("sway")), 1.0, 0.0, 3.0);
     meta.count = 1;
-    if (meta.kind != FishEntry::Kind::Fish) {
+    if (meta.kind == FishEntry::Kind::Plant || meta.kind == FishEntry::Kind::Decor) {
         // Somewhere on the sand, like a freshly drawn one
         Placement p;
         p.x = 0.15 + 0.7 * QRandomGenerator::global()->generateDouble();

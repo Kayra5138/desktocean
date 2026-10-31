@@ -438,6 +438,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             }],
             false,
         );
@@ -620,6 +621,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             })
             .collect();
         s.set_population(&specs, false);
@@ -653,6 +655,7 @@ mod tests {
             aspect: 0.6,
             scale: 1.0,
             gait: crate::sim::Gait::Crab,
+            speed: 1.0,
         }]);
         let (kx, ky) = (s.crawlers()[0].x, s.crawlers()[0].y);
         let id = s.carry_new(kx, ky - 80.0);

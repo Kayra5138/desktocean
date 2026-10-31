@@ -46,6 +46,7 @@ struct FishEntry {
     QString wiggle;                        // wiggle mask file name, or empty
     QString style = QStringLiteral("classic");  // FishMesh swim style id
     double scale = 1.0;                    // size multiplier
+    double speed = 1.0;                    // swimming or walking speed multiplier
     int count = 1;                         // how many of this fish swim in the tank
     double sway = 1.0;                     // plants: how much they move in the current
     QList<Placement> placements;           // plants and decorations: where they stand

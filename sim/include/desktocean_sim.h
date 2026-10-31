@@ -37,6 +37,7 @@ typedef struct DcCrawlerSpec {
     float aspect;      // sprite height / width
     float scale;
     uint32_t gait;     // DC_GAIT_*
+    float speed;       // speed multiplier, 1 = normal
 } DcCrawlerSpec;
 
 typedef struct DcCrawler {
@@ -119,6 +120,7 @@ typedef struct DcFishSpec {
     float mouth_x;     // mouth on the drawing, fraction of width (head right); < 0 = default
     float mouth_y;     // ... fraction of height
     uint32_t body;     // DC_BODY_*: how it swims
+    float speed;       // speed multiplier, 1 = normal
 } DcFishSpec;
 
 #define DC_BODY_FISH     0u

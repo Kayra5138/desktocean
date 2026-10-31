@@ -152,6 +152,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Body::Fish,
+                speed: 1.0,
             }],
             false,
         );

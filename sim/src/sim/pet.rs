@@ -223,6 +223,7 @@ mod tests {
                 adult: true,
                 mouth: DEFAULT_MOUTH,
                 body: Default::default(),
+                speed: 1.0,
             }],
             false,
         );

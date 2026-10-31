@@ -58,6 +58,8 @@ pub struct CrawlerSpec {
     pub aspect: f32,
     pub scale: f32,
     pub gait: Gait,
+    /// Walking speed multiplier set by the user (1 = normal)
+    pub speed: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +86,8 @@ pub struct Crawler {
     pub depth: f32,
     /// Riding in a bubble from the wand (see carry.rs)
     pub(super) carried: bool,
+    /// The speed multiplier from the spec
+    pace_mul: f32,
     /// Dropped from a bubble: falling back to the ground
     pub(super) falling: bool,
     pub(super) fall_v: f32,
@@ -116,6 +120,7 @@ impl Sim {
                     let mut c = c.clone();
                     c.sprite = spec.sprite;
                     c.gait = spec.gait;
+                    c.pace_mul = spec.speed.clamp(0.1, 4.0);
                     self.size_crawler(&mut c, spec);
                     c
                 }
@@ -173,6 +178,7 @@ impl Sim {
             hop: 0.0,
             depth: 0.5,
             carried: false,
+            pace_mul: spec.speed.clamp(0.1, 4.0),
             falling: false,
             fall_v: 0.0,
             lane,
@@ -241,6 +247,7 @@ impl Sim {
                 continue;
             }
             let (pace, walk_secs, rest_secs) = c.gait.pace();
+            let pace = pace * c.pace_mul;
             // Crabs and shrimp come out more at night
             let lively = match c.gait {
                 Gait::Crab | Gait::Walker => 1.0 + 0.4 * night,
@@ -458,6 +465,7 @@ mod tests {
                 aspect: 0.6,
                 scale: 1.0,
                 gait: *g,
+                speed: 1.0,
             })
             .collect();
         s.set_crawlers(&specs);

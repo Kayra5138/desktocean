@@ -65,6 +65,8 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return e.count;
     case ScaleRole:
         return e.scale;
+    case SpeedRole:
+        return e.speed;
     case StyleRole:
         return e.style;
     case WiggleRole:
@@ -103,7 +105,7 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
             {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"},
             {CharactersRole, "characters"}, {MouthRole, "mouth"},
             {CustomNameRole, "customName"}, {FishNamesRole, "fishNames"}, {DefaultFishNamesRole, "defaultFishNames"},
-            {OpeningRole, "opening"}};
+            {OpeningRole, "opening"}, {SpeedRole, "speed"}};
 }
 
 QVariantMap LibraryModel::get(int row) const
