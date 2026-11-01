@@ -298,6 +298,7 @@ private:
     // Which library fish each simulated fish is a copy of (spec id -> entry id)
     QHash<quint64, QString> m_specOwner;
     QHash<quint64, QString> m_specName;   // name of every copy, for the hover label
+    QHash<quint64, int> m_specCharacters; // characters picked by hand, by fish
     bool m_showNames = false;
     bool m_sounds = false;
     qreal m_soundVolume = 0.4;

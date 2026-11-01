@@ -42,6 +42,10 @@ struct FishEntry {
     QString displayName;
     int number = 0;                        // for automatic names, per kind; 1, 2, ...
     QStringList names;                     // fish: names of single copies; empty = automatic
+    // Traits of single copies, set on the Traits page. By copy: character
+    // (DC_CHARACTER_*, -1 = its own) and speed (0 = the species' speed).
+    QList<int> copyCharacters;
+    QList<double> copySpeeds;
     QString file;                          // sprite file name inside directory()
     QString wiggle;                        // wiggle mask file name, or empty
     QString style = QStringLiteral("classic");  // FishMesh swim style id
@@ -65,6 +69,8 @@ struct FishEntry {
     // there are several
     QString fishName(int k) const;
     QString defaultFishName(int k) const;
+    int copyCharacter(int k) const { return copyCharacters.value(k, -1); }
+    double copySpeed(int k) const { return copySpeeds.value(k, 0.0) > 0 ? copySpeeds.value(k) : speed; }
 };
 
 // What the editor hands over: the drawing and, optionally, its wiggle mask
@@ -105,6 +111,10 @@ void markDecorSeeded();
 
 QList<FishEntry> load(QString *error = nullptr);
 
+// The simulation's id for copy k of a library entry. The same in every run and
+// every process, so a fish keeps its character, friends and trust.
+quint64 fishId(const QString &entryId, int k);
+
 // Crops the drawing to its visible pixels, saves it and appends an entry with
 // meta's name, style, scale and count.
 std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, QString *error = nullptr);
@@ -118,6 +128,8 @@ bool replaceDrawing(const FishEntry &meta, const FishDrawing &drawing, QString *
 bool flip(const QString &id, QString *error = nullptr);
 // Names single copies of a fish; an empty name means automatic
 bool setFishNames(const QString &id, const QStringList &names, QString *error = nullptr);
+// Sets copy k's character (-1 = its own) and speed (0 = the species' speed)
+bool setCopyTraits(const QString &id, int k, int character, double speed, QString *error = nullptr);
 
 // Sharing a single fish, plant or decoration as one "<name>.desktocean" file:
 // JSON {format: "desktocean-fish", version: 1, kind, name, style, scale, sway,

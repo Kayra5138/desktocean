@@ -25,7 +25,7 @@ public:
     enum Role {
         IdRole = Qt::UserRole + 1, NameRole, ImageRole, CopiesRole, ScaleRole, StyleRole, WiggleRole,
         FriendsRole, RivalsRole, KindRole, SwayRole, PlacedRole, FamilyRole, CharactersRole, MouthRole,
-        CustomNameRole, FishNamesRole, DefaultFishNamesRole, OpeningRole, SpeedRole
+        CustomNameRole, FishNamesRole, DefaultFishNamesRole, OpeningRole, SpeedRole, TraitsRole
     };
 
     explicit LibraryModel(QObject *parent = nullptr);
@@ -45,6 +45,10 @@ public:
     Q_INVOKABLE bool remove(const QString &id);
     Q_INVOKABLE bool setCopies(const QString &id, int copies);
     Q_INVOKABLE bool setScale(const QString &id, double scale);
+    // The speed of the whole species
+    Q_INVOKABLE bool setSpeed(const QString &id, double speed);
+    // One fish's character (-1 = its own) and speed (0 = the species' speed)
+    Q_INVOKABLE bool setCopyTraits(const QString &id, int copy, int character, double speed);
     Q_INVOKABLE bool rename(const QString &id, const QString &name);
     Q_INVOKABLE bool flip(const QString &id);
     // Names single copies of a fish; empty strings mean automatic names
@@ -79,6 +83,7 @@ private:
     QHash<QString, QStringList> m_rivals;
     // Characters of the swimming copies per entry id, e.g. "explorer, 2× shy"
     QHash<QString, QString> m_characters;
+    QHash<QString, int> m_fishCharacters;   // every fish's character now, by sim id
     QTimer m_relationsRefresh;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;

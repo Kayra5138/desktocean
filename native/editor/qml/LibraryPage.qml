@@ -13,6 +13,7 @@ Kirigami.ScrollablePage {
     signal editFish(var fish)
     // Family tree, centred on a fish ("" for none)
     signal openFamily(string fishId)
+    signal openTraits()
 
     title: "My fish · " + library.swimming + " swimming"
 
@@ -73,6 +74,11 @@ Kirigami.ScrollablePage {
             text: "Draw a new fish"
             icon.name: "draw-brush"
             onTriggered: page.drawNew()
+        },
+        Kirigami.Action {
+            text: "Traits"
+            icon.name: "configure"
+            onTriggered: page.openTraits()
         },
         Kirigami.Action {
             text: "Family tree"

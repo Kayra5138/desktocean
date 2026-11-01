@@ -121,6 +121,18 @@ bool save(const QList<FishEntry> &entries, QString *error)
         };
         if (std::any_of(e.names.begin(), e.names.end(), [](const QString &n) { return !n.isEmpty(); }))
             o.insert(QStringLiteral("names"), QJsonArray::fromStringList(e.names));
+        if (std::any_of(e.copyCharacters.begin(), e.copyCharacters.end(), [](int c) { return c >= 0; })) {
+            QJsonArray list;
+            for (int c : e.copyCharacters)
+                list.append(c);
+            o.insert(QStringLiteral("characters"), list);
+        }
+        if (std::any_of(e.copySpeeds.begin(), e.copySpeeds.end(), [](double v) { return v > 0; })) {
+            QJsonArray list;
+            for (double v : e.copySpeeds)
+                list.append(v);
+            o.insert(QStringLiteral("speeds"), list);
+        }
         if (!e.wiggle.isEmpty())
             o.insert(QStringLiteral("wiggle"), e.wiggle);
         if (e.mouth.x() >= 0)
@@ -341,6 +353,15 @@ FishEntry::Kind kindFromName(const QString &name)
     return FishEntry::Kind::Fish;
 }
 
+quint64 fishId(const QString &entryId, int k)
+{
+    // Only seed 0 gives the same hash in every process: Qt mixes a random
+    // per-process value into any other seed
+    if (k == 0)
+        return quint64(qHash(entryId, size_t(0)));
+    return quint64(qHash(QString(entryId + QLatin1Char('#') + QString::number(k)), size_t(0)));
+}
+
 bool decorSeeded()
 {
     return QFileInfo::exists(QDir(directory()).filePath(QStringLiteral(".decor-seeded")));
@@ -377,6 +398,10 @@ QList<FishEntry> load(QString *error)
         e.number = o.value(QStringLiteral("number")).toInt();
         for (const QJsonValue &nv : o.value(QStringLiteral("names")).toArray())
             e.names << nv.toString().trimmed();
+        for (const QJsonValue &cv : o.value(QStringLiteral("characters")).toArray())
+            e.copyCharacters << std::clamp(cv.toInt(-1), -1, 6);
+        for (const QJsonValue &sv : o.value(QStringLiteral("speeds")).toArray())
+            e.copySpeeds << std::clamp(sv.toDouble(0), 0.0, 4.0);
         e.file = o.value(QStringLiteral("file")).toString();
         e.wiggle = o.value(QStringLiteral("wiggle")).toString();
         e.style = o.value(QStringLiteral("style")).toString(QStringLiteral("classic"));
@@ -463,6 +488,31 @@ std::optional<FishEntry> add(const FishDrawing &drawing, const FishEntry &meta, 
     }
     resolveNames(entries);
     return entries.last();
+}
+
+bool setCopyTraits(const QString &id, int k, int character, double speed, QString *error)
+{
+    if (k < 0 || k >= 50)
+        return false;
+    WriteLock lock;
+    if (!lock.locked()) {
+        setError(error, kBusy);
+        return false;
+    }
+    QList<FishEntry> entries = load(error);
+    for (FishEntry &e : entries) {
+        if (e.id != id)
+            continue;
+        while (e.copyCharacters.size() <= k)
+            e.copyCharacters << -1;
+        while (e.copySpeeds.size() <= k)
+            e.copySpeeds << 0.0;
+        e.copyCharacters[k] = std::clamp(character, -1, 6);
+        e.copySpeeds[k] = std::clamp(speed, 0.0, 4.0);
+        return save(entries, error);
+    }
+    setError(error, QStringLiteral("No such fish"));
+    return false;
 }
 
 bool setFishNames(const QString &id, const QStringList &names, QString *error)

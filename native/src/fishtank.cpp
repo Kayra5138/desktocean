@@ -524,7 +524,7 @@ void FishTank::recordBaby(const DcBirth &birth)
     }
     // Placed between the parents (on this screen) once the library reload brings it in
     for (int k = 0; k < added->count; ++k)
-        TankHub::assign(quint64(qHash(added->id, size_t(k))), this);
+        TankHub::assign(FishLibrary::fishId(added->id, k), this);
     m_newborns.insert(added->id, QPointF(birth.x, birth.y));
 }
 
@@ -545,6 +545,9 @@ void FishTank::applyAssignment(bool animateNew)
     }
     dc_sim_set_population(m_sim, m_specs.data(), uint32_t(m_specs.size()), animateNew);
     dc_sim_set_crawlers(m_sim, crawlers.data(), uint32_t(crawlers.size()));
+    // Characters picked on the editor's Traits page (-1: the fish's own)
+    for (const DcFishSpec &spec : m_specs)
+        dc_sim_set_character(m_sim, spec.id, m_specCharacters.value(spec.id, -1));
     pullState();
     update();
 }
@@ -816,7 +819,8 @@ void FishTank::saveState() const
     for (const QJsonValue &v : old.value(QStringLiteral("relations")).toArray()) {
         const QJsonObject o = v.toObject();
         const quint64 a = idOf(o.value(QStringLiteral("a"))), b = idOf(o.value(QStringLiteral("b")));
-        if (!here.contains(a) && !here.contains(b))
+        // (fish no longer in the library are forgotten)
+        if (!here.contains(a) && !here.contains(b) && m_specOwner.contains(a) && m_specOwner.contains(b))
             rel.push_back({a, b, float(o.value(QStringLiteral("affinity")).toDouble())});
     }
 
@@ -1628,6 +1632,7 @@ void FishTank::loadLibrary(bool animateNew)
     std::vector<DcCrawlerSpec> crawlers;
     QHash<quint64, QString> owners;
     QHash<quint64, QString> names;
+    QHash<quint64, int> specCharacters;
     for (const FishEntry &e : entries) {
         const bool isFish = e.kind == FishEntry::Kind::Fish;
         const bool counted = isFish || e.kind == FishEntry::Kind::Crawler;
@@ -1654,8 +1659,8 @@ void FishTank::loadLibrary(bool animateNew)
         if (e.kind == FishEntry::Kind::Crawler) {
             const auto gait = FishMesh::gaitFromId(e.style);
             for (int k = 0; k < e.count; ++k) {
-                const auto id = quint64(qHash(e.id, size_t(k)));
-                crawlers.push_back({id, sprite, aspect, float(e.scale), FishMesh::gaitIndex(gait), float(e.speed)});
+                const auto id = FishLibrary::fishId(e.id, k);
+                crawlers.push_back({id, sprite, aspect, float(e.scale), FishMesh::gaitIndex(gait), float(e.copySpeed(k))});
                 owners.insert(id, e.id);
                 names.insert(id, e.fishName(k));
             }
@@ -1710,9 +1715,10 @@ void FishTank::loadLibrary(bool animateNew)
         // Marked in the editor, or guessed from the front of the drawing
         const QPointF mouth = e.mouth.x() >= 0 ? e.mouth : FishLibrary::guessMouth(img);
         for (int k = 0; k < e.count; ++k) {
-            const auto id = quint64(qHash(e.id, size_t(k)));
+            const auto id = FishLibrary::fishId(e.id, k);
             specs.push_back({id, sprite, aspect, float(e.scale * growth), growth >= 1.0 ? 1u : 0u, float(mouth.x()),
-                             float(mouth.y()), uint32_t(FishMesh::style(e.style).body), float(e.speed)});
+                             float(mouth.y()), uint32_t(FishMesh::style(e.style).body), float(e.copySpeed(k))});
+            specCharacters.insert(id, e.copyCharacter(k));
             specEntry.push_back(e);
             owners.insert(id, e.id);
             names.insert(id, e.fishName(k));
@@ -1728,13 +1734,14 @@ void FishTank::loadLibrary(bool animateNew)
     m_allSpecs = std::move(specs);
     m_allSpecEntry = std::move(specEntry);
     m_allCrawlers = std::move(crawlers);
+    m_specCharacters = specCharacters;
     applyAssignment(animateNew && m_libraryLoaded);
     m_specOwner = owners;
     m_specName = names;
     // Newborns appear between their parents rather than dropping in from above
     for (auto it = m_newborns.begin(); it != m_newborns.end();) {
         if (owners.key(it.key()) != 0) {
-            dc_sim_place_fish(m_sim, quint64(qHash(it.key(), size_t(0))), float(it->x()), float(it->y()));
+            dc_sim_place_fish(m_sim, FishLibrary::fishId(it.key(), 0), float(it->x()), float(it->y()));
             it = m_newborns.erase(it);
         } else {
             ++it;
@@ -1747,6 +1754,8 @@ void FishTank::loadLibrary(bool animateNew)
         m_stateLoaded = true;
     }
     pullState();
+    // Keeps the editor's picture of the fish (characters...) up to date
+    saveState();
     checkHealth();
     update();
 }

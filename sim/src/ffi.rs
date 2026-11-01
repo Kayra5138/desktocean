@@ -814,6 +814,20 @@ pub unsafe extern "C" fn dc_sim_controlled(handle: *mut DcSim, out: *mut u64) ->
     })
 }
 
+/// Gives fish `id` this character (DC_CHARACTER_*), or its own back when
+/// negative; false if it isn't here.
+/// # Safety
+/// `handle` must be null or a live pointer from `dc_sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dc_sim_set_character(handle: *mut DcSim, id: u64, character: i32) -> bool {
+    with_sim(handle, false, |s| {
+        let wanted = u32::try_from(character)
+            .ok()
+            .and_then(crate::sim::Character::from_index);
+        s.set_character(id, wanted)
+    })
+}
+
 /// A clutch of eggs
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]

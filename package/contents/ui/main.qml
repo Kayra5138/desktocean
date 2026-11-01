@@ -147,6 +147,11 @@ WallpaperItem {
             onTriggered: TankHub.openEditor("fish")
         },
         PlasmaCore.Action {
+            text: "Fish traits…"
+            icon.name: "configure"
+            onTriggered: TankHub.openEditor("traits")
+        },
+        PlasmaCore.Action {
             text: "Tank layout…"
             icon.name: "view-grid"
             onTriggered: TankHub.openEditor("layout")

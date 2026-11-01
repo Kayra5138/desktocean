@@ -208,6 +208,10 @@ impl Character {
         Self::ALL[(rng.unit() * Self::ALL.len() as f32) as usize % Self::ALL.len()]
     }
 
+    pub fn from_index(i: u32) -> Option<Self> {
+        Self::ALL.get(i as usize).copied()
+    }
+
     /// Stable number for the C ABI (see DC_CHARACTER_* in the header)
     pub fn index(self) -> u32 {
         Self::ALL.iter().position(|c| *c == self).unwrap_or(0) as u32
@@ -419,6 +423,8 @@ pub struct Fish {
     pub body: Body,
     /// The speed multiplier from the spec, already part of max_speed
     speed_mul: f32,
+    /// The character it was born with; personality.character can be set by hand
+    natural: Character,
     /// Cursor stroking so far (px), see pet.rs
     pet: f32,
     /// 0 .. 1: grows with petting and with eating food you dropped
@@ -776,6 +782,23 @@ impl Sim {
             .filter(|&(_, d)| d < radius)
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(k, _)| k)
+    }
+
+    /// Gives a fish the character the user picked, or back its own (None).
+    /// Takes effect at once: where it swims, how it reacts.
+    pub fn set_character(&mut self, id: u64, character: Option<Character>) -> bool {
+        let Some(i) = self.fish.iter().position(|f| f.id == id) else {
+            return false;
+        };
+        let wanted = character.unwrap_or(self.fish[i].natural);
+        if self.fish[i].personality.character != wanted {
+            let band = wanted.band(&mut self.rng);
+            let f = &mut self.fish[i];
+            f.personality.character = wanted;
+            f.band = band;
+            f.retarget = true;
+        }
+        true
     }
 
     pub fn take_births(&mut self) -> Vec<Birth> {
@@ -1185,6 +1208,7 @@ impl Sim {
             sheltered: false,
             body: spec.body,
             speed_mul: spec.speed.clamp(0.1, 4.0),
+            natural: personality.character,
             pet: 0.0,
             trust: 0.0,
             heart_timer: 0.0,
@@ -3413,6 +3437,26 @@ mod tests {
         let (slow, normal, fast) = (top(0.25), top(1.0), top(2.5));
         assert!(slow < normal * 0.4, "very slow: {slow:.0} vs {normal:.0}");
         assert!(fast > normal * 1.8, "very fast: {fast:.0} vs {normal:.0}");
+    }
+
+    #[test]
+    fn a_character_can_be_picked_and_given_back() {
+        let mut s = sim_with(4, 3, 1920.0, 1080.0);
+        let id = s.fish[0].id;
+        let own = s.fish[0].personality.character;
+        let other = if own == Character::Bottom {
+            Character::Skimmer
+        } else {
+            Character::Bottom
+        };
+        assert!(s.set_character(id, Some(other)));
+        assert_eq!(s.fish[0].personality.character, other);
+        if other == Character::Bottom {
+            assert!(s.fish[0].band.0 >= 0.6, "a bottom dweller keeps low");
+        }
+        assert!(s.set_character(id, None));
+        assert_eq!(s.fish[0].personality.character, own, "back to who it was");
+        assert!(!s.set_character(999_999, None), "no such fish");
     }
 
     #[test]

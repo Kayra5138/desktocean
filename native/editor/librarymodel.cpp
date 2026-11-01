@@ -67,6 +67,21 @@ QVariant LibraryModel::data(const QModelIndex &index, int role) const
         return e.scale;
     case SpeedRole:
         return e.speed;
+    case TraitsRole: {
+        // One row per fish for the Traits page
+        static const QStringList names = {QStringLiteral("explorer"), QStringLiteral("homebody"),
+                                          QStringLiteral("bottom dweller"), QStringLiteral("skimmer"),
+                                          QStringLiteral("lazy"), QStringLiteral("playful"), QStringLiteral("shy")};
+        QVariantList rows;
+        for (int k = 0; k < e.count; ++k) {
+            const int own = m_fishCharacters.value(QString::number(FishLibrary::fishId(e.id, k)), -1);
+            rows << QVariantMap{{QStringLiteral("name"), e.fishName(k)},
+                                {QStringLiteral("character"), e.copyCharacter(k)},
+                                {QStringLiteral("own"), own >= 0 && own < names.size() ? names[own] : QString()},
+                                {QStringLiteral("speed"), e.copySpeeds.value(k, 0.0)}};
+        }
+        return rows;
+    }
     case StyleRole:
         return e.style;
     case WiggleRole:
@@ -105,7 +120,7 @@ QHash<int, QByteArray> LibraryModel::roleNames() const
             {SwayRole, "sway"},       {PlacedRole, "placed"},   {FamilyRole, "family"},
             {CharactersRole, "characters"}, {MouthRole, "mouth"},
             {CustomNameRole, "customName"}, {FishNamesRole, "fishNames"}, {DefaultFishNamesRole, "defaultFishNames"},
-            {OpeningRole, "opening"}, {SpeedRole, "speed"}};
+            {OpeningRole, "opening"}, {SpeedRole, "speed"}, {TraitsRole, "traits"}};
 }
 
 QVariantMap LibraryModel::get(int row) const
@@ -205,6 +220,22 @@ bool LibraryModel::modify(const QString &id, const std::function<void(FishEntry 
 bool LibraryModel::setCopies(const QString &id, int copies)
 {
     return modify(id, [copies](FishEntry &e) { e.count = copies; });
+}
+
+bool LibraryModel::setSpeed(const QString &id, double speed)
+{
+    return modify(id, [speed](FishEntry &e) { e.speed = speed; });
+}
+
+bool LibraryModel::setCopyTraits(const QString &id, int copy, int character, double speed)
+{
+    QString error;
+    if (!FishLibrary::setCopyTraits(id, copy, character, speed, &error)) {
+        setError(error);
+        return false;
+    }
+    reload();
+    return true;
 }
 
 bool LibraryModel::setScale(const QString &id, double scale)
@@ -327,10 +358,15 @@ void LibraryModel::loadRelations()
     m_friends.clear();
     m_rivals.clear();
     m_characters.clear();
+    m_fishCharacters.clear();
     QFile file(FishLibrary::statePath());
     if (!file.open(QIODevice::ReadOnly))
         return;
     const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+
+    const QJsonObject perFish = root.value(QStringLiteral("fishCharacters")).toObject();
+    for (auto it = perFish.begin(); it != perFish.end(); ++it)
+        m_fishCharacters.insert(it.key(), it.value().toInt(-1));
 
     QHash<QString, QString> names;
     for (const FishEntry &e : std::as_const(m_entries))

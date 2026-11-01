@@ -36,6 +36,8 @@ Kirigami.ApplicationWindow {
             return pageStack.push(libraryPage);
         else if (page === "layout")
             return pageStack.push(layoutPage);
+        else if (page === "traits")
+            return pageStack.push(traitsPage);
         return null;
     }
 
@@ -136,7 +138,13 @@ Kirigami.ApplicationWindow {
             onDrawNew: window.pageStack.pop()
             onEditFish: fish => window.editFromList(fish)
             onOpenFamily: fishId => window.pageStack.push(familyPage, { focusId: fishId })
+            onOpenTraits: window.pageStack.push(traitsPage)
         }
+    }
+
+    Component {
+        id: traitsPage
+        TraitsPage {}
     }
 
     Component {

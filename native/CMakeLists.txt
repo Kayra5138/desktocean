@@ -93,6 +93,7 @@ qt_add_qml_module(desktocean-editor
         editor/qml/LibraryPage.qml
         editor/qml/TankLayoutPage.qml
         editor/qml/FamilyTreePage.qml
+        editor/qml/TraitsPage.qml
     SOURCES
         editor/drawingcanvas.h editor/drawingcanvas.cpp
         editor/librarymodel.h editor/librarymodel.cpp

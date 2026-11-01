@@ -184,6 +184,7 @@ void dc_sim_carry_release(DcSim *sim, uint32_t id);  // let go: drifts on, bounc
 void dc_sim_carry_rise(DcSim *sim, uint32_t id);     // float up and pop at the surface
 void dc_sim_carry_end(DcSim *sim, uint32_t id);      // pop now; the fish swims out
 uint32_t dc_sim_carries(DcSim *sim, DcCarry *out, uint32_t cap);   // returns total count
+bool dc_sim_set_character(DcSim *sim, uint64_t id, int32_t character);  // DC_CHARACTER_*, < 0 = its own
 bool dc_sim_control_start(DcSim *sim, uint64_t id);               // steer this fish with the keyboard
 void dc_sim_control_input(DcSim *sim, float dx, float dy, float dz, uint32_t dash);  // keys -1..1 (z away), dash != 0
 void dc_sim_control_end(DcSim *sim);                               // let it swim on by itself
