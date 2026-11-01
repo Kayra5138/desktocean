@@ -1026,6 +1026,19 @@ impl Sim {
         let (top, bottom) = (wt + f.h, (st - f.h * 0.7).max(wt + f.h + 1.0));
         let water = bottom - top;
 
+        // Over time a fish tours the whole tank: its favourite depth drifts
+        // (bottom dwellers and skimmers stay where they belong), and a
+        // homebody moves house now and then
+        let character = f.personality.character;
+        if self.daylight >= 0.5 && f.body == Body::Fish {
+            if !matches!(character, Character::Bottom | Character::Skimmer) && self.rng.chance(0.3)
+            {
+                f.band = character.band(&mut self.rng);
+            }
+            if character == Character::Homebody && self.rng.chance(0.08) {
+                f.home = (self.rng.range(0.1, 0.9), self.rng.range(0.15, 0.85));
+            }
+        }
         let (mut band_lo, mut band_hi) = f.band;
         if self.daylight < 0.5 {
             // Night: everyone settles into the lower part
@@ -1036,11 +1049,11 @@ impl Sim {
             band_lo = 0.0;
             band_hi = band_hi.clamp(0.25, 0.5);
         }
-        let character = f.personality.character;
+        // How far it goes at a time, as a share of the tank's width
         let (span_lo, span_hi) = match character {
-            Character::Explorer => (0.35, 0.85),
-            Character::Lazy => (0.08, 0.25),
-            _ => (0.15, 0.5),
+            Character::Explorer => (0.5, 1.0),
+            Character::Lazy => (0.2, 0.5),
+            _ => (0.3, 0.75),
         };
 
         if f.travel != 0 || self.maybe_travel(f) {
@@ -1064,7 +1077,7 @@ impl Sim {
         let mut best = (f.x, f.y, f32::INFINITY);
         for _ in 0..candidates {
             let x = if character == Character::Homebody {
-                f.home.0 * self.width + self.rng.range(-0.15, 0.15) * self.width
+                f.home.0 * self.width + self.rng.range(-0.2, 0.2) * self.width
             } else if self.rng.chance(0.5) {
                 // Anywhere across the tank, weighted toward the sides: fish
                 // travelling between random points pass through the middle
@@ -1098,11 +1111,11 @@ impl Sim {
         f.tx = best.0;
         f.ty = best.1.clamp(top, bottom);
         let lazy = if character == Character::Lazy {
-            0.7
+            0.75
         } else {
             1.0
         };
-        f.cruise = self.rng.range(0.45, 1.0) * f.max_speed * lazy;
+        f.cruise = self.rng.range(0.6, 1.0) * f.max_speed * lazy;
         f.mode = Mode::Wander;
     }
 
@@ -1831,12 +1844,19 @@ impl Sim {
                     f.mode = Mode::Wander;
                     let (dx, dy) = (f.tx - f.x, f.ty - f.y);
                     let dist = dx.hypot(dy).max(0.001);
-                    if dist < 30.0 {
-                        // Full fish and fish at night take more breaks, and longer ones
+                    if dist < 40.0 {
+                        // By day a fish mostly swims on to the next place; at
+                        // night it takes long breaks. The full and the lazy
+                        // stop a little more.
                         let night = 1.0 - self.daylight;
-                        let rest = 0.6 * (1.0 - p.restlessness)
-                            + 0.35 * night
-                            + if f.hunger < FULL { 0.15 } else { 0.0 };
+                        let rest = 0.12 * (1.0 - p.restlessness)
+                            + 0.75 * night
+                            + if f.hunger < FULL { 0.08 } else { 0.0 }
+                            + if p.character == Character::Lazy {
+                                0.3
+                            } else {
+                                0.0
+                            };
                         // Some fish spend the night in a cave; curious ones and
                         // youngsters pop in for a look now and then
                         let cave_chance = if night > 0.5 {
@@ -1867,13 +1887,14 @@ impl Sim {
                             f.mode = Mode::Hide { shelter, left };
                         } else if self.rng.chance(rest.min(0.95)) {
                             f.mode = Mode::Idle {
-                                left: self.rng.range(1.5, 5.0) * (1.0 + 2.0 * night),
+                                left: self.rng.range(0.8, 2.5) * (1.0 + 4.0 * night),
                             };
                         } else {
                             self.pick_target(f);
                         }
                     }
-                    let arrive = (dist / 90.0).min(1.0);
+                    // (no braking for a stop until it is nearly there)
+                    let arrive = (dist / 45.0).min(1.0);
                     des_x = dx / dist * f.cruise * activity * arrive;
                     des_y = dy / dist * f.cruise * activity * arrive;
 
@@ -2046,7 +2067,7 @@ impl Sim {
             // drifts sideways only a little and never turns round
             let pulse = (f.phase * 0.5).sin().max(0.0);
             let up = if f.ty < f.y - 20.0 { 1.3 } else { 0.45 };
-            des_x *= 0.4;
+            des_x *= 0.15;
             des_y = if pulse > 0.0 {
                 -f.max_speed * 2.2 * pulse * up
             } else {
@@ -2407,8 +2428,8 @@ mod tests {
         let a = sim_with(1, 7, 1920.0, 1080.0);
         let b = sim_with(999, 7, 1920.0, 1080.0);
         for (fa, fb) in a.fish().iter().zip(b.fish()) {
+            // (its favourite depth drifts as it tours the tank; who it is doesn't)
             assert_eq!(fa.personality.character, fb.personality.character);
-            assert_eq!(fa.band, fb.band);
         }
         // ...while different fish still get different characters
         let s = sim_with(1, 30, 1920.0, 1080.0);
@@ -2658,7 +2679,8 @@ mod tests {
         for _ in 0..4 {
             s.feed(None);
         }
-        for _ in 0..30 * 40 {
+        // (fish are spread all over the tank: give them time to come)
+        for _ in 0..30 * 60 {
             s.step(DT, None);
         }
         let end: f32 = s.fish().iter().map(|f| f.hunger).sum();
@@ -3437,6 +3459,104 @@ mod tests {
         let (slow, normal, fast) = (top(0.25), top(1.0), top(2.5));
         assert!(slow < normal * 0.4, "very slow: {slow:.0} vs {normal:.0}");
         assert!(fast > normal * 1.8, "very fast: {fast:.0} vs {normal:.0}");
+    }
+
+    /// (share of time standing, px swum per minute, share of the tank visited
+    /// in 5 minutes) for each character, over a tank like a real one
+    fn roaming() -> Vec<(Character, f32, f32, f32)> {
+        const COLS: usize = 8;
+        const ROWS: usize = 5;
+        const SECS: usize = 300;
+        Character::ALL
+            .iter()
+            .map(|&character| {
+                let (mut still, mut walked, mut visited, mut fish) = (0.0, 0.0, 0.0, 0.0);
+                for seed in 1..5u64 {
+                    let mut s = Sim::new(seed);
+                    let specs: Vec<FishSpec> = (0..24u64)
+                        .map(|k| FishSpec {
+                            id: seed * 7000 + k,
+                            sprite: (k % 6) as u32,
+                            aspect: 0.6,
+                            scale: 1.0,
+                            adult: true,
+                            mouth: DEFAULT_MOUTH,
+                            body: Body::Fish,
+                            speed: 1.0,
+                        })
+                        .collect();
+                    s.set_population(&specs, false);
+                    s.resize(2560.0, 1440.0);
+                    let ids: Vec<u64> = s.fish().iter().map(|f| f.id).collect();
+                    for id in ids {
+                        s.set_character(id, Some(character));
+                    }
+                    let n = s.fish().len();
+                    let mut grid = vec![[[false; ROWS]; COLS]; n];
+                    let mut last: Vec<(f32, f32)> = s.fish().iter().map(|f| (f.x, f.y)).collect();
+                    for _ in 0..30 * SECS {
+                        s.fish.iter_mut().for_each(|f| f.hunger = 0.2);
+                        s.step(DT, None);
+                        for (i, f) in s.fish().iter().enumerate() {
+                            walked += (f.x - last[i].0).hypot(f.y - last[i].1);
+                            last[i] = (f.x, f.y);
+                            still += (f.speed < 12.0) as u32 as f32;
+                            let c = ((f.x / 2560.0 * COLS as f32) as usize).min(COLS - 1);
+                            let r = (((f.y - 72.0) / (1400.0 - 72.0) * ROWS as f32) as usize)
+                                .min(ROWS - 1);
+                            grid[i][c][r] = true;
+                        }
+                    }
+                    for g in &grid {
+                        visited += g.iter().flatten().filter(|v| **v).count() as f32
+                            / (COLS * ROWS) as f32;
+                        fish += 1.0;
+                    }
+                }
+                let frames = fish * (30 * SECS) as f32;
+                (
+                    character,
+                    still / frames,
+                    walked / fish / (SECS as f32 / 60.0),
+                    visited / fish,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fish_tour_the_tank_by_day() {
+        // Regression guard: fish used to stand still up to 47% of the time and
+        // see about a third of the tank in five minutes
+        let all = roaming();
+        for (c, still, walked, visited) in &all {
+            println!(
+                "{c:?}: still {:.0}%  {walked:.0} px/min  visited {:.0}%",
+                still * 100.0,
+                visited * 100.0
+            );
+            assert!(
+                *still < 0.22,
+                "{c:?} stands still {:.0}% of the time",
+                still * 100.0
+            );
+            assert!(*walked > 1500.0, "{c:?} swims only {walked:.0} px/min");
+            assert!(
+                *visited > 0.4,
+                "{c:?} sees only {:.0}% of the tank",
+                visited * 100.0
+            );
+        }
+        // ...and characters still differ
+        let of = |w: Character| all.iter().find(|r| r.0 == w).unwrap();
+        assert!(
+            of(Character::Explorer).3 > of(Character::Homebody).3,
+            "explorers see more than homebodies"
+        );
+        assert!(
+            of(Character::Lazy).1 > of(Character::Playful).1,
+            "lazy fish stop more than playful ones"
+        );
     }
 
     #[test]
