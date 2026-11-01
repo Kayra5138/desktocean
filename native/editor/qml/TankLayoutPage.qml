@@ -203,6 +203,7 @@ Kirigami.Page {
                     text: "Theme"
                 }
                 QQC2.ComboBox {
+                    wheelEnabled: false   // the wheel scrolls the page
                     Layout.fillWidth: true
                     model: layout.themes
                     textRole: "label"

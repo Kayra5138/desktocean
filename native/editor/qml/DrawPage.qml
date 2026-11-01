@@ -457,6 +457,7 @@ Kirigami.Page {
                         text: page.kind === "decor" ? "Preview" : "Motion"
                     }
                     QQC2.ComboBox {
+                        wheelEnabled: false   // the wheel scrolls the page
                         id: styleBox
                         Layout.fillWidth: true
                         visible: page.isCreature
@@ -597,6 +598,7 @@ Kirigami.Page {
                     visible: page.isCreature
                     QQC2.Label { text: "Size:" }
                     QQC2.ComboBox {
+                        wheelEnabled: false   // the wheel scrolls the page
                         id: sizeBox
                         Layout.fillWidth: true
                         textRole: "text"
@@ -617,6 +619,7 @@ Kirigami.Page {
                     visible: page.isCreature
                     QQC2.Label { text: "Speed:" }
                     QQC2.ComboBox {
+                        wheelEnabled: false   // the wheel scrolls the page
                         id: speedBox
                         Layout.fillWidth: true
                         textRole: "text"
@@ -636,6 +639,7 @@ Kirigami.Page {
                     visible: page.isCreature
                     QQC2.Label { text: "Copies:" }
                     QQC2.SpinBox {
+                        wheelEnabled: false   // the wheel scrolls the page
                         id: copiesBox
                         Layout.fillWidth: true
                         // 0 keeps an existing fish in the library without it swimming

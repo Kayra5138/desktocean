@@ -42,11 +42,16 @@ Kirigami.ScrollablePage {
         id: library
     }
 
-    ListView {
+    // All the cards at once, not a ListView: their heights differ, and a list
+    // that creates them while scrolling keeps re-estimating its length, which
+    // makes the scroll position jump
+    ColumnLayout {
         id: list
-        model: library
         spacing: Kirigami.Units.largeSpacing
-        reuseItems: false
+
+        Repeater {
+        id: cards
+        model: library
 
         delegate: Kirigami.AbstractCard {
             id: card
@@ -60,7 +65,7 @@ Kirigami.ScrollablePage {
 
             readonly property bool isFish: kind === "fish"
 
-            width: ListView.view.width
+            Layout.fillWidth: true
 
             contentItem: ColumnLayout {
                 spacing: Kirigami.Units.smallSpacing
@@ -86,6 +91,8 @@ Kirigami.ScrollablePage {
                     QQC2.Label { text: "Speed of all:" }
                     QQC2.ComboBox {
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                        // The wheel scrolls the page, it must not change a fish
+                        wheelEnabled: false
                         textRole: "text"
                         valueRole: "value"
                         model: page.speeds
@@ -113,6 +120,7 @@ Kirigami.ScrollablePage {
                         QQC2.ComboBox {
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 15
                             visible: card.isFish
+                            wheelEnabled: false
                             textRole: "text"
                             valueRole: "value"
                             // First "its own", naming what that is when known
@@ -127,6 +135,7 @@ Kirigami.ScrollablePage {
                         QQC2.ComboBox {
                             id: copySpeed
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+                            wheelEnabled: false
                             textRole: "text"
                             valueRole: "value"
                             readonly property var choices: [{ text: "Same as all", value: 0 }].concat(page.speeds)
@@ -139,10 +148,11 @@ Kirigami.ScrollablePage {
             }
         }
 
+        }
+
         Kirigami.PlaceholderMessage {
-            anchors.centerIn: parent
-            width: parent.width - Kirigami.Units.gridUnit * 4
-            visible: list.count === 0
+            Layout.fillWidth: true
+            visible: cards.count === 0
             icon.name: "view-list-icons"
             text: "No fish yet"
         }

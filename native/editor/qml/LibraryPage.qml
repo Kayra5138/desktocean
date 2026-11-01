@@ -248,6 +248,7 @@ Kirigami.ScrollablePage {
                     QQC2.Label { text: card.copies > 0 ? "Swimming:" : "Resting (not in the tank)" }
                     Item { Layout.fillWidth: true }
                     QQC2.SpinBox {
+                        wheelEnabled: false   // the wheel scrolls the page
                         from: 0
                         to: 20
                         value: card.copies
